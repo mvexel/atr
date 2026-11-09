@@ -699,7 +699,7 @@ def open_successors(room, r):
             and x["state"] not in ("done", "dropped")]
 
 def tap_unblocked(room, r):
-    """A feedback item that blocks other rooms' items was resolved: tell each blocked room's lead once.
+    """Resolve maintenance blocks in the store without messaging project leads.
     If its Result names an open successor, the block moves there instead."""
     if room.name != PROCESS_ROOM or not r["blocks"] or r["unblocked_sent"] or not (r["state"] == "done" or r["outcome"]):
         return
@@ -713,12 +713,7 @@ def tap_unblocked(room, r):
                 continue
             s.set("blocks", "[" + ", ".join(have + new) + "]")
             s.save()
-            for t in new:
-                tell_lead_or_defer(Room(t.partition("/")[0]),
-                                   f"{room.name}/{r['id']} closed, the block moved to {room.name}/{s['id']}: {t} still waits")
         return
-    for t in waiting:
-        tell_lead_or_defer(Room(t.partition("/")[0]), f"{room.name}/{r['id']} resolved: {t} may proceed")
     r.set("unblocked_sent", "yes")
     r.save()
 
@@ -2232,6 +2227,8 @@ def queue_t3_action(kind, target, payload, *, room="", source=None, allow_paused
         raise ValueError("unsupported concrete action")
     with store_transaction():
         source_path = str(source.path.relative_to(ROOT)) if source else ""
+        if kind == "message" and (room == PROCESS_ROOM or source_path.startswith(f"rooms/{PROCESS_ROOM}/")) and target != room_lead(PROCESS_ROOM):
+            raise StoreConflict("Maintenance messages must stay in process; do not notify project leads")
         revision = source._version if source else ""
         identity = json.dumps([kind, target, payload, room, source_path, revision, options], sort_keys=True)
         action_id = hashlib.sha256(identity.encode()).hexdigest()[:24]
@@ -2363,6 +2360,9 @@ def open_maintainer(thread):
 
 
 def _delivery_block(action, actions=None):
+    if (action.get("kind") == "message" and action.get("source", "").startswith(f"rooms/{PROCESS_ROOM}/")
+            and action.get("target") != room_lead(PROCESS_ROOM)):
+        return "Maintenance source belongs to process; cross-room delivery blocked"
     if reason := migration_block(action):
         return reason
     if claimant := _launch_claimant(action, actions or {}):
