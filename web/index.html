@@ -336,7 +336,7 @@ const base = location.pathname.endsWith("/") ? location.pathname : location.path
 const params = new URLSearchParams(location.search);
 let lastRoom = params.get("room") || localStorage.getItem("room") || null;   // the last selected tracker room
 let state = null, current = params.get("room") || lastRoom;
-let processView = false; // Documentation is optional; every visit starts on the regular tracker.
+let processView = params.get("room") === "process"; // Only an explicit process link opens How we work.
 let filter = localStorage.getItem("filter") || "all";
 const armed = {};                                              // one-way door waiting for a confirming tap
 const dkey = d => `${current}/${d.id}`;                        // ids repeat across rooms (every room has a D07)
@@ -725,7 +725,7 @@ function roomWord(x) {
     : x.continuity && x.continuity.state === "waiting" ? "waiting" : x.continuity?.state === "unavailable" ? "T3 state unknown" : "moving";
 }
 function computeOrder(mode) {
-  const rooms = state.rooms, live = rooms.filter(x => !isClosed(x)), dead = rooms.filter(isClosed);
+  const rooms = state.rooms.filter(x => !x.standing), live = rooms.filter(x => !isClosed(x)), dead = rooms.filter(isClosed);
   const recent = (a, b) => (lastActive(a) ?? 1e9) - (lastActive(b) ?? 1e9);
   const tier = x => needN(x) ? 0 : isStalled(x) ? 1 : 2;
   const needs = (a, b) => {
@@ -741,7 +741,7 @@ function computeOrder(mode) {
 }
 // Rooms in the current order; names the order has not seen yet go last.
 function orderedRooms() {
-  const reg = state.rooms, byName = new Map(reg.map(x => [x.name, x]));
+  const reg = state.rooms.filter(x => !x.standing), byName = new Map(reg.map(x => [x.name, x]));
   const known = roomOrder.filter(n => byName.has(n)).map(n => byName.get(n));
   return [...known, ...reg.filter(x => !roomOrder.includes(x.name))];
 }
@@ -752,7 +752,7 @@ function openRoomSheet() {
 function drawRoomSheet(host) {
   const rooms = orderedRooms(), live = rooms.filter(x => !isClosed(x)), dead = rooms.filter(isClosed);
   const need = state.rooms.reduce((n, x) => n + needN(x), 0);   // the process room's cards still count
-  const row = x => el("button", { class: "roomrow", "aria-current": String(x.name === (room().standing ? lastRoom : current)), onclick: () => { roomsOpen = false; drawSheet(); pick(x.name); } },
+  const row = x => el("button", { class: "roomrow", "aria-current": String(x.name === (room()?.standing ? lastRoom : current)), onclick: () => { roomsOpen = false; drawSheet(); pick(x.name); } },
     el("span", { class: "nm" }, el("b", {}, x.title),
       el("small", { class: isStalled(x) && !x.paused ? "stalled" : "" }, roomWord(x), lastActive(x) != null ? ` · active ${age(lastActive(x))} ago` : "")),
     needN(x) ? el("span", { class: "n" + (x.paused ? " paused" : ""), "aria-label": `${needN(x)} need you` }, needN(x)) : null);
@@ -768,6 +768,7 @@ function drawRoomSheet(host) {
   host.append(el("div", { class: "sheet-bg", onclick: e => { if (e.target === e.currentTarget) closeSheet(); } }, sheet));
 }
 function pick(name) {
+  if (state?.rooms.find(x => x.name === name)?.standing) return showProcess(name);
   const wasProcess = processView;
   processView = false;
   if (name !== current || wasProcess) {
@@ -782,13 +783,17 @@ function pick(name) {
 
 function leaveProcess() {
   processView = false;
+  const reg = (state?.rooms || []).filter(x => !x.standing);
+  current = (reg.find(x => x.name === lastRoom) || reg.find(x => !isClosed(x)) || reg[0])?.name || null;
   localStorage.removeItem("view");
   draw(true);
+  load(true);
 }
 function showProcess(name) {
-  pick(name);
+  current = name;
   processView = true;
   draw(true);
+  load(true);
 }
 
 function statusCard(r) {
@@ -1184,19 +1189,14 @@ function draw(top) {
   if (!state) { app.style.minHeight = ""; return; }
   const rooms = state.rooms;
   // Rooms whose lead thread is settled in T3 leave the tabs for the "Settled" dropdown.
-  const reg = rooms, std = rooms.find(x => x.standing);
+  const reg = rooms.filter(x => !x.standing), std = rooms.find(x => x.standing);
   const open = reg.filter(x => !isClosed(x)), settled = reg.filter(isClosed);
-  if (!current || !rooms.find(r => r.name === current)) current = (open[0] || rooms[0])?.name;
+  if (!processView && !reg.some(r => r.name === current)) current = (open[0] || reg[0])?.name || null;
+  if (processView && !rooms.some(r => r.name === current)) processView = false;
   const r = room();
-  if (!r) { app.append(el("p", { class: "empty" }, "No rooms yet. A room is one project with its own team of agents and a lead that runs it. Create the first one from the ",
-    el("a", { href: docURL("docs/SETUP.md"), target: "_blank", rel: "noopener" }, "setup guide"),
-    " (docs/SETUP.md in the repository), then answer its first card here.")); app.style.minHeight = ""; return; }
-  if (!roomOrder.length) roomOrder = computeOrder(roomSort);
-  shownStruct = structOf(r); pending = false; $("newpill").hidden = true;
-
   const settledAsks = settled.reduce((n, x) => n + needN(x), 0);
   const ordered = orderedRooms();
-  const inStd = processView && !!r.standing, shell = inStd ? (reg.find(x => x.name === lastRoom) || open[0] || reg[0]) : r;
+  const inStd = processView && !!r?.standing, shell = inStd ? (reg.find(x => x.name === lastRoom) || open[0] || reg[0]) : r;
   if (std) {
     const fb = std.feedback || {}, need = needN(std);
     app.append(el("button", { class: "pin" + (inStd ? " on" : ""), "aria-pressed": String(inStd), "aria-label": "How we work",
@@ -1208,6 +1208,11 @@ function draw(top) {
       el("span", { "aria-hidden": "true" }, inStd ? "✕" : "›")));
   }
   app.append(el("div", { class: "palkey" }, el("button", { onclick: palOpenSheet }, "Search · Ctrl-K")));
+  if (!r) { app.append(el("p", { class: "empty" }, "No rooms yet. A room is one project with its own team of agents and a lead that runs it. Create the first one from the ",
+    el("a", { href: docURL("docs/SETUP.md"), target: "_blank", rel: "noopener" }, "setup guide"),
+    " (docs/SETUP.md in the repository), then answer its first card here.")); app.style.minHeight = ""; return; }
+  if (!roomOrder.length) roomOrder = computeOrder(roomSort);
+  shownStruct = structOf(r); pending = false; $("newpill").hidden = true;
   if (!(reg.length > 1 || (std && reg.length))) app.append(el("div", { class: "rowtop" }, el("span", { style: "flex:1" }), el("button", { class: "palbtn", "aria-label": "Search", onclick: palOpenSheet }, "🔍")));
   if (reg.length > 1 || (std && reg.length)) {
     const need = rooms.reduce((n, x) => n + needN(x), 0);
