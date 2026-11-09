@@ -17,14 +17,16 @@ Usage (ROOM is a folder name under rooms/):
   atr serve [--port 8787]  tap-to-decide web page (web/index.html)
   atr name ROOM ROLE NAME --pronoun she|he   give a role its first name (keeps he/she even)
   atr lead ROOM [THREAD]          hand the lead to a T3 thread; without THREAD, print text to copy and paste to take it
-  atr rooms list                  every room: state, open items, open decisions, title
-  atr rooms new ROOM "Feature title" --lead-thread ID [--no-ux]  start a feature (one room per thread)
+  atr room list                  every room: state, open items, open decisions, title
+  atr room new ROOM "Feature title" --lead-thread ID [--no-ux]  start a feature (one room per thread)
   atr prd ROOM review            product + tech lead signed: ask Martijn to agree (opens a D card)
   atr refinement ROOM new "title" --touches FR4 [--supersedes RF01]   change an agreed PRD (RFnn)
   atr refinement ROOM RFnn review   signed: open an "Agree RFnn" card
   atr brief ROOM                  print the binding: PRD.md + agreed refinements
   atr team [ROOM]                 show who is who
   atr setup [--check] [--yes|--no-maintainer] [--recreate-maintainer]   first run: process room + maintainer thread
+  atr doctor                                               diagnose local setup without changing it
+  atr self-update                                          update this source installation
   atr uninstall [--yes]                                     undo install.sh (keeps your data and T3)
   atr feedback "text" --doc PROTOCOL|skill|charter --from ROOM [--cites REC] [--from-thread ID] [--blocks ROOM/ITEM,...]   file feedback
   atr inbox ROOM                  Martijn's taps and pause changes since you last looked (run it mid-turn)
@@ -631,7 +633,7 @@ def refuse_closed(room, what):
     if room.closed:
         sys.exit(f"refused: {room.name} is closed ({room.brief['closed']}). Don't add {what} to a closed room: its lead "
                  "is gone, so a tap on it would wake the wrong thread. Follow-up work gets its own room and thread: "
-                 "atr rooms new <name> \"<title>\" --lead-thread <your thread id> [--waive-prd \"why\"]")
+                 "atr room new <name> \"<title>\" --lead-thread <your thread id> [--waive-prd \"why\"]")
 
 def cmd_new(a):
     room = Room(a.room)
@@ -1743,7 +1745,7 @@ def problems(room, yielding=False):
         if i["state"] in ("doing", "review") and role and role not in room.team:
             p.append(f"{room.name}/{i['id']}: owner {role} has no name yet (atr name)")
     if not room.prd and not (room.brief and room.brief["prd"]):
-        p.append(f"{room.name}: no PRD.md; every feature starts with a PRD (atr rooms new), "
+        p.append(f"{room.name}: no PRD.md; every feature starts with a PRD (atr room new), "
                  "or set 'prd: waived (reason)' in BRIEF.md")
     if room.build_locked:
         for i in room.items:
@@ -2505,7 +2507,7 @@ def web_nudge(room, note):
     return {"ok": True, "action": action["id"], "told_lead": False}
 
 def create_room_files(d, title, thread, waive_prd, t):
-    """The room directory, BRIEF and now-head (PRD waived when `waive_prd` is a reason). Shared by `rooms new` and `setup`."""
+    """The room directory, BRIEF and now-head (PRD waived when `waive_prd` is a reason). Shared by `room new` and `setup`."""
     durable_mkdir(d / "items", parents=True)
     durable_mkdir(d / "decisions")
     durable_mkdir(d / "notes")
@@ -3017,7 +3019,10 @@ def path_note():
     return [f"atr is not on your PATH; run {SOURCE_ROOT / 'install.sh'} to add it to your shell's startup file"]
 
 def cmd_setup(a):
-    print("T3: configured; runtime acceptance unverified" if t3_configured() else "T3: unavailable (executable missing); local records remain usable")
+    # install.sh sets ATR_INSTALLER and has already reported T3, the data directory and the PATH
+    from_installer = os.environ.get("ATR_INSTALLER") == "1"
+    if not from_installer:
+        print("T3: configured; runtime acceptance unverified" if t3_configured() else "T3: unavailable (executable missing); local records remain usable")
     if a.check:
         problems = check_setup()
         for w in setup_warnings():
@@ -3030,14 +3035,23 @@ def cmd_setup(a):
         for n in path_note():
             print(f"note: {n}")
         return
-    for n in path_note():
+    for n in ([] if from_installer else path_note()):
         print(f"note: {n}")
+    def say(line, mark="ok"):
+        """One status line; under install.sh, in its style (indented, marked)."""
+        if not from_installer:
+            return print(line)
+        tty = sys.stdout.isatty() and not os.environ.get("NO_COLOR") and os.environ.get("TERM", "dumb") != "dumb"
+        utf = "utf" in (os.environ.get("LC_ALL") or os.environ.get("LC_CTYPE") or os.environ.get("LANG") or "").lower()
+        sym, color = {"ok": ("✓" if utf else "+", "32"), "warn": ("!", "33"), "ask": ("?", "36")}[mark]
+        print(f"  \033[{color}m{sym}\033[0m {line}" if tty else f"  {sym} {line}", end="" if mark == "ask" else "\n",
+              flush=True)
     d = ROOMS / PROCESS_ROOM
-    if not d.exists():
+    created = not d.exists()
+    if created:
         create_room_files(d, PROCESS_TITLE, "", PROCESS_WAIVE, now())
-        print(f"created room {PROCESS_ROOM} (PRD waived)")
-    if ensure_standing(d):
-        print(f"room {PROCESS_ROOM} marked standing (never settles); saved in the selected store")
+    if ensure_standing(d) or created:
+        say(f"room {PROCESS_ROOM} created: it stays open and collects feedback on the protocol and lead skill")
     cfg = read_setup()
     if a.recreate_maintainer or a.yes:
         want = True
@@ -3045,9 +3059,14 @@ def cmd_setup(a):
         want = False
     elif "maintainer" in cfg:
         want = bool(cfg["maintainer"])
+    elif from_installer and not t3_configured():
+        say("maintainer thread: not offered without T3; once T3 is installed: atr setup --yes", "warn")
+        return
     elif sys.stdin.isatty():
-        want = ASK("Start a standing maintainer thread that receives feedback on the protocol and lead skill? [y/N] "
-                   ).strip().lower() in ("y", "yes")
+        q = "Start a maintainer thread in T3 that acts on that feedback? You can add one later. [y/N] "
+        if from_installer:
+            say("", "ask")
+        want = ASK(q).strip().lower() in ("y", "yes")
     else:
         print("not asked (no terminal): rerun with --yes or --no-maintainer to record the choice")
         return
@@ -3055,16 +3074,19 @@ def cmd_setup(a):
         cfg.update(maintainer=want, asked=stamp())
         write_setup(cfg)
     if not want:
-        print("no maintainer thread (recorded); feedback items are still kept in room process")
+        say("maintainer thread: none (choice saved; nothing to do). To start one later: atr setup --yes"
+            if from_installer else
+            "maintainer thread: none (your choice is saved; nothing to do). "
+            f"Feedback items are still kept in room {PROCESS_ROOM}. To start one later: atr setup --yes")
         return
     have, src = maintainer_thread(fallback=False)
     if have and not a.recreate_maintainer:
-        print(f"maintainer thread {have} ({src})" + ("" if fetch_thread(have) else
+        say(f"maintainer thread {have} ({src})" + ("" if fetch_thread(have) else
               "\nT3 does not find it; if it is gone, recreate it with: bin/atr setup --recreate-maintainer"))
         return
     if LAUNCH_MAINTAINER is t3_launch_maintainer:
         action = LAUNCH_MAINTAINER(maintainer_prompt())
-        print(f"Setup saved locally; T3 launch action {action['id']} is pending. Inspect atr delivery list.")
+        say(f"maintainer thread: T3 launch {action['id']} is pending; check it with: atr delivery list")
         return
     try:
         tid = LAUNCH_MAINTAINER(maintainer_prompt())
@@ -3073,7 +3095,55 @@ def cmd_setup(a):
     durable_mkdir(config_dir(), parents=True, exist_ok=True)
     durable_write(config_dir() / "maintainer_thread", tid + "\n")
     set_lead_thread(d, tid)
-    print(f"maintainer thread {tid} started; room {PROCESS_ROOM} lead_thread set")
+    say(f"maintainer thread {tid} started; room {PROCESS_ROOM} lead_thread set")
+
+def cmd_doctor(a):
+    """Inspect local prerequisites without creating a store or contacting T3."""
+    problems = []
+    print(f"Source: {SOURCE_ROOT}")
+    print(f"Python: {sys.version.split()[0]} ({sys.executable})")
+    if sys.version_info < (3, 13):
+        problems.append("Python 3.13 or newer is required")
+    for name in ("template/brief.md", "template/item.md", "template/decision.md", "template/prd.md",
+                 "template/refinement.md", "template/now-head.md", "web/index.html", "PROTOCOL.md", "install.sh"):
+        if not (SOURCE_ROOT / name).is_file():
+            problems.append(f"source asset missing: {name}; restore a complete atr installation")
+    print(f"Atr data: {ROOT} ({DATA_SELECTION})")
+    if ROOT.exists() and not ROOT.is_dir():
+        problems.append(f"data path is not a directory: {ROOT}")
+    else:
+        parent = ROOT
+        while not parent.exists() and parent != parent.parent:
+            parent = parent.parent
+        if not os.access(parent, os.W_OK | os.X_OK):
+            problems.append(f"data directory is not writable: {parent}")
+        try:
+            problems.extend(check_setup())
+        except (OSError, ValueError, TypeError, AttributeError) as error:
+            problems.append(f"cannot read local setup: {error}; repair it or run atr setup")
+    cli = t3_cli()
+    if Path(cli).is_file() and os.access(cli, os.X_OK):
+        print(f"T3: {cli}; runtime acceptance unverified")
+    else:
+        print(f"warning: T3 unavailable or not executable: {cli}; install T3 or set T3CODE_CLI_PATH")
+        print("Local records remain usable; automated work requires T3.")
+    for note in path_note():
+        print(f"note: {note}")
+    for problem in problems:
+        print(f"missing: {problem}")
+    if problems:
+        sys.exit(1)
+    print("doctor ok (local setup; T3 execution has not been verified)")
+
+
+def cmd_self_update(a):
+    """Update the running installation, leaving setup and records alone."""
+    script = SOURCE_ROOT / "install.sh"
+    if not script.is_file():
+        sys.exit(f"{script} is missing; restore a complete atr installation")
+    sys.stdout.flush()
+    os.execvp("sh", ["sh", str(script), "--self-update"])
+
 
 def cmd_uninstall(a):
     """Hand over to install.sh --uninstall, which undoes what the installer did (data and T3 stay)."""
@@ -3338,7 +3408,7 @@ def main():
     nm = sub.add_parser("name"); nm.add_argument("room"); nm.add_argument("role"); nm.add_argument("name")
     nm.add_argument("--pronoun", required=True, choices=["she", "he"]); nm.add_argument("--force", action="store_true")
     tm = sub.add_parser("team"); tm.add_argument("rooms", nargs="*")
-    rms = sub.add_parser("rooms", aliases=["room"], help="list rooms, or start a feature room")
+    rms = sub.add_parser("room", aliases=["rooms"], help="list rooms, or start a feature room")
     rms_sub = rms.add_subparsers(dest="verb", required=True)
     rms_sub.add_parser("list", help="every room: state, open items, open decisions, title")
     rm = rms_sub.add_parser("new", help="start a feature (one room per thread)"); rm.add_argument("name"); rm.add_argument("title")
@@ -3371,6 +3441,8 @@ def main():
     ld = sub.add_parser("lead", help="hand a room's lead to another T3 thread")
     ld.add_argument("room"); ld.add_argument("thread", nargs="?", help="omit to print copyable take-the-lead text")
     ld.add_argument("--keep-old", action="store_true", help="keep the old lead in threads: even if it is settled")
+    sub.add_parser("doctor", help="diagnose Python, source assets, data directory, setup and T3; changes nothing")
+    sub.add_parser("self-update", help="update this source installation; keeps data, shell configuration and T3")
     un = sub.add_parser("uninstall", help="undo install.sh: remove atr from your shell startup files and delete the "
                         "fetched source; keeps your data and T3")
     un.add_argument("--yes", action="store_true", help="remove without asking")
@@ -3381,11 +3453,12 @@ def main():
     if not a.cmd:
         ap.error("a command is required")
     if a.cmd == "setup":
-        print(f"Atr data: {ROOT} ({DATA_SELECTION})")
+        if os.environ.get("ATR_INSTALLER") != "1":
+            print(f"Atr data: {ROOT} ({DATA_SELECTION})")
     {"new": cmd_new, "set": cmd_set, "need": cmd_need, "log": cmd_log, "answer": cmd_answer, "reply": cmd_reply, "status": cmd_status,
      "check": cmd_check, "serve": cmd_serve,
      "name": cmd_name, "team": cmd_team, "rooms": cmd_rooms, "room": cmd_rooms, "prd": cmd_prd, "refinement": cmd_refinement, "brief": cmd_brief, "inbox": cmd_inbox, "lead": cmd_lead,
-     "setup": cmd_setup, "uninstall": cmd_uninstall, "feedback": cmd_feedback, "delivery": cmd_delivery, "migrate": cmd_migrate, "t3": cmd_t3}[a.cmd](a)
+     "setup": cmd_setup, "doctor": cmd_doctor, "self-update": cmd_self_update, "uninstall": cmd_uninstall, "feedback": cmd_feedback, "delivery": cmd_delivery, "migrate": cmd_migrate, "t3": cmd_t3}[a.cmd](a)
 
 # All canonical entry points participate in the same lock/recovery boundary, including calls made
 # directly by the web server and its background loops. CLI commands acquire before reading Room.

@@ -7,7 +7,7 @@ description: Coordinate a project room on T3 using local durable Markdown record
 
 Use the installed `atr` command (or Python 3.13 with `-I /path/to/source/bin/atr`). Locate source using `ATR_SOURCE`; when installed as a directory symlink, resolve the skill directory to its real target and go up two directories (`skills/lead` → source root). Read that source's `PROTOCOL.md`, `docs/SETUP.md` and `docs/OPERATIONS.md`, then the room's BRIEF, now-head, binding PRD/refinements and relevant item. Use an explicit `--data-dir` or `ATR_DATA_DIR`; never assume rooms live beside source.
 
-One thread leads one room. Start a new feature with `rooms new ROOM "Title" --lead-thread THREAD`; authorized maintenance can use `--waive-prd "not a feature: reason"`. Record the owner's scope/approval quote before building. Do not create a second room for the same lead thread or append new work to a closed room.
+One thread leads one room. Start a new feature with `room new ROOM "Title" --lead-thread THREAD`; authorized maintenance can use `--waive-prd "not a feature: reason"`. Record the owner's scope/approval quote before building. Do not create a second room for the same lead thread or append new work to a closed room.
 
 Plan bounded items with acceptance, inputs, dependencies, locks, owners and caps before dispatch. Each editing agent gets a separate checkout; agents report unplanned needs to the lead. Keep the integration branch and checkout in BRIEF. Use T3 for execution and messages; do not invent a replacement runner.
 

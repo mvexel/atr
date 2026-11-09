@@ -164,7 +164,7 @@ class Http(unittest.TestCase):
         git("add", "-A")
         git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "scratch")
         s = socket.socket(); s.bind(("127.0.0.1", 0)); cls.port = s.getsockname()[1]; s.close()
-        env = {**os.environ, "ATR_LOCKDIR": str(cls.tmp / "locks"), "T3CODE_CLI_PATH": "/nonexistent"}
+        env = {**os.environ, "ATR_DATA_DIR": str(cls.tmp), "ATR_LOCKDIR": str(cls.tmp / "locks"), "T3CODE_CLI_PATH": "/nonexistent"}
         cls.proc = subprocess.Popen([sys.executable, str(cls.tmp / "bin" / "atr"), "serve", "--port", str(cls.port)],
                                     env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(50):

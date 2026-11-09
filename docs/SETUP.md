@@ -22,6 +22,10 @@ atr finds the T3 CLI at `$T3CODE_CLI_PATH`, else `~/.t3/bin/t3` (desktop app), e
 
 `atr uninstall` (or `install.sh --uninstall`) removes the startup-file block and a source the installer fetched, asking first. It keeps the data directory, a checkout you cloned yourself, a fetched source with local changes, and T3.
 
+`atr doctor` checks Python, bundled assets, data-directory access and the saved setup choice without writing files or contacting T3. Missing local requirements exit nonzero; missing T3 and shell integration are advisory. Use `atr setup` to address missing setup. T3 execution and provider sign-in still need separate verification.
+
+`atr self-update` updates the running source installation without rerunning setup or changing shell configuration. Git checkouts must have no local changes and a branch with an upstream; only fast-forward updates are accepted. Installer tarballs are replaced from `ATR_REPO` / `ATR_REF` (defaults: this repository / `main`); preserve custom source edits in Git, and retain any custom repository/ref settings when updating. Tarballs containing legacy local data refuse to update. Restart `atr serve` after updating.
+
 The manual route below gives the same result without the installer.
 
 See `docs/DEPENDENCIES.md` for runtime and license boundaries. Source updates and installed software do not restore private records; see `docs/NIXOS.md` for reinstall planning.
@@ -99,7 +103,7 @@ For an existing lead thread, `t3 show THREAD_ID` refreshes facts and `lead ROOM 
 The following commands are safe to rehearse in a new disposable store with T3 unavailable:
 
 ```sh
-"$PYTHON" -I "$ATR_SOURCE/bin/atr" rooms new demo "Demo project"
+"$PYTHON" -I "$ATR_SOURCE/bin/atr" room new demo "Demo project"
 "$PYTHON" -I "$ATR_SOURCE/bin/atr" new decision demo "Choose a name" --option "First" --option "Second"
 "$PYTHON" -I "$ATR_SOURCE/bin/atr" answer demo D01 a --quote "D01 a; keeping the first name"
 "$PYTHON" -I "$ATR_SOURCE/bin/atr" status demo

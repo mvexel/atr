@@ -52,12 +52,18 @@ T3 needs at least one model provider signed in (for example `claude auth login`)
 Then, in a new terminal:
 
 ```sh
-atr setup --check           # verify local setup (T3 is reported separately)
-atr rooms new demo "Demo project"
+atr doctor                  # diagnose local setup (T3 is reported separately)
+atr room new demo "Demo project"
 atr serve --host 127.0.0.1 --port 8787
 ```
 
 Open `http://127.0.0.1:8787/` and you should see your new Demo project room. For the full walkthrough, see **[Setup](docs/SETUP.md)**.
+
+## Update and diagnose
+
+Run `atr self-update` to update the running installation. Git checkouts must be clean and on a branch with an upstream; updates only fast-forward. Installer tarballs are downloaded again using `ATR_REPO` and `ATR_REF` (defaults: this repository and `main`). Tarball updates replace the bundled source, so keep custom edits in a Git checkout. Updates keep your data, shell configuration and T3; restart a running `atr serve` afterward.
+
+Run `atr doctor` to check Python, bundled files, data-directory access and local setup without changing files. Missing local requirements exit nonzero. Missing T3 is a warning because local records still work; doctor does not verify T3 execution or provider sign-in. `atr setup --check` remains available.
 
 ## Uninstall
 

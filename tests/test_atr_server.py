@@ -45,7 +45,7 @@ class ServerTest(unittest.TestCase):
             d.mkdir(parents=True, exist_ok=True)
             (d / f"D0{n}-which-city-first.md").write_text(DECISION.replace("D01", f"D0{n}"))
         s = socket.socket(); s.bind(("127.0.0.1", 0)); cls.port = s.getsockname()[1]; s.close()
-        env = {**os.environ, "ATR_USERS": "martijn@example.com", "ATR_LOCKDIR": str(cls.tmp / "locks"), "T3CODE_CLI_PATH": "/nonexistent"}
+        env = {**os.environ, "ATR_DATA_DIR": str(cls.tmp), "ATR_USERS": "martijn@example.com", "ATR_LOCKDIR": str(cls.tmp / "locks"), "T3CODE_CLI_PATH": "/nonexistent"}
         cls.proc = subprocess.Popen([sys.executable, str(cls.tmp / "bin" / "atr"), "serve", "--port", str(cls.port)],
                                     env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(50):
