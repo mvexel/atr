@@ -41,8 +41,12 @@ interactive=false
 if [ -t 1 ] && (exec </dev/tty) 2>/dev/null; then interactive=true; fi
 
 # --- source -----------------------------------------------------------------
-here=$(CDPATH='' cd -P -- "$(dirname -- "$0")" 2>/dev/null && pwd || true)
-if [ -n "$here" ] && [ -f "$here/bin/atr" ] && [ -f "$here/install.sh" ]; then
+# Under `curl | sh` $0 is the shell, not this file: only a real install.sh path means a checkout.
+here=
+if [ "$(basename -- "$0")" = install.sh ] && [ -f "$0" ]; then
+  here=$(CDPATH='' cd -P -- "$(dirname -- "$0")" && pwd)
+fi
+if [ -n "$here" ] && [ -f "$here/bin/atr" ]; then
   src_dir=$here
   echo "Source: $src_dir (this checkout)"
 else
