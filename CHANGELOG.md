@@ -2,6 +2,13 @@
 
 All notable changes to atr are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-11-08
+
+### Fixed
+
+- `atr setup` no longer reports "T3 does not find it" for a maintainer thread that T3 knows. It now asks T3 before taking the store lock; under the lock it could only read an empty cache.
+- `atr setup` names the file the maintainer thread id is read from correctly (`.atr/operator/maintainer_thread` in the store, not `~/.config/atr/maintainer_thread`).
+
 ## [0.2.0] - 2026-11-08
 
 You now work from T3 and the web page; the `atr` command is mostly for agents.
@@ -38,5 +45,6 @@ First release.
 - `install.sh` (`curl … | sh`), `atr setup`, `atr doctor`, `atr self-update` and `atr uninstall`.
 - Tab completion for bash, zsh and fish: commands, options, room names and item/decision ids (`atr completion SHELL`; the installer loads it).
 
+[0.2.1]: https://github.com/mvexel/atr/releases/tag/v0.2.1
 [0.2.0]: https://github.com/mvexel/atr/releases/tag/v0.2.0
 [0.1.0]: https://github.com/mvexel/atr/releases/tag/v0.1.0

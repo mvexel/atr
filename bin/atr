@@ -2921,7 +2921,7 @@ def cmd_serve(a):
 # ---------- setup + feedback ----------
 # First-run bootstrap: the `process` room and an optional standing maintainer thread that receives feedback on
 # PROTOCOL.md, skills/lead/SKILL.md and the charters. The maintainer
-# thread is, in order, env ATR_MAINTAINER_THREAD, the file ~/.config/atr/maintainer_thread,
+# thread is, in order, env ATR_MAINTAINER_THREAD, the file .atr/operator/maintainer_thread in the store,
 # the lead_thread of room `process`.
 
 PROCESS_ROOM = "process"
@@ -2962,7 +2962,7 @@ def maintainer_thread(fallback=True):
     except OSError:
         f = ""
     if f:
-        return f, "~/.config/atr/maintainer_thread"
+        return f, tilde(config_dir() / "maintainer_thread")
     if fallback:
         t = room_lead(PROCESS_ROOM)
         if t:
@@ -3349,6 +3349,15 @@ def path_note():
     return [f"atr is not on your PATH; run {SOURCE_ROOT / 'install.sh'} to add it to your shell's startup file"]
 
 def cmd_setup(a):
+    # Ask T3 about the maintainer thread before taking the store lock: under the lock, lookups read only
+    # the cache, and an empty cache would read as "T3 does not find it".
+    for fallback in (False, True):
+        tid, _ = maintainer_thread(fallback=fallback)
+        if tid:
+            refresh_thread(tid)
+    return _cmd_setup_local(a)
+
+def _cmd_setup_local(a):
     # install.sh sets ATR_INSTALLER and has already reported T3, the data directory and the PATH
     from_installer = os.environ.get("ATR_INSTALLER") == "1"
     if not from_installer:
@@ -3955,7 +3964,7 @@ def build_parser():
 # directly by the web server and its background loops. CLI commands acquire before reading Room.
 for _name in ("cmd_new", "cmd_set", "cmd_need", "cmd_log", "cmd_answer", "cmd_reply", "cmd_status",
               "cmd_name", "cmd_room", "cmd_prd", "cmd_refinement", "cmd_brief",
-              "cmd_inbox", "cmd_feedback", "cmd_setup"):
+              "cmd_inbox", "cmd_feedback", "_cmd_setup_local"):
     globals()[_name] = store_command(globals()[_name])
 
 for _name in ("web_pause", "web_question", "web_answer", "web_nudge", "after_answer", "sync_binding", "set_team",
