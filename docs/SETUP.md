@@ -6,7 +6,23 @@ Atr coordinates projects on T3. It keeps briefs, work items, decisions and evide
 
 - Python 3.13, using its standard library, on a POSIX system with `fcntl.flock` and an IANA timezone database. This is the rehearsed Python version; a browser is needed only for the web page.
 - A complete atr source installation: `bin/`, `template/`, `web/`, assets and supporting rules/docs stay together. There is no pip or frontend build step for the core.
-- A separately installed [T3 Code](https://t3.codes/) runtime and public CLI for dispatch and communication, with a working project and provider configuration. Install/configure T3 through its own instructions.
+- A separately installed [T3 Code](https://t3.codes/) runtime and public CLI for dispatch and communication, with a working project and provider configuration. The installer below offers to run T3's official CLI installer; provider sign-in and project setup stay with T3.
+
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mvexel/atr/main/install.sh | sh
+```
+
+The installer fetches the source into `$ATR_HOME/src` (default `~/.atr/src`; git clone, or a tarball without git), picks Python 3.13+ (`PYTHON` overrides), asks for the data directory (`ATR_DATA_DIR`, default `~/.local/share/atr`), offers to put `atr` on your PATH, offers to install the T3 CLI if atr cannot find it, and runs `atr setup`. Run from a checkout, `./install.sh` uses that checkout. `--yes` (`sh -s -- --yes` when piped) accepts every default; without a terminal and without `--yes` it changes no startup file and installs nothing.
+
+To put `atr` on your PATH it adds an alias and `ATR_DATA_DIR` to your shell's startup file (`~/.zshrc`, `~/.bashrc` or `~/.config/fish/config.fish`, picked from `$SHELL`), between `# >>> atr >>>` and `# <<< atr <<<` markers. It shows the lines first. Rerunning replaces the block instead of adding another; a symlinked dotfile stays a symlink. `setup --check` notes when `atr` is not on your `PATH`; this never fails the check.
+
+atr finds the T3 CLI at `$T3CODE_CLI_PATH`, else `~/.t3/bin/t3` (desktop app), else `~/.local/bin/t3` (CLI installer), else `t3` on `PATH`.
+
+`atr uninstall` (or `install.sh --uninstall`) removes the startup-file block and a source the installer fetched, asking first. It keeps the data directory, a checkout you cloned yourself, a fetched source with local changes, and T3.
+
+The manual route below gives the same result without the installer.
 
 See `docs/DEPENDENCIES.md` for runtime and license boundaries. Source updates and installed software do not restore private records; see `docs/NIXOS.md` for reinstall planning.
 
@@ -20,12 +36,6 @@ ATR_SOURCE=/absolute/path/to/atr
 export ATR_DATA_DIR="$HOME/.local/share/atr"
 "$PYTHON" -I "$ATR_SOURCE/bin/atr" setup --no-maintainer
 "$PYTHON" -I "$ATR_SOURCE/bin/atr" setup --check
-```
-
-To run `atr` without typing the full path, `setup` offers to add it to your shell's startup file (`~/.zshrc`, `~/.bashrc` or `~/.config/fish/config.fish`, picked from `$SHELL`). It shows the lines first and writes them only if you answer yes; they sit between `# >>> atr >>>` and `# <<< atr <<<` markers, so rerunning replaces the block instead of adding another one. Without a terminal, or to skip the question, pass `--add-to-shell`. Open a new terminal afterwards. `setup --check` notes when `atr` is not on your `PATH`; this never fails the check:
-
-```sh
-"$PYTHON" -I "$ATR_SOURCE/bin/atr" setup --add-to-shell   # add atr to your shell's startup file without asking
 ```
 
 `setup --no-maintainer` creates the local `process` room and records that no maintainer thread is wanted yet. `setup --check` checks that local setup and reports T3 separately. “Configured; runtime acceptance unverified” establishes only that a CLI file was found. “Setup ok” does not establish working T3 execution.
@@ -74,7 +84,7 @@ export ATR_T3_BASE_DIR=/absolute/path/to/t3-runtime
 "$PYTHON" -I "$ATR_SOURCE/bin/atr" setup --check
 ```
 
-The default executable is `~/.t3/bin/t3`. The default launch project is the source installation, which must be valid in T3; atr does not register arbitrary projects. The data directory is not assumed to be an executable T3 project. `ATR_T3_BASE_DIR` is optional and is forwarded through the public CLI. Make these settings available to a service explicitly; its environment may differ from your terminal.
+Without `T3CODE_CLI_PATH`, atr uses `~/.t3/bin/t3`, then `~/.local/bin/t3`, then `t3` on `PATH`. The default launch project is the source installation, which must be valid in T3; atr does not register arbitrary projects. The data directory is not assumed to be an executable T3 project. `ATR_T3_BASE_DIR` is optional and is forwarded through the public CLI. Make these settings available to a service explicitly; its environment may differ from your terminal.
 
 Integration verification used installed T3 CLI **v0.1.2** on 2026-11-08; compatibility with every T3 version is not assumed. The bridge uses public [thread start/send/show, stdin messages and JSON options](https://github.com/pingdotgg/t3code/blob/main/apps/server/src/cli/thread.ts), plus the public [base-directory configuration](https://github.com/pingdotgg/t3code/blob/main/apps/server/src/cli/config.ts). The bridge uses the generally available CLI.
 

@@ -31,35 +31,41 @@ You create a *room* for a project, write a brief, and break the work into items 
 
 ## Quick start
 
-You’ll need:
-
-- Python 3.13 on a POSIX system
-- A complete checkout of this repo
-- T3 installed and configured separately (local setup works without it, but you’ll need it, with your model providers authenticated, before dispatching agent work)
-
-Set a few variables and an alias:
+You’ll need Python 3.13+ on a POSIX system (Linux or macOS), and git or curl + tar.
 
 ```sh
-PYTHON=/absolute/path/to/python3.13
-ATR_SOURCE=/absolute/path/to/atr
-export ATR_DATA_DIR="$HOME/.local/share/atr"
-export T3CODE_CLI_PATH=/absolute/path/to/t3
-export ATR_T3_PROJECT=/absolute/path/to/registered-project
-
-alias atr='"$PYTHON" -I "$ATR_SOURCE/bin/atr"'
+curl -fsSL https://raw.githubusercontent.com/mvexel/atr/main/install.sh | sh
 ```
 
-Then set up, check, create a room, and start the web view:
+The installer:
+
+1. fetches the source into `~/.atr/src` (rerun it to update),
+2. asks where your data should live (default `~/.local/share/atr`),
+3. shows the lines that put `atr` on your PATH and, if you say yes, adds them to `~/.zshrc`, `~/.bashrc` or your fish config,
+4. offers to install the [T3 CLI](https://t3.codes/) with T3’s own installer if it’s missing,
+5. runs `atr setup`.
+
+It asks before each change. Add `-s -- --yes` after `sh` to accept every default. From a checkout, `./install.sh` installs that checkout instead of fetching one.
+
+T3 needs at least one model provider signed in (for example `claude auth login`) before atr can dispatch agent work. Local recording works without it.
+
+Then, in a new terminal:
 
 ```sh
-atr setup --no-maintainer   # create the local store; no maintainer thread yet
-atr setup --add-to-shell    # put atr on your PATH via ~/.zshrc, ~/.bashrc or fish config
 atr setup --check           # verify local setup (T3 is reported separately)
 atr room new demo "Demo project"
 atr serve --host 127.0.0.1 --port 8787
 ```
 
 Open `http://127.0.0.1:8787/` and you should see your new Demo project room. For the full walkthrough, see **[Setup](docs/SETUP.md)**.
+
+## Uninstall
+
+```sh
+atr uninstall
+```
+
+This removes the atr block from your shell startup files and deletes the source the installer fetched, asking before each step. It keeps your data directory and leaves T3 alone. Without a working `atr`, run `curl -fsSL https://raw.githubusercontent.com/mvexel/atr/main/install.sh | sh -s -- --uninstall`.
 
 ## Documentation
 
