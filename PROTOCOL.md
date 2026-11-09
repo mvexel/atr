@@ -18,7 +18,7 @@ Each editing agent uses its own branch and checkout. Leave others' edits, stashe
 
 Decisions carry lettered options, a named decider and whether they are easy or hard to undo. Record chat answers with `answer ... --quote` as well as page answers. Owner approval governs scope/phase changes, main merges, releases, deployment and irreversible actions. A prior scoped authorization is sufficient; do not ask for it twice.
 
-Use the concrete T3 commands for launches, thread facts and communication. A saved record is not delivery. Inspect `delivery list` and reconcile uncertain acceptance using actual T3 evidence before retrying. Never invent a thread, receipt or completed execution. During outages keep the durable obligation and continue independent local work.
+Use the concrete T3 commands for launches, thread facts and communication. Link store files in messages and records by absolute path, since T3 resolves relative links against the workspace, not the store. A saved record is not delivery. Inspect `delivery list` and reconcile uncertain acceptance using actual T3 evidence before retrying. Never invent a thread, receipt or completed execution. During outages keep the durable obligation and continue independent local work.
 
 ## Checkpoints and handoffs
 
