@@ -122,7 +122,7 @@ class Bottlenecks(unittest.TestCase):
         self.assertEqual(self.rules(self.room([item("T1", "dropped", cap="", since_min=500), item("T2", "done", since_min=500)])), [])
         self.assertEqual(self.rules(self.room([late], brief="closed: shipped\n")), [])
         self.assertEqual(self.rules(self.room([late], brief=f"paused: {tr.stamp(ago(5))}\n")), [])
-        card = "---\nid: D01\ntitle: q\nstatus: open\ndecider: martijn\nblocks: [T1]\ndoor: two\n---\n"
+        card = "---\nid: D01\ntitle: q\nstatus: open\ndecider: owner\nblocks: [T1]\ndoor: two\n---\n"
         self.assertEqual(self.rules(self.room([late], decisions=[card])), [])
         self.assertEqual(self.rules(self.room([late])), [("T1", "hard-overrun")])
 

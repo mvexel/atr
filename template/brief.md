@@ -13,7 +13,7 @@ closed:                # set when the room is finished: time and one-line reason
 What we are trying to learn or ship, in two lines.
 
 ## Premises
-One line each, pointing at a P record: `P01 target engine is X (Martijn [12])`.
+One line each, pointing at a P record: `P01 target engine is X (owner [12])`.
 
 ## Scope
 In:

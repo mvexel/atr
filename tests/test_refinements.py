@@ -10,10 +10,10 @@ tr = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tr)
 
 PRD = ("---\nid: PRD\ntitle: Walks\nstatus: {status}\n{version}product_lead: product\ntech_lead: techlead\n"
-       "agreed:\nupdated: 2026-10-20T10:00Z\n---\n## Purpose\nx\n\n## Sign-off\nProduct lead: Mira\nTech lead: Ravi\nMartijn:\n")
+       "agreed:\nupdated: 2026-10-20T10:00Z\n---\n## Purpose\nx\n\n## Sign-off\nProduct lead: Mira\nTech lead: Ravi\nOwner:\n")
 ITEM = "---\nid: T01\ntitle: Build the thing\nstate: {state}\nowner: dev\nupdated: {upd}\ncap_h: 1\n---\n{body}\n## Log\n- 01:00Z dev: created\n"
 RF = ("---\nid: {id}\ntitle: {title}\nstatus: {status}\ntouches: [{touches}]\nsupersedes: [{sup}]\nkind: tune\n"
-      "agreed: {agreed}\nupdated: 2026-10-26T10:00Z\n---\n## Trigger\nx\n\n## Sign-off\nProduct lead: Mira\nTech lead: n/a\nMartijn:\n")
+      "agreed: {agreed}\nupdated: 2026-10-26T10:00Z\n---\n## Trigger\nx\n\n## Sign-off\nProduct lead: Mira\nTech lead: n/a\nOwner:\n")
 
 
 def ns(**kw):
@@ -98,7 +98,7 @@ class Review(Base):
         room = tr.Room("r1")
         self.assertEqual(room.refinements[0]["status"], "review")
         d = room.decisions[0]
-        self.assertEqual((d["type"], d["title"], d["decider"]), ("refinement", "Agree RF01: Tune?", "martijn"))
+        self.assertEqual((d["type"], d["title"], d["decider"]), ("refinement", "Agree RF01: Tune?", "owner"))
         self.assertEqual(d["blocks"], ["T01"])
 
     def test_agree_card_agrees_and_supersedes(self):
@@ -111,7 +111,7 @@ class Review(Base):
         rf = {r["id"]: r for r in room.refinements}
         self.assertEqual(rf["RF02"]["status"], "agreed")
         self.assertTrue(rf["RF02"]["agreed"])
-        self.assertIn("Martijn: agreed", rf["RF02"].section("Sign-off"))
+        self.assertIn("Owner: agreed", rf["RF02"].section("Sign-off"))
         self.assertEqual(rf["RF01"]["status"], "superseded")
         self.assertEqual(tr.binding(room), "PRD.md + RF02")
 

@@ -963,7 +963,7 @@ function receiptCard(key, s) {
 }
 
 // Stored "- Q · who · HH:MM: text" lines; the stamp is kept whole (it contains a colon itself).
-const rewriteQA = t => t.replace(/^- Q · martijn · (\S+?):(?= )/gm, "You asked at $1:").replace(/^- A · ([^ ]+) · (\S+?):(?= )/gm, "$1 replied at $2:");
+const rewriteQA = t => t.replace(/^- Q · owner · (\S+?):(?= )/gm, "You asked at $1:").replace(/^- A · ([^ ]+) · (\S+?):(?= )/gm, "$1 replied at $2:");
 // First-use definitions (ui-language 1 and 5): room, card, lead, record ids and the five card kinds, said once.
 const KIND_DEFS = [["Decision", "A card with lettered options; you pick one."], ["Ask", "A card for something only you can supply, such as a name or a choice outside the options."],
   ["Premise", "An assumption the team is working under; you confirm it or correct it."], ["PRD", "The product requirements doc for a feature; you agree it before building starts."],

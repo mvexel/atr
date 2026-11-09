@@ -49,7 +49,7 @@ class PageCopy(unittest.TestCase):
         m = re.search(r"const (rewriteQA|QA_REWRITE) = (.*?);\n", HTML, re.S)
         self.assertTrue(m, "question rewrite should be a named function")
         script = "const rewriteQA = " + re.search(r"const rewriteQA = (.*?);\n", HTML, re.S).group(1) + \
-            "\nconsole.log(JSON.stringify(rewriteQA('- Q · martijn · 16:15: \"Why?\"\\n- A · lead · 16:16: \"Because.\"')))"
+            "\nconsole.log(JSON.stringify(rewriteQA('- Q · owner · 16:15: \"Why?\"\\n- A · lead · 16:16: \"Because.\"')))"
         out = json.loads(subprocess.run([NODE, "-e", script], capture_output=True, text=True, check=True).stdout)
         self.assertEqual(out, 'You asked at 16:15: "Why?"\nlead replied at 16:16: "Because."')
 

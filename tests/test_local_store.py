@@ -176,7 +176,7 @@ with t.store_transaction():
         prd = room / "PRD.md"
         before = {
             decision: "---\nid: D01\ntype: prd\nstatus: open\n---\n## Answer\n",
-            prd: "---\nid: PRD\nstatus: review\n---\n## Sign-off\nMartijn:\n",
+            prd: "---\nid: PRD\nstatus: review\n---\n## Sign-off\nOwner:\n",
             room / "BRIEF.md": "---\ntitle: Demo\ntz: UTC\n---\n",
         }
         code = """
@@ -192,7 +192,7 @@ def write(*args, **kw):
     count += 1
     if count == int(sys.argv[3]): os._exit(9)
 t._atomic_bytes=write
-t.cmd_answer(SimpleNamespace(room='demo',id='D01',choice='a',by='martijn',quote=None))
+t.cmd_answer(SimpleNamespace(room='demo',id='D01',choice='a',by='owner',quote=None))
 """
         tr = load()
         tr.ROOT, tr.ROOMS = self.data, self.data / "rooms"
@@ -238,7 +238,7 @@ t.cmd_answer(SimpleNamespace(room='demo',id='D01',choice='a',by='martijn',quote=
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             results = list(pool.map(lambda choice: self.run_cli("--data-dir", str(self.data), "answer", "demo", "D01", choice), ("a", "b")))
         self.assertEqual(sorted(r.returncode for r in results), [0, 1])
-        self.assertEqual(decision.read_text().count(" · martijn · "), 1)
+        self.assertEqual(decision.read_text().count(" · owner · "), 1)
         self.assertIn("conflict", next(r.stderr for r in results if r.returncode))
 
     def test_symlinked_record_cannot_escape_the_store(self):

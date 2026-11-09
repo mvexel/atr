@@ -34,7 +34,7 @@ class Migration(unittest.TestCase):
         (self.room / "notes/empty").mkdir(parents=True)
         (self.room / "BRIEF.md").write_bytes(b"---\r\ntitle: Demo\r\nlead_thread: synthetic-lead\r\nunknown: [keep, this]\r\n---\r\n# Brief\r\n")
         (self.room / "items/T01-work.md").write_text("---\nid: T01\nstate: todo\ndepends_on: []\nagent: synthetic-worker\nunknown: keep me\n---\n## Acceptance\n- [ ] Result\n")
-        (self.room / "decisions/D01-choice.md").write_text("---\nid: D01\ntitle: Choose\nstatus: open\ndecider: martijn\n---\n## Options\na) First\nb) Second\n\n## Answer\n")
+        (self.room / "decisions/D01-choice.md").write_text("---\nid: D01\ntitle: Choose\nstatus: open\ndecider: owner\n---\n## Options\na) First\nb) Second\n\n## Answer\n")
         self.binary = self.room / "notes/unknown-attachment.bin"
         self.binary.write_bytes(bytes(range(256)))
         self.binary.chmod(0o640)

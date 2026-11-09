@@ -4,7 +4,7 @@ title: {title}
 status: draft          # draft | review | agreed
 product_lead: product
 tech_lead: techlead
-agreed:                # set when Martijn agrees; building is locked until then
+agreed:                # set when the owner agrees; building is locked until then
 updated: {now}
 ---
 <!-- 120 lines max. Technical approach goes to notes/tech-approach.md, UX research to notes/ux-research.md. -->
@@ -32,7 +32,7 @@ Believed, not verified. Each names how we find out (a T record) or says "accepte
 Data, legal, budget, platform, deadlines; what the team may not touch.
 
 ## High-level execution
-Phase 1: what it delivers and the gate Martijn holds.
+Phase 1: what it delivers and the gate the owner holds.
 Phase 2: (a sentence per phase, 3 to 5 phases; what a pilot or a stop looks like. No tasks, no owners.)
 
 ## Definition of done
@@ -44,4 +44,4 @@ Only questions that block agreement, each starting with its owner record: `Dnn W
 ## Sign-off
 Product lead:
 Tech lead:
-Martijn:
+Owner:

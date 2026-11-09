@@ -36,7 +36,7 @@ class T3Delivery(unittest.TestCase):
             (self.room / part).mkdir(parents=True)
         (self.room / "BRIEF.md").write_text("---\ntitle: Demo\ntz: UTC\nlead_thread: synthetic-thread\n---\n")
         self.decision = self.room / "decisions/D01-choice.md"
-        self.decision.write_text("---\nid: D01\ntitle: Choose\nstatus: open\ndecider: martijn\n---\n## Options\na) First\nb) Second\n\n## Answer\n")
+        self.decision.write_text("---\nid: D01\ntitle: Choose\nstatus: open\ndecider: owner\n---\n## Options\na) First\nb) Second\n\n## Answer\n")
 
     def answer(self, choice="a"):
         return self.tr.web_answer(self.tr.Room("demo"), "D01", choice, "saved note", False)

@@ -4,12 +4,12 @@
 Usage (ROOM is a folder name under rooms/):
   atr new item ROOM "title" [--owner R] [--depends T01,T02] [--locks gradle] [--cap 4] [--by R]
   atr new decision ROOM "title" [--type decision|premise|ask|todo] [--steps TEXT] [--door one|two]
-                                    [--decider martijn] [--source "..."] [--option "..."]... [--by R]
+                                    [--decider owner] [--source "..."] [--option "..."]... [--by R]
   atr set ROOM ID key=value ...  [--by R]   e.g. state=doing owner=tester
   atr need ROOM ID "what is missing and why" [--needs T07]   worker: blocks the item, logs it, tells the lead
   atr log ROOM ID "text" [--by R]
-  atr reply ROOM ID TEXT            answer a question Martijn asked on a card (card stays open)
-  atr answer ROOM ID CHOICE [--by martijn] [--quote "D05 b"]
+  atr reply ROOM ID TEXT            answer a question the owner asked on a card (card stays open)
+  atr answer ROOM ID CHOICE [--by owner] [--quote "D05 b"]
   atr status [ROOM ...]          regenerate rooms/ROOM/README.md and decisions/INDEX.md
   atr check [ROOM ...] [--strict] [--yield]   --yield: judge the room as if the lead's turn had ended
   atr migrate preview|copy|verify|rollback|review --source COPY --destination COPY [--evidence TEXT]
@@ -19,7 +19,7 @@ Usage (ROOM is a folder name under rooms/):
   atr lead ROOM [THREAD]          hand the lead to a T3 thread; without THREAD, print text to copy and paste to take it
   atr room list                  every room: state, open items, open decisions, title
   atr room new ROOM "Feature title" --lead-thread ID [--no-ux]  start a feature (one room per thread)
-  atr prd ROOM review            product + tech lead signed: ask Martijn to agree (opens a D card)
+  atr prd ROOM review            product + tech lead signed: ask the owner to agree (opens a D card)
   atr refinement ROOM new "title" --touches FR4 [--supersedes RF01]   change an agreed PRD (RFnn)
   atr refinement ROOM RFnn review   signed: open an "Agree RFnn" card
   atr brief ROOM                  print the binding: PRD.md + agreed refinements
@@ -30,7 +30,7 @@ Usage (ROOM is a folder name under rooms/):
   atr uninstall [--yes]                                     undo install.sh (keeps your data and T3)
   atr completion bash|zsh|fish                              print the tab-completion script (install.sh loads it)
   atr feedback "text" --doc PROTOCOL|skill|charter --from ROOM [--cites REC] [--from-thread ID] [--blocks ROOM/ITEM,...]   file feedback
-  atr inbox ROOM                  Martijn's taps and pause changes since you last looked (run it mid-turn)
+  atr inbox ROOM                  the owner's taps and pause changes since you last looked (run it mid-turn)
 
 Local store:
   atr --data-dir PATH <command> selects a Markdown store independently of the source checkout.
@@ -440,6 +440,7 @@ def store_command(function):
         print(output.getvalue(), end="")
         return result
     return wrapped
+OWNER = "owner"   # the person the team works for: decides cards, agrees PRDs, taps the page
 ITEM_STATES = {"todo", "doing", "blocked", "review", "done", "dropped"}
 DECISION_STATES = {"open", "provisional", "final", "superseded", "sent"}
 ACTIVE = ["blocked", "doing", "review", "todo"]
@@ -567,7 +568,7 @@ class Room:
 
     @property
     def build_locked(self):
-        """Building waits for a PRD agreed by product lead, tech lead and Martijn."""
+        """Building waits for a PRD agreed by product lead, tech lead and the owner."""
         return bool(self.prd) and self.prd["status"] != "agreed"
 
     @property
@@ -652,13 +653,13 @@ def cmd_new(a):
         rid = next_id(room.decisions, {"premise": "P", "ask": "A", "todo": "A"}.get(a.type, "D"))
         if a.type == "todo":
             if not a.steps:
-                sys.exit("a todo card needs --steps: exactly what Martijn does, commands included")
-            a.decider = "martijn"
+                sys.exit("a todo card needs --steps: exactly what the owner does, commands included")
+            a.decider = OWNER
             a.option = a.option or ["Done, I did this", "Can't do this yet (say why in the note)"]
         if a.type == "premise":
             a.option = a.option or ["Yes, that's right", "No, change it (say how in a note)"]
         if a.type in ("decision", "prd", "refinement") and len(a.option or []) < 2:
-            sys.exit(f"a {a.type} card needs at least two --option values: without them Martijn's page shows no buttons")
+            sys.exit(f"a {a.type} card needs at least two --option values: without them the owner's page shows no buttons")
         text = (TEMPLATES / "decision.md").read_text().format(
             id=rid, title=a.title, type=a.type, door=a.door, decider=a.decider,
             source=f'"{a.source}"' if a.source else "", now=stamp(t))
@@ -725,11 +726,11 @@ def cmd_set(a):
         sys.exit(f"refused: {r['id']} is agreed and never edited (only status=superseded is allowed). "
                  "Write a new refinement that supersedes it: atr refinement ROOM new \"title\" --touches ID --supersedes " + r["id"])
     if room.paused and "state=doing" in a.pairs and not a.force:
-        sys.exit(f"{room.name} is paused by Martijn since {room.local(room.paused)}: don't start new work "
+        sys.exit(f"{room.name} is paused by the owner since {room.local(room.paused)}: don't start new work "
                  "(finish your current step, write the Result, then stop)")
     if room.build_locked and "state=doing" in a.pairs and r["phase"] != "prd" and r["type"] == "" and not a.force:
         sys.exit(f"{room.name}: the PRD is {room.prd['status']}{prd_v(room.prd)}. Only items with "
-                 "phase: prd can start until Martijn agrees the PRD (atr prd ROOM review)")
+                 "phase: prd can start until the owner agrees the PRD (atr prd ROOM review)")
     if ({"state=review", "state=done"} & set(a.pairs)
             and not re.search(r"set\b.*\bstate=doing\b", r.body.split("## Result")[0])):
         print(f"warn: {r['id']} goes to {next(p for p in a.pairs if p in ('state=review', 'state=done'))[6:]} with no "
@@ -831,13 +832,13 @@ def plan(room):
 
 def ready_unstaffed(room):
     """Ids of todo items that could start now and have nobody on them: every dependency done or dropped,
-    no lock held by a doing item, no running `agent:` thread, no open question for Martijn blocking them, and
+    no lock held by a doing item, no running `agent:` thread, no open question for the owner blocking them, and
     not named (by id) in now-head `waiting:`. A closed or paused room has none."""
     if room.closed or room.paused:
         return []
     by_id = {i["id"]: i for i in room.items}
     held = {l for i in room.items if i["state"] == "doing" for l in i["locks"] or []}
-    carded = {b for d in room.decisions if d["status"] == "open" and d["decider"] == "martijn" for b in d["blocks"] or []}
+    carded = {b for d in room.decisions if d["status"] == "open" and d["decider"] == OWNER for b in d["blocks"] or []}
     named = set(re.findall(r"\b[A-Z]\d{2,}\b", (room.head["waiting"] if room.head else "") or ""))
     return [i["id"] for i in sorted(room.items, key=lambda x: idkey(x["id"]))
             if i["state"] == "todo" and i["id"] not in carded and i["id"] not in named
@@ -915,7 +916,7 @@ def after_answer(room, d, choice):
         if choice == "a":
             rf.set("status", "agreed")
             rf.set("agreed", stamp())
-            agree_line(rf, f"Martijn: agreed at {room.local(now())} ({d['id']})")
+            agree_line(rf, f"Owner: agreed at {room.local(now())} ({d['id']})")
             for old in rf["supersedes"]:
                 prev = next((x for x in room.refinements if x["id"] == old), None)
                 if prev and prev["status"] == "agreed":
@@ -934,7 +935,7 @@ def after_answer(room, d, choice):
     if choice == "a":
         prd.set("status", "agreed")
         prd.set("agreed", stamp())
-        agree_line(prd, f"Martijn: agreed{' v' + prd['version'] if prd['version'] else ''} at {room.local(now())} ({d['id']})")
+        agree_line(prd, f"Owner: agreed{' v' + prd['version'] if prd['version'] else ''} at {room.local(now())} ({d['id']})")
     else:
         prd.set("status", "draft")
         if prd["version"]:                      # PRDs written before the version header count versions; new ones have none
@@ -945,8 +946,8 @@ def after_answer(room, d, choice):
     return None
 
 def agree_line(rec, line):
-    if re.search(r"^Martijn:[ \t]*$", rec.body, re.M):
-        rec.body = re.sub(r"^Martijn:[ \t]*$", line, rec.body, count=1, flags=re.M)
+    if re.search(r"^Owner:[ \t]*$", rec.body, re.M):
+        rec.body = re.sub(r"^Owner:[ \t]*$", line, rec.body, count=1, flags=re.M)
     else:
         rec.append_to("Sign-off", line)
 
@@ -1016,7 +1017,7 @@ def options_line(r):
     return lines + ([cur] if cur else [])
 
 def needs_you(room):
-    return [d for d in room.decisions if d["status"] == "open" and d["decider"] == "martijn"]
+    return [d for d in room.decisions if d["status"] == "open" and d["decider"] == OWNER]
 
 def held_locks():
     out = []
@@ -1084,7 +1085,7 @@ def render(room):
         for d in prov:
             out.append(f"{d['id']} {clip(d['title'], W - 14)} {clip(d['default'], 8)}")
 
-    team = [d for d in room.decisions if d["status"] == "open" and d["decider"] != "martijn"]
+    team = [d for d in room.decisions if d["status"] == "open" and d["decider"] != OWNER]
     if team:
         out += [rule, "OPEN, TEAM DECIDES"]
         for d in team:
@@ -1390,7 +1391,7 @@ def _cmd_lead_local(a):
     t = now()
     durable_append(room.dir / "pings.log", f"{stamp(t)}  {old or '-'}->{new}  lead-handoff  local-routing-saved\n")
     told = tell_thread(new, f"You are now the lead of room {room.name} (lead_thread in BRIEF.md now points at this thread"
-                       f"{', replacing ' + old if old else ''}). Read `bin/atr inbox {room.name}` for what Martijn did on the "
+                       f"{', replacing ' + old if old else ''}). Read `bin/atr inbox {room.name}` for what the owner did on the "
                        f"page, then run `bin/atr check {room.name} --yield` and carry on leading: dispatch, answer, keep the room moving.")
     print(f"{room.name}: lead_thread {old or '(none)'} -> {new}; threads: {', '.join(keep) or '(none)'}; "
           f"{'new lead told' if told else 'could not reach the new lead thread'}")
@@ -1467,7 +1468,7 @@ def worker_stall(room, item):
 
 def continuity(room, yielding=False):
     """Where an unfinished room stands: (state, detail). state is one of closed, paused, moving,
-    waiting_martijn, waiting, stalled. Native subagents can't wake an idle lead, so a room only counts
+    waiting_owner, waiting, stalled. Native subagents can't wake an idle lead, so a room only counts
     as moving while the lead's turn runs or some item's `agent:` is a running T3 thread (delegate_task).
     yielding=True judges the room as if the lead's turn had just ended."""
     if room.closed:
@@ -1482,10 +1483,10 @@ def continuity(room, yielding=False):
         return "moving", f"{', '.join(live)} running"
     if lead == "running":
         return "moving", "the lead is working" + (f" ({', '.join(i['id'] for i in doing)} in flight)" if doing else "")
-    asks = [d["id"] for d in room.decisions if d["status"] == "open" and d["decider"] == "martijn"
+    asks = [d["id"] for d in room.decisions if d["status"] == "open" and d["decider"] == OWNER
             and (len(parse_options(d)) >= 2 or d["type"] in ("ask", "todo"))]
     if asks:
-        return "waiting_martijn", f"waiting on you: {', '.join(asks)}"
+        return "waiting_owner", f"waiting on you: {', '.join(asks)}"
     waiting, resume = (room.head["waiting"], room.head["resume"]) if room.head else (None, None)
     if waiting and resume:
         at = parse_time(resume)
@@ -1557,7 +1558,7 @@ def bottlenecks(room, now_t=None):
     now_t = now_t or now()
     if room.closed or room.paused:
         return []
-    carded = {b for d in room.decisions if d["status"] == "open" and d["decider"] == "martijn" for b in d["blocks"] or []}
+    carded = {b for d in room.decisions if d["status"] == "open" and d["decider"] == OWNER for b in d["blocks"] or []}
     lead = room.who("lead")
     lead = f"{lead} (the lead)" if lead != "lead" else "the lead"
     out = []
@@ -1660,7 +1661,7 @@ def refinement_problems(room):
             p.append(f"{room.name}/{r['id']}: touches nothing; name the PRD ids it changes (touches: [FR4]) or drop it")
     live = [r for r in room.refinements if r["status"] != "superseded"]
     if len(live) >= REFINEMENT_CAP:
-        p.append(f"{room.name}: {len(live)} refinements; consolidate or confirm pivot (ask Martijn: fold them into a new PRD, "
+        p.append(f"{room.name}: {len(live)} refinements; consolidate or confirm pivot (ask the owner: fold them into a new PRD, "
                  "or agree they still fit this one)")
     agreed = [r for r in room.refinements if r["status"] == "agreed"]
     for i in room.items:
@@ -1779,7 +1780,7 @@ def problems(room, yielding=False):
                      if re.match(r"\s*(?:[-*]|\d+[.)])\s+\S", l) and not re.search(r"\b[TDA]\d{2,}\b", l)]
             if loose:
                 p.append(f"{room.name}/PRD: {len(loose)} open question(s) with no owner record; "
-                         "each becomes a D/A for Martijn or a bounded T for the team")
+                         "each becomes a D/A for the owner or a bounded T for the team")
     p += refinement_problems(room)
     p += (code_info(room) or {"warn": []})["warn"]
     if (w := lead_title_warn(room)):
@@ -1796,14 +1797,14 @@ def problems(room, yielding=False):
             p.append(f"{tag}: door must be one or two")
         if not d["decider"]:
             p.append(f"{tag}: no decider")
-        if d["door"] == "one" and d["status"] == "final" and d["decider"] != "martijn":
-            p.append(f"{tag}: one-way door closed by {d['decider']}, not martijn")
+        if d["door"] == "one" and d["status"] == "final" and d["decider"] != OWNER:
+            p.append(f"{tag}: one-way door closed by {d['decider']}, not the owner")
         if d["door"] == "one" and d["status"] == "provisional":
             p.append(f"{tag}: one-way doors are never provisional")
         if d["status"] == "provisional" and not d["default"]:
             p.append(f"{tag}: provisional without a default and time")
-        if d["status"] == "open" and d["decider"] == "martijn" and d["type"] != "ask" and len(parse_options(d)) < 2:
-            p.append(f"{tag}: open for martijn but fewer than 2 options; the page shows no buttons")
+        if d["status"] == "open" and d["decider"] == OWNER and d["type"] != "ask" and len(parse_options(d)) < 2:
+            p.append(f"{tag}: open for the owner but fewer than 2 options; the page shows no buttons")
         if d["status"] == "final" and not d.section("Answer"):
             p.append(f"{tag}: final without an Answer line")
     return p
@@ -1914,7 +1915,7 @@ def members_json(room):
                         continue
                     seen.add(x)
                     d = decs.get(x)
-                    who = {"martijn": "Martijn"}.get(d["decider"], d["decider"]) if d else ""
+                    who = ("the owner" if d["decider"] == OWNER else d["decider"]) if d else ""
                     waits.append(f"{x} ({who})" if who else x)
                 if i["state"] == "review" and "review" not in seen:
                     seen.add("review")
@@ -1974,7 +1975,7 @@ def room_json(room, with_records=False):
             "since": head["since"] if head else "", "asks": asks,
             "provisional": [decision_json(room, d) for d in room.decisions if d["status"] == "provisional"],
             "team_open": [decision_json(room, d) for d in room.decisions
-                          if d["status"] == "open" and d["decider"] != "martijn"],
+                          if d["status"] == "open" and d["decider"] != OWNER],
             "recent": [{"id": d["id"], "title": d["title"], "decider": d["decider"], "answer": d.section("Answer")}
                        for d in recent],
             "lanes": lane_list, "plan": plan(room), "counts": counts, "locks": [{"name": n, "holder": h} for n, h in held_locks()],
@@ -2389,12 +2390,12 @@ def web_question(room, d, note, push):
     note = re.sub(r"\s+", " ", note or "").strip()[:1000]
     if not note:
         return {"ok": False, "error": "write the question first"}
-    d.append_to("Questions", f'- Q · martijn · {room.local(now())}: "{note}"')
+    d.append_to("Questions", f'- Q · {OWNER} · {room.local(now())}: "{note}"')
     d.set("updated", stamp())
     d.save()
-    action = queue_t3_action("message", active_lead(room), f'Martijn asked a question on {d["id"]} ({d["title"]}) instead of answering: "{note}". '
+    action = queue_t3_action("message", active_lead(room), f'The owner asked a question on {d["id"]} ({d["title"]}) instead of answering: "{note}". '
                      f'The card stays open. Reply this turn with: bin/atr reply {room.name} {d["id"]} "<your answer>" '
-                     f'(it shows on the card), and change the options if the answer changes them. Do not answer for Martijn.', room=room.name, source=d)
+                     f'(it shows on the card), and change the options if the answer changes them. Do not answer for the owner.', room=room.name, source=d)
     return {"ok": True, "action": action["id"], "told_lead": False}
 
 def cmd_reply(a):
@@ -2406,8 +2407,8 @@ def cmd_reply(a):
     d.save()
 
 def recorded_choice(d):
-    """The option key of the last martijn answer line on a record, or None."""
-    m = re.findall(r"^(\S+) · martijn ·", d.section("Answer"), re.M)
+    """The option key of the last owner answer line on a record, or None."""
+    m = re.findall(r"^(\S+) · owner ·", d.section("Answer"), re.M)
     return m[-1] if m else None
 
 def recorded_answer(d):
@@ -2415,21 +2416,21 @@ def recorded_answer(d):
     m = re.findall(r"^(\S+) · (\S+) · ([^·\n]+?)(?: · |$)", d.section("Answer"), re.M)
     return m[-1] if m else None
 
-def web_answer(room, rid, choice, note, push, by="martijn", quote="", source="", expected_revision=None):
+def web_answer(room, rid, choice, note, push, by=OWNER, quote="", source="", expected_revision=None):
     # One answer at a time: the status check and the save must not interleave with another tap.
     with sync_lock():
         return _web_answer(Room(room.name), rid, choice, note, push, by, quote, source, expected_revision)
 
-def _web_answer(room, rid, choice, note, push, by="martijn", quote="", source="", expected_revision=None):
+def _web_answer(room, rid, choice, note, push, by=OWNER, quote="", source="", expected_revision=None):
     d = room.find(rid)
     d.expect_version(expected_revision)
-    if d["status"] == "final" and d["decider"] == "martijn" and recorded_choice(d):
-        c, who, when = recorded_answer(d) or (recorded_choice(d), "martijn", "")
+    if d["status"] == "final" and d["decider"] == OWNER and recorded_choice(d):
+        c, who, when = recorded_answer(d) or (recorded_choice(d), OWNER, "")
         # Return the stored answer consistently when a repeated tap is acknowledged.
         last = (d.section("Answer").strip().splitlines() or [""])[-1]
         q = re.search(r' · "([^"]*)"', last)
         return {"ok": True, "already": True, "choice": c, "by": who, "at": when.strip(), "quote": q.group(1) if q else ""}
-    if d["status"] != "open" or d["decider"] != "martijn":
+    if d["status"] != "open" or d["decider"] != OWNER:
         return {"ok": False, "error": f"{rid} is {d['status']}, decider {d['decider']}"}
     if choice == "question":
         return web_question(room, d, note, push)
@@ -2453,7 +2454,7 @@ def _web_answer(room, rid, choice, note, push, by="martijn", quote="", source=""
     durable_write(room.dir / "README.md", md)
     durable_write(room.dir / "decisions" / "INDEX.md", render_index(room))
     unblocks = ", ".join(i["id"] for i in blocked["items"]) or "nothing listed"
-    action = queue_t3_action("message", active_lead(room), f"Martijn answered {rid} ({d['title']}): {choice}) {label}"
+    action = queue_t3_action("message", active_lead(room), f"The owner answered {rid} ({d['title']}): {choice}) {label}"
                      + (f'. Note: "{note}"' if note else "")
                      + f". {src[:1].upper() + src[1:]}; the record is final in {d.path.relative_to(ROOT)}."
                      + (f" {extra}" if extra else "")
@@ -2461,7 +2462,7 @@ def _web_answer(room, rid, choice, note, push, by="martijn", quote="", source=""
     return {"ok": True, "action": action["id"], "told_lead": False}
 
 def cmd_inbox(a):
-    """What Martijn did on the page since this room's inbox was last read. `t3 thread send` can't steer a busy
+    """What the owner did on the page since this room's inbox was last read. `t3 thread send` can't steer a busy
     turn, so a tap made while the lead works only arrives when the turn ends; leads pull it with this instead."""
     room = Room(a.room)
     durable_mkdir(LOCKDIR, parents=True, exist_ok=True)
@@ -2473,7 +2474,7 @@ def cmd_inbox(a):
     for d in room.decisions:
         up = parse_time(d["updated"] or "")
         if d["status"] in ("final", "sent") and up and (since is None or up > since):
-            lines = [l for l in d.section("Answer").splitlines() if "martijn" in l]
+            lines = [l for l in d.section("Answer").splitlines() if f" · {OWNER} · " in l]
             if lines:
                 news.append((up, f"{d['id']} {lines[-1].split(' · ')[0]}) {d['title']}"
                                  + (f"  note: {lines[-1].split('note: ', 1)[1]}" if "note: " in lines[-1] else "")))
@@ -2533,7 +2534,7 @@ def cmd_room(a):
     taken = lead_rooms(thread)
     if taken:
         sys.exit(f"refused: thread {thread} already leads rooms/{taken[0]}. One thread is one room: a new feature or "
-                 "project needs a new T3 thread and a new team. Ask Martijn to start one; don't reuse this thread.")
+                 "project needs a new T3 thread and a new team. Ask the owner to start one; don't reuse this thread.")
     t = now()
     create_room_files(d, a.title, thread, a.waive_prd, t)
     if a.waive_prd:
@@ -2565,7 +2566,7 @@ def cmd_room(a):
                  "Product lead line signed in Sign-off"], [ux] if ux else [])
     item("Tech review of the PRD", "techlead", ["notes/tech-approach.md written (riskiest assumption has a first test, one-way doors listed)",
          "each FR/NFR is testable (a test can be written for it)", "Tech lead line signed in Sign-off"], [draft, context])
-    print(f"rooms/{a.name}: BRIEF, PRD draft and PRD items created; building stays locked until Martijn agrees the PRD")
+    print(f"rooms/{a.name}: BRIEF, PRD draft and PRD items created; building stays locked until the owner agrees the PRD")
     print(RENAME_HINT.format(room=a.name))
 
 def cmd_prd(a):
@@ -2587,7 +2588,7 @@ def cmd_prd(a):
         rid = next_id(room.decisions, "D")
         blocks = [i["id"] for i in room.items if i["phase"] != "prd" and i["state"] not in ("done", "dropped")]
         text = (TEMPLATES / "decision.md").read_text().format(
-            id=rid, title=f"Agree PRD: {prd['title']}?", type="prd", door="one", decider="martijn",
+            id=rid, title=f"Agree PRD: {prd['title']}?", type="prd", door="one", decider=OWNER,
             source='"PRD.md"', now=stamp())
         text = text.replace("## Options\na) \nb) \n", "## Options\na) Agreed: start building\n"
                             "b) Changes needed (say what in the note)\n", 1)
@@ -2646,7 +2647,7 @@ def cmd_refinement(a):
     blocks = [i["id"] for i in room.items if i["state"] not in ("done", "dropped")
               and re.search(rf"\b{rf['id']}\b", i.path.read_text())]
     text = (TEMPLATES / "decision.md").read_text().format(
-        id=rid, title=f"Agree {rf['id']}: {rf['title']}?", type="refinement", door="two", decider="martijn",
+        id=rid, title=f"Agree {rf['id']}: {rf['title']}?", type="refinement", door="two", decider=OWNER,
         source=f'"{rf["id"]}"', now=stamp())
     text = text.replace("## Options\na) \nb) \n", "## Options\na) Agreed: this is now binding\n"
                         "b) Changes needed (say what in the note)\n", 1)
@@ -2736,14 +2737,14 @@ def web_pause(room, pause, note, push, by="", until="", expected_revision=None):
     note = re.sub(r"\s+", " ", note or "").strip()[:500]
     how = "tapped on the atr page"
     if pause:
-        msg = (f"{'The atr' if by else 'Martijn'} PAUSED the team in room {room.name} ({how})."
+        msg = (f"{'The atr' if by else 'The owner'} PAUSED the team in room {room.name} ({how})."
                + (f' Note: "{note}".' if note else "")
                + " Don't dispatch anything new. Tell every running agent now: finish the current step, write the"
                " item's Log and Result, release locks, and stop without starting the next step. While paused,"
                " `atr set ... state=doing` is refused. Reply in one line once everyone has stopped. Wait for"
                " a RESUMED message before doing more work.")
     else:
-        msg = (f"{'The atr' if by else 'Martijn'} RESUMED the team in room {room.name} ("
+        msg = (f"{'The atr' if by else 'The owner'} RESUMED the team in room {room.name} ("
                + "tapped on the atr page" + ")."
                + (f' Note: "{note}".' if note else "")
                + " Pick up where you stopped: re-read the room, then re-dispatch the items that were in flight.")
@@ -3524,7 +3525,7 @@ def build_parser():
     n.add_argument("--steps", help="todo cards: what the owner has to do, commands included")
     n.add_argument("--phase", choices=["prd", "build"], help="items: prd work may start before the PRD is agreed")
     n.add_argument("--door", default="two", choices=["one", "two"])
-    n.add_argument("--decider", default="martijn"); n.add_argument("--source")
+    n.add_argument("--decider", default=OWNER); n.add_argument("--source")
     n.add_argument("--option", action="append", help="one per option, in order; becomes a), b), …")
     n.add_argument("--by", default=who)
     s = sub.add_parser("set"); s.add_argument("room"); s.add_argument("id"); s.add_argument("pairs", nargs="+")
@@ -3539,7 +3540,7 @@ def build_parser():
     lg.add_argument("--by", default=who)
     rp = sub.add_parser("reply"); rp.add_argument("room"); rp.add_argument("id"); rp.add_argument("text"); rp.add_argument("--by", default=who)
     an = sub.add_parser("answer"); an.add_argument("room"); an.add_argument("id"); an.add_argument("choice")
-    an.add_argument("--by", default="martijn"); an.add_argument("--quote")
+    an.add_argument("--by", default=OWNER); an.add_argument("--quote")
     st = sub.add_parser("status"); st.add_argument("rooms", nargs="*")
     ck = sub.add_parser("check"); ck.add_argument("rooms", nargs="*"); ck.add_argument("--strict", action="store_true")
     ck.add_argument("--yield", dest="yield_", action="store_true")

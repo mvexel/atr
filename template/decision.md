@@ -3,7 +3,7 @@ id: {id}
 title: {title}
 type: {type}           # decision | premise | ask
 door: {door}           # one | two
-decider: {decider}     # martijn | lead | <role>
+decider: {decider}     # owner | lead | <role>
 status: open           # open | provisional | final | superseded
 default:               # provisional only, e.g. "b at 03:30Z"
 source: {source}

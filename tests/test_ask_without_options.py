@@ -1,4 +1,4 @@
-"""check: an open ask card for Martijn needs no lettered options (free-text answer); other cards still do.
+"""check: an open ask card for the owner needs no lettered options (free-text answer); other cards still do.
 Run: python3 -m unittest tests.test_ask_without_options
 """
 import importlib.machinery, importlib.util, sys, tempfile, unittest
@@ -30,7 +30,7 @@ class AskWithoutOptions(unittest.TestCase):
         (d / "decisions").mkdir(exist_ok=True)
         (d / "BRIEF.md").write_text("---\ntitle: t\n---\n")
         (d / "decisions" / "X01-q.md").write_text(
-            f"---\nid: X01\ntitle: q\ntype: {typ}\ndoor: two\ndecider: martijn\nstatus: open\n"
+            f"---\nid: X01\ntitle: q\ntype: {typ}\ndoor: two\ndecider: owner\nstatus: open\n"
             f"opened: 2026-10-27T10:00Z\nupdated: 2026-10-27T10:00Z\n---\n## Options\n{options}\n")
         return [w for w in tr.problems(tr.Room("r"), False) if "fewer than 2 options" in w]
 

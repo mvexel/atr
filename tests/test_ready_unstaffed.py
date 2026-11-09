@@ -67,7 +67,7 @@ class Ready(Base):
     def test_item_blocked_by_open_owner_decision_not_ready(self):
         room = self.room([("T01", {}), ("T02", {})])
         (room.dir / "decisions" / "D01-q.md").write_text(
-            "---\nid: D01\ntitle: q\ntype: ask\nstatus: open\ndecider: martijn\nblocks: [T01]\n---\n## Options\n")
+            "---\nid: D01\ntitle: q\ntype: ask\nstatus: open\ndecider: owner\nblocks: [T01]\n---\n## Options\n")
         self.assertEqual(tr.ready_unstaffed(tr.Room("r1")), ["T02"])
 
     def test_plan_marks_and_stall_detail_names_them(self):
