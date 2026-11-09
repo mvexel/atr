@@ -8,16 +8,16 @@ HTML = (Path(__file__).resolve().parent.parent / "web" / "index.html").read_text
 
 class ProcessPin(unittest.TestCase):
     def test_pin_and_view_present(self):
-        for needle in ['class: "pin"', "How we work", "processBlocks", "leaveProcess", "r.standing", "fbk[k]"]:
+        for needle in ['class: "pin"', "How we work", "processBlocks", "leaveProcess", "r?.standing", "fbk[k]"]:
             self.assertIn(needle, HTML)
 
-    def test_standing_room_is_in_room_lists_and_asks_count(self):
-        self.assertIn("const reg = state.rooms, byName", HTML)
+    def test_standing_room_is_separate_and_asks_count(self):
+        self.assertIn("const reg = state.rooms.filter(x => !x.standing), byName", HTML)
         self.assertIn("state.rooms.reduce((n, x) => n + needN(x), 0)", HTML)   # decisions waiting on the owner
 
     def test_process_view_is_not_stored_as_the_room(self):
-        self.assertIn("let processView = false", HTML)
-        self.assertIn("const inStd = processView && !!r.standing", HTML)
+        self.assertIn('let processView = params.get("room") === "process"', HTML)
+        self.assertIn("const inStd = processView && !!r?.standing", HTML)
 
     def test_palette_present_and_guards_redraws(self):
         # Ctrl-K / Cmd-K / "/" palette; behaviour was driven with real keys in headless Chrome
