@@ -14,6 +14,8 @@
 
 If you run several agents at once, you’ve probably asked yourself both of those questions. `atr` is a small local tool that answers them. It keeps a plain-text record of what’s planned, what’s in progress, what’s waiting on you, and what has actually shipped.
 
+**Requires [T3](https://t3.codes/).** T3 runs the agents; atr records and tracks them. The installer checks for T3 first and offers to install and start it. If you decline, setup still finishes and tells you T3 is missing; atr keeps recording, but nothing reaches an agent until T3 is there. `atr setup --check` exits non-zero without T3 (`--skip-t3` for CI or a restore).
+
 `atr` is a layer on top of [T3 Code](https://t3.codes/). T3 runs the agents (Claude, Codex or whichever providers you’ve signed in) and their threads. `atr` adds the plan, the record of what happened, and a CLI and simple web view to check on it.
 
 > **Back up your data directory.** Your plans and decisions live there (including the hidden `.atr/` folder). Installing or updating `atr` never restores them, and T3 and project state need their own backup, using T3’s process.
@@ -31,7 +33,7 @@ One room is one project or feature, led by one T3 thread.
 ## Why it’s useful
 
 - **Your files, your folder.** Plans and decisions are plain Markdown in a folder you pick, separate from the installed code. Read them, grep them, put them in git.
-- **Works when T3 doesn’t.** If T3 is down, you can still read, search, and record decisions. They go out when it’s back.
+- **Keeps recording when T3 is down.** T3 is required, but if it is down or missing you can still read, search, and record decisions. They go out when it’s back.
 - **No wishful thinking about delivery.** atr won’t claim an agent got your message just because T3 accepted it. It shows saved, pending, uncertain, and accepted as separate states.
 - **Review before building.** Agents don’t start building until you’ve agreed to the plan.
 

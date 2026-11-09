@@ -1,6 +1,6 @@
 # NixOS installation and return to work
 
-The target is to install the software, restore durable data and resume with Claude Code, Codex and atr on required T3. Nix describes software; private workflow/conversation state remains writable data outside the Nix store.
+The target is to install the software, restore durable data and resume with Claude Code, Codex and atr on required T3. Before T3 exists, restore with `atr setup --skip-t3`; it is then reported as missing until installed. Nix describes software; private workflow/conversation state remains writable data outside the Nix store.
 
 ## Software
 

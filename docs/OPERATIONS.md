@@ -1,6 +1,6 @@
 # Operations
 
-The selected local store is the project record. T3 executes work and transports messages. Always select the same store for the CLI, web server and launched work. Examples below assume `PYTHON`, `ATR_SOURCE` and `ATR_DATA_DIR` from `docs/SETUP.md`.
+The selected local store is the project record. T3 (a required prerequisite) executes work and transports messages; atr keeps recording without it. Always select the same store for the CLI, web server and launched work. Examples below assume `PYTHON`, `ATR_SOURCE` and `ATR_DATA_DIR` from `docs/SETUP.md`.
 
 ## Local saves and T3 delivery
 

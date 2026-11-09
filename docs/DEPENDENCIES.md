@@ -2,7 +2,7 @@
 
 Atr source includes Python standard-library modules, templates, a self-contained browser page, SVG asset and workflow documentation. Runtime needs Python 3.13 on POSIX with `fcntl.flock`, filesystem syncing and timezone data. No pip dependencies, frontend build or CDN are required.
 
-T3 Code and its public CLI are separately installed and required for execution/communication. Claude Code and Codex are authenticated providers configured through T3; atr does not supply provider credentials. The tested bridge baseline was T3 CLI v0.1.2; version discovery alone is not runtime acceptance and newer versions need a dispatch/communication check.
+T3 Code and its public CLI are a required prerequisite, installed separately (the installer offers to install and start it); atr itself keeps recording without it. Claude Code and Codex are authenticated providers configured through T3; atr does not supply provider credentials. The tested bridge baseline was T3 CLI v0.1.2; version discovery alone is not runtime acceptance and newer versions need a dispatch/communication check.
 
 | Component | Separate terms/source |
 | --- | --- |
