@@ -22,6 +22,8 @@ When the owner asks for a new room or project:
 3. Run `room new NAME "Title" --lead-thread YOUR_THREAD_ID`. For work that isn't a feature (a fix, publishing), add `--waive-prd "not a feature: reason"` and record the owner's go-ahead in their words.
 4. Tell the owner the room is on the web page at `http://127.0.0.1:PORT/` (`web_port` in config.json, default 8787), quote their request in a premise or decision, and draft the PRD with them. Building stays locked until they agree it.
 
+The owner gets no card until `prd ROOM review` runs, and it refuses until the Product lead and Tech lead sign-off lines are in the PRD's Sign-off section. Don't tell the owner you are waiting for their agreement before that: get the sign-offs and run `prd ROOM review`, or name the missing sign-off as the thing blocking (a NEEDS YOU item in now-head) so the owner isn't left waiting on a card that doesn't exist.
+
 Don't create a second room for a thread that already leads one, and don't add new work to a closed room: ask the owner to start a new thread.
 
 ## Take over a room
@@ -55,6 +57,10 @@ To lead an existing room, run `lead ROOM YOUR_THREAD_ID`, then `inbox ROOM` and 
 Plan bounded items with acceptance, inputs, dependencies, locks, owners and caps before dispatch. Start workers with `t3 launch ROOM "instructions" --item ID`; see Delegating workers. Each editing agent gets a separate checkout; workers report unplanned needs with `need`. Keep the integration branch and checkout in BRIEF. Use T3 for execution and messages; don't invent a replacement runner.
 
 When you mention a store file (a note, decision or item) to the owner, link it by its absolute path under the store's `data_dir`, not a store-relative path: T3 resolves relative links against the workspace, which is often not the store, and its viewer then reports the file missing.
+
+A worker moving its item to `review` or `done` does not wake an idle lead. After launching workers, don't end your turn on a `resume:` such as "when T01 reaches review" unless something will message you: keep the turn open and run `inbox ROOM`, or tell each worker to message you when it finishes.
+
+Always report back when the owner's answer or message reaches you, whether it was a decision tap, a clarifying question, a plan or a code change: say what you did or what you decided, or why you did nothing, even if the answer needs no action. Silence after an answer leaves the owner unable to tell whether it arrived. A turn that ends without that report is unfinished.
 
 Save records before communicating. Use `delivery list` to tell local saves from pending, uncertain or confirmed T3 acceptance. Reconcile uncertainty with actual evidence before retrying. A confirmed message is not proof that the agent received it or resumed work.
 

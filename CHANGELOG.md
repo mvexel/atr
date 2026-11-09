@@ -2,6 +2,25 @@
 
 All notable changes to atr are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-11-09
+
+T3 is now a stated prerequisite, and leads are woken when their workers finish.
+
+### Added
+
+- `atr setup --print-env` prints the shell lines (`ATR_DATA_DIR`, an `atr` function, completion) for fish, zsh and bash without changing anything; the "atr is not on PATH" note points at it.
+- When a worker sets its item to `review` or `done`, the lead gets one message. `check` and `check --yield` report a room as stalled when the lead is idle and a free-text `resume:` waits only on items that are already `review`, `done` or `dropped`.
+- `atr t3 organize` and a lead pin/settle plan; `status` and `check` hint at it.
+- Worker thread titles and `t3-thread` links on the web page.
+- `/api/state` reports where T3 was found and where atr looked, and the page shows a banner when T3 is missing.
+
+### Changed
+
+- T3 is checked first: `atr setup` offers to install and start it, and `setup --check` fails without it (`--skip-t3` to override). atr keeps running without T3. The README, SETUP, DEPENDENCIES, OPERATIONS and NIXOS docs now say so.
+- `atr t3 launch` for a room item prints a `delegate_task` brief instead of creating a top-level thread.
+- The protocol and lead skill tell leads to link store files by absolute path, to report back after every owner answer, and to keep their turn open or ask workers to message them after launching workers. A lead may open the PR and clean up its own worktrees and branches once the room's branch is pushed.
+- A drafted PRD gives the owner no card until `prd review` runs; the skill now says so and tells leads to get the sign-offs first. *(needs the T02-T05 doc edits merged)*
+
 ## [0.2.1] - 2026-11-08
 
 ### Fixed
