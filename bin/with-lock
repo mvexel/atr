@@ -1,0 +1,32 @@
+#!/bin/sh
+# with-lock [--data-dir PATH] NAME [--as WHO] -- command ...
+# Runs a command while holding a named lock (gradle, port-8989, a shared config file).
+# Waits up to LOCK_WAIT seconds (default 1800). `atr status` shows who holds what.
+set -eu
+data_dir=
+if [ "${1:-}" = "--data-dir" ]; then data_dir=$2; shift 2; fi
+[ $# -ge 2 ] || { echo "usage: with-lock NAME [--as WHO] -- command ..." >&2; exit 2; }
+name=$1; shift
+who=${ATR_AS:-$(whoami)}
+if [ "$1" = "--as" ]; then who=$2; shift 2; fi
+[ "$1" = "--" ] && shift
+# Resolve exactly as atr does; named resource locks belong to the selected data directory.
+root=$(cd "$(dirname "$0")/.." && pwd)
+if [ -n "$data_dir" ]; then
+  case "$data_dir" in /*) ;; '~/'*) data_dir="$HOME/${data_dir#*/}";; *) data_dir="$(pwd)/$data_dir";; esac
+  dir=$("$root/bin/atr" --data-dir "$data_dir" --lock-directory)
+  export ATR_DATA_DIR="$data_dir"
+else
+  dir=$("$root/bin/atr" --lock-directory)
+fi
+case "$name" in ''|*[!a-zA-Z0-9_.-]*|.|..) echo "with-lock: invalid lock name" >&2; exit 2;; esac
+mkdir -p "$dir"
+exec 9>"$dir/$name.lock"
+if ! flock -n 9; then
+  echo "with-lock: $name is held by $(cat "$dir/$name.holder" 2>/dev/null || echo '?'); waiting" >&2
+  flock -w "${LOCK_WAIT:-1800}" 9 || { echo "with-lock: gave up waiting for $name" >&2; exit 75; }
+fi
+echo "$who since $(date -u +%H:%MZ): $*" > "$dir/$name.holder"
+trap 'rm -f "$dir/$name.holder"' EXIT
+# 9>&- keeps the lock out of daemons the command leaves behind (e.g. the gradle daemon)
+"$@" 9>&-
