@@ -15,6 +15,8 @@ class Install(unittest.TestCase):
         self.home = Path(self.tmp.name)
         (self.home / ".t3/bin").mkdir(parents=True)
         (self.home / ".t3/bin/t3").write_text("#!/bin/sh\n")
+        # A non-executable fake is mistaken for downtime and incurs repeated 20-second startup waits.
+        (self.home / ".t3/bin/t3").chmod(0o755)
 
     def tearDown(self):
         self.tmp.cleanup()

@@ -40,7 +40,7 @@ To lead an existing room, run `lead ROOM YOUR_THREAD_ID`, then `inbox ROOM` and 
 
 ## Pin while the owner is needed, settle on close
 
-`atr t3 organize ROOM` prints the `t3_thread_organize` calls your own thread needs (JSON; atr cannot call T3 tools): `pin` while an owner decision, ask or PRD/refinement agree card is open, `unpin` then `settle` once the room is closed. Only the lead is pinned; nothing is snoozed. Run it before `check ROOM --yield` and again when you close the room, then make the calls it lists (omit `threadId` for your own thread; settle last, it applies at turn end). Steps T3 already satisfies are skipped, and a repeat is harmless. If T3 facts are unavailable the steps are marked `unknown`: make them anyway. `atr status` and `check` hint when the pin state is out of line.
+`atr t3 organize ROOM` prints the `t3_thread_organize` calls your own thread needs (JSON; atr cannot call T3 tools): `pin` while an owner decision, ask or PRD/refinement agree card is open, `unpin` then `settle` once the room is closed. Only the lead is pinned; nothing is snoozed. The standing process maintainer stays pinned even without an open owner card. Run it before `check ROOM --yield` and again when you close the room, then make the calls it lists (omit `threadId` for your own thread; settle last, it applies at turn end). Steps T3 already satisfies are skipped, and a repeat is harmless. If T3 facts are unavailable the steps are marked `unknown`: make them anyway. `atr status` and `check` hint when the pin state is out of line.
 
 ## Delegating workers
 
@@ -67,3 +67,9 @@ Save records before communicating. Use `delivery list` to tell local saves from 
 The owner's taps on the web page reach you between turns; run `inbox ROOM` mid-turn to pick them up sooner. Review results, run appropriate checks, update now-head and advance the next eligible item while your turn lasts. Before yielding, run `status ROOM` and `check ROOM --yield`, and leave a concrete event, time or owner question that will resume the room.
 
 Main merges, releases, deployment and live store cut-over need the owner's authorization. Preserve unknown metadata, attachments, dirty or untracked code and branch history before cleanup. Follow the source's `docs/OPERATIONS.md` and `docs/NIXOS.md` for restore and reinstall. Never put credentials or private host paths in this skill.
+
+## Standing maintainer initialization and owner messages
+
+The process maintainer starts in the atr T3 project rooted at the atr source clone. Setup registers that project before launching the lead and opens the accepted thread in T3. On first run the lead reads the room records, registers itself, sets its title to `Room · process · lead`, pins itself, and fills the room goal, scope, repository paths and current status. The standing maintainer stays pinned even when no owner decision is open.
+
+Every owner instruction in the lead conversation must be reflected in the selected store before the lead replies. Record its substance in the relevant item or decision, maintain state and Result with evidence and a successor, and update now-head so the tracker shows the current work. Record answers to questions and status requests without manufacturing implementation tasks. Acknowledging feedback alone does not complete an instruction to fix it.

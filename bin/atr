@@ -1208,7 +1208,8 @@ def t3_responds():
                            capture_output=True, text=True, timeout=15, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.SubprocessError):
         return False
-    return r.returncode == 0
+    # A project-resolution error is a server response, not a connection failure.
+    return r.returncode == 0 or "No T3 Code project matches" in (r.stderr + r.stdout)
 
 def t3_install():
     """Run T3's official CLI installer. True when a T3 program is found afterwards."""
@@ -1246,14 +1247,18 @@ def offer_t3(a, say):
     can_ask = a.yes or sys.stdin.isatty()
     def yes(q):
         return a.yes or (can_ask and ASK(q).strip().lower() in ("y", "yes"))
+    installed_now = False
     if not t3_configured():
-        if not yes("T3 (required) is not installed. Run T3's official installer? [y/N] "):
+        if not yes("Install and start T3 (required)? [y/N] "):
             return
         if not t3_install():
             say("T3 install failed; try: curl -fsSL " + T3_INSTALLER + " | sh", "warn")
             return
         say("T3 installed")
-    if not yes("T3 is not answering. Start it now? [y/N] "):
+        installed_now = True
+    if t3_responds():
+        return
+    if not installed_now and not yes("T3 is installed but not running. Start it now? [y/N] "):
         return
     say("T3 started and answering" if t3_start() else "T3 did not answer; start it yourself: t3 serve", "ok" if t3_responds() else "warn")
 
@@ -2279,6 +2284,18 @@ def t3_execute(action):
     if reason := migration_block(action):
         return {"state": "pending", "evidence": reason}
     cli = t3_cli()
+    if action["kind"] == "launch" and action.get("options", {}).get("purpose") == "maintainer":
+        # Resolve the project before attempting a launch. Failure here cannot have created a thread.
+        try:
+            probe = _external_run([cli, "thread", "list", "--project", action["target"], "--json", *t3_cli_options()], timeout=15)
+            if probe.returncode:
+                if "No T3 Code project matches" not in (probe.stderr + probe.stdout):
+                    return {"state": "failed", "evidence": "Maintainer project preflight failed; no thread launch attempted: " + (probe.stderr or probe.stdout)[:1000]}
+                added = _external_run([cli, "project", "add", action["target"], "--title", "atr", *t3_cli_options()], timeout=15)
+                if added.returncode:
+                    return {"state": "failed", "evidence": "Could not register atr project; no thread launch attempted: " + (added.stderr or added.stdout)[:1000]}
+        except (OSError, subprocess.SubprocessError) as error:
+            return {"state": "failed", "evidence": f"Maintainer project preflight failed; no thread launch attempted: {error}"}
     payload = action["payload"] + f"\n\n[atr-action:{action['id']}]"
     if action["kind"] == "launch":
         payload += ((f"\nAtr room: {action['room']}." if action["room"] else "\nNo atr room yet.") + f" Selected store: {ROOT}.\n"
@@ -2314,10 +2331,35 @@ def t3_execute(action):
             break
     if not isinstance(response, dict) or not any(response.get(key) for key in ("thread", "threadId", "id", "ok", "accepted", "success")):
         return {"state": "uncertain", "evidence": "T3 exited without an acceptance response; reconcile before retrying."}
-    thread = (response.get("thread") or {}).get("id") if isinstance(response, dict) else None
+    thread_data = response.get("thread") or {}
+    thread = (thread_data.get("threadId") or thread_data.get("id")) if isinstance(thread_data, dict) else None
     thread = thread or ((response.get("threadId") or response.get("id")) if isinstance(response, dict) else None)
+    if thread and action.get("options", {}).get("purpose") == "maintainer":
+        open_maintainer(thread)
     return {"state": "confirmed", "evidence": "T3 CLI exited successfully: accepted; receipt and execution are unverified.",
             **({"thread": thread} if thread else {})}
+
+
+def open_maintainer(thread):
+    """Open the exact accepted thread; UI failure never retries a successful launch."""
+    try:
+        result = _external_run([t3_cli(), "thread", "show", thread, "--json", *t3_cli_options()], timeout=15)
+        data = json.loads(result.stdout).get("thread", {})
+        link = data.get("link", "")
+        if not link.startswith("https://"):
+            return
+        import webbrowser
+        # Desktop installations register t3-thread://; otherwise use T3's web link.
+        desktop = sys.platform == "darwin" and any(Path(p).exists() for p in
+                    ("/Applications/T3 Code.app", str(Path.home() / "Applications/T3 Code.app")))
+        if desktop:
+            deep = "t3-thread://v2/" + link.split("/threads/", 1)[1]
+            opened = subprocess.run(["open", deep], capture_output=True, timeout=10)
+            if opened.returncode == 0:
+                return
+        webbrowser.open(link)
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        pass  # The durable launch receipt and thread id remain available to open manually.
 
 
 def _delivery_block(action, actions=None):
@@ -2484,6 +2526,8 @@ def organize_wanted(room):
     {'pinned': True|False|None, 'settled': True|None, 'reason': str}; None means unchanged."""
     if room.closed:
         return {"pinned": False, "settled": True, "reason": "room closed"}
+    if room.name == PROCESS_ROOM and is_standing(room):
+        return {"pinned": True, "settled": None, "reason": "standing maintainer"}
     ny = needs_you(room)
     if ny:
         return {"pinned": True, "settled": None, "reason": f"owner needed: {', '.join(d['id'] for d in ny)}"}
@@ -3155,12 +3199,20 @@ def maintainer_prompt():
     return (f"{MAINTAINER_STUB}\n\n---\nAtr data: {ROOT}\n"
             f"Rules: {SOURCE_ROOT / 'PROTOCOL.md'}\nLead guidance: {SOURCE_ROOT / 'skills/lead/SKILL.md'}\n"
             f"Room: {PROCESS_ROOM}. `export ATR_AS=Maintainer`.\n"
+            f"Initialize this existing room now: read BRIEF.md, now-head.md and the binding brief, "
+            f"find your own thread id and run atr lead {PROCESS_ROOM} YOUR_THREAD_ID using the command below. "
+            "Rename yourself Room · process · lead and pin yourself using T3 tools. "
+            "Fill the room goal, scope and repository/branch paths; update now-head with readiness and resume event. "
+            "For every owner instruction in this conversation, save its substance and your action in the tracker "
+            "before replying: create or update a bounded item, maintain its state, Result and successor, and keep "
+            "now-head current. Questions and status requests get a recorded answer; do not create busywork. "
+            "Check inbox and status before reporting initialization complete. "
             "Stay available for explicitly requested feedback; do not start unrelated work.\n")
 
 def t3_launch_maintainer(prompt):
     """Start the maintainer as a T3 thread, through the required bridge."""
     return queue_t3_action("launch", t3_project(), prompt, room=PROCESS_ROOM,
-                           options={"title": "Agent-atr maintainer", "purpose": "maintainer"})
+                           options={"title": "Room · process · lead", "purpose": "maintainer"})
 
 LAUNCH_MAINTAINER = t3_launch_maintainer     # tests replace these two; nothing runs at import time
 ASK = input
@@ -3613,6 +3665,8 @@ def _cmd_setup_local(a):
         want = True
     elif a.no_maintainer:
         want = False
+    elif from_installer and t3_configured():
+        want = True
     elif "maintainer" in cfg:
         want = bool(cfg["maintainer"])
     elif from_installer and not t3_configured():
@@ -3635,8 +3689,9 @@ def _cmd_setup_local(a):
             "maintainer thread: none (your choice is saved; nothing to do). "
             f"Feedback items are still kept in room {PROCESS_ROOM}. To start one later: atr setup --yes")
         return
-    have, src = maintainer_thread(fallback=False)
+    have, src = maintainer_thread(fallback=True)
     if have and not a.recreate_maintainer:
+        after_commit(lambda: open_maintainer(have))
         say(f"maintainer thread {have} ({src})" + ("" if fetch_thread(have) else
               "\nT3 does not find it; if it is gone, recreate it with: bin/atr setup --recreate-maintainer"))
         return
