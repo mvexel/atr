@@ -1,4 +1,4 @@
-"""Warn when the active lead thread is not titled 'Room · ...'; `room new` prints the rename hint.
+"""Warn when the active lead thread is not titled 'Room · ...'; `rooms new` prints the rename hint.
 Fake thread_info, temp rooms; no T3 call, no message. Run: python3 -I -m unittest tests.test_lead_title
 """
 import argparse, contextlib, importlib.machinery, importlib.util, io, sys, tempfile, unittest

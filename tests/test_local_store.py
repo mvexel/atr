@@ -89,7 +89,7 @@ class LocalStore(unittest.TestCase):
         self.assertTrue((self.data / ".atr/locks/store.lock").exists())
 
     def test_room_creation_initializes_a_new_external_store_without_setup(self):
-        result = self.run_cli("--data-dir", str(self.data), "room", "new", "demo", "Demo",
+        result = self.run_cli("--data-dir", str(self.data), "rooms", "new", "demo", "Demo",
                               "--lead-thread", "synthetic-lead-thread", "--waive-prd", "maintenance")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("synthetic-lead-thread", (self.data / "rooms/demo/BRIEF.md").read_text())

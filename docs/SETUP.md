@@ -99,7 +99,7 @@ For an existing lead thread, `t3 show THREAD_ID` refreshes facts and `lead ROOM 
 The following commands are safe to rehearse in a new disposable store with T3 unavailable:
 
 ```sh
-"$PYTHON" -I "$ATR_SOURCE/bin/atr" room new demo "Demo project"
+"$PYTHON" -I "$ATR_SOURCE/bin/atr" rooms new demo "Demo project"
 "$PYTHON" -I "$ATR_SOURCE/bin/atr" new decision demo "Choose a name" --option "First" --option "Second"
 "$PYTHON" -I "$ATR_SOURCE/bin/atr" answer demo D01 a --quote "D01 a; keeping the first name"
 "$PYTHON" -I "$ATR_SOURCE/bin/atr" status demo

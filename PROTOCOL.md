@@ -4,7 +4,7 @@ Atr coordinates work on required T3. The selected local Markdown store is canoni
 
 ## Start or resume a room
 
-Read the room's `BRIEF.md`, `now-head.md`, binding PRD/refinements, and assigned item before work. A thread leads one room. Follow-up maintenance gets a separate room and thread; use `room new ... --waive-prd "not a feature: reason"` for authorized work that needs no product design. Quote the owner's request in a premise or decision before implementation.
+Read the room's `BRIEF.md`, `now-head.md`, binding PRD/refinements, and assigned item before work. A thread leads one room. Follow-up maintenance gets a separate room and thread; use `rooms new ... --waive-prd "not a feature: reason"` for authorized work that needs no product design. Quote the owner's request in a premise or decision before implementation.
 
 New features start with a PRD. Record purpose, stakeholders, scope, testable requirements and definition of done. Product and technical sign-off precede `prd ROOM review`; the owner's explicit agreement opens building. Do not bypass the gate. Preserve agreed PRDs; record an authorized refinement for a bounded change and seek owner agreement for a pivot or changed acceptance.
 

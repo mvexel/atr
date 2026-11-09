@@ -53,7 +53,7 @@ Then, in a new terminal:
 
 ```sh
 atr setup --check           # verify local setup (T3 is reported separately)
-atr room new demo "Demo project"
+atr rooms new demo "Demo project"
 atr serve --host 127.0.0.1 --port 8787
 ```
 

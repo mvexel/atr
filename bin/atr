@@ -17,7 +17,8 @@ Usage (ROOM is a folder name under rooms/):
   atr serve [--port 8787]  tap-to-decide web page (web/index.html)
   atr name ROOM ROLE NAME --pronoun she|he   give a role its first name (keeps he/she even)
   atr lead ROOM [THREAD]          hand the lead to a T3 thread; without THREAD, print text to copy and paste to take it
-  atr room new ROOM "Feature title" --lead-thread ID [--no-ux]  start a feature (one room per thread)
+  atr rooms list                  every room: state, open items, open decisions, title
+  atr rooms new ROOM "Feature title" --lead-thread ID [--no-ux]  start a feature (one room per thread)
   atr prd ROOM review            product + tech lead signed: ask Martijn to agree (opens a D card)
   atr refinement ROOM new "title" --touches FR4 [--supersedes RF01]   change an agreed PRD (RFnn)
   atr refinement ROOM RFnn review   signed: open an "Agree RFnn" card
@@ -630,7 +631,7 @@ def refuse_closed(room, what):
     if room.closed:
         sys.exit(f"refused: {room.name} is closed ({room.brief['closed']}). Don't add {what} to a closed room: its lead "
                  "is gone, so a tap on it would wake the wrong thread. Follow-up work gets its own room and thread: "
-                 "atr room new <name> \"<title>\" --lead-thread <your thread id> [--waive-prd \"why\"]")
+                 "atr rooms new <name> \"<title>\" --lead-thread <your thread id> [--waive-prd \"why\"]")
 
 def cmd_new(a):
     room = Room(a.room)
@@ -1742,7 +1743,7 @@ def problems(room, yielding=False):
         if i["state"] in ("doing", "review") and role and role not in room.team:
             p.append(f"{room.name}/{i['id']}: owner {role} has no name yet (atr name)")
     if not room.prd and not (room.brief and room.brief["prd"]):
-        p.append(f"{room.name}: no PRD.md; every feature starts with a PRD (atr room new), "
+        p.append(f"{room.name}: no PRD.md; every feature starts with a PRD (atr rooms new), "
                  "or set 'prd: waived (reason)' in BRIEF.md")
     if room.build_locked:
         for i in room.items:
@@ -2504,7 +2505,7 @@ def web_nudge(room, note):
     return {"ok": True, "action": action["id"], "told_lead": False}
 
 def create_room_files(d, title, thread, waive_prd, t):
-    """The room directory, BRIEF and now-head (PRD waived when `waive_prd` is a reason). Shared by `room new` and `setup`."""
+    """The room directory, BRIEF and now-head (PRD waived when `waive_prd` is a reason). Shared by `rooms new` and `setup`."""
     durable_mkdir(d / "items", parents=True)
     durable_mkdir(d / "decisions")
     durable_mkdir(d / "notes")
@@ -2679,6 +2680,27 @@ def cmd_name(a):
         sys.exit(f"that makes {she} she / {he} he; pick a name for '{need}' to keep the team even")
     set_team(room, team)
     print(f"{a.role} is now {name} ({a.pronoun}) · team {she} she / {he} he")
+
+def cmd_rooms(a):
+    (cmd_room if a.verb == "new" else cmd_rooms_list)(a)
+
+def room_state(room):
+    """closed, paused, standing or open: closed wins, then an explicit pause."""
+    return "closed" if room.closed else "paused" if room.paused else "standing" if is_standing(room) else "open"
+
+def cmd_rooms_list(a):
+    """Read-only: one line per room under rooms/; writes nothing."""
+    rooms = rooms_from([])
+    if not rooms:
+        print(f"no rooms in {ROOMS}")
+        return
+    rows = [("ROOM", "STATE", "ITEMS", "DECISIONS", "TITLE")]
+    for room in rooms:
+        rows.append((room.name, room_state(room), str(len(open_items(room))),
+                     str(sum(1 for d in room.decisions if d["status"] == "open")), room.title))
+    w = [max(len(r[i]) for r in rows) for i in range(4)]
+    for r in rows:
+        print("  ".join(c.ljust(w[i]) for i, c in enumerate(r[:4])) + "  " + r[4])
 
 def cmd_team(a):
     for room in rooms_from(a.rooms):
@@ -3316,7 +3338,10 @@ def main():
     nm = sub.add_parser("name"); nm.add_argument("room"); nm.add_argument("role"); nm.add_argument("name")
     nm.add_argument("--pronoun", required=True, choices=["she", "he"]); nm.add_argument("--force", action="store_true")
     tm = sub.add_parser("team"); tm.add_argument("rooms", nargs="*")
-    rm = sub.add_parser("room"); rm.add_argument("verb", choices=["new"]); rm.add_argument("name"); rm.add_argument("title")
+    rms = sub.add_parser("rooms", aliases=["room"], help="list rooms, or start a feature room")
+    rms_sub = rms.add_subparsers(dest="verb", required=True)
+    rms_sub.add_parser("list", help="every room: state, open items, open decisions, title")
+    rm = rms_sub.add_parser("new", help="start a feature (one room per thread)"); rm.add_argument("name"); rm.add_argument("title")
     rm.add_argument("--no-ux", action="store_true", help="skip the UX research item (say why in the PRD notes)")
     rm.add_argument("--waive-prd", metavar="WHY", help="work that isn't a feature (publishing, a fix): no PRD or PRD items; "
                     "say why, and the owner's go-ahead in words is the gate")
@@ -3359,7 +3384,7 @@ def main():
         print(f"Atr data: {ROOT} ({DATA_SELECTION})")
     {"new": cmd_new, "set": cmd_set, "need": cmd_need, "log": cmd_log, "answer": cmd_answer, "reply": cmd_reply, "status": cmd_status,
      "check": cmd_check, "serve": cmd_serve,
-     "name": cmd_name, "team": cmd_team, "room": cmd_room, "prd": cmd_prd, "refinement": cmd_refinement, "brief": cmd_brief, "inbox": cmd_inbox, "lead": cmd_lead,
+     "name": cmd_name, "team": cmd_team, "rooms": cmd_rooms, "room": cmd_rooms, "prd": cmd_prd, "refinement": cmd_refinement, "brief": cmd_brief, "inbox": cmd_inbox, "lead": cmd_lead,
      "setup": cmd_setup, "uninstall": cmd_uninstall, "feedback": cmd_feedback, "delivery": cmd_delivery, "migrate": cmd_migrate, "t3": cmd_t3}[a.cmd](a)
 
 # All canonical entry points participate in the same lock/recovery boundary, including calls made
