@@ -49,7 +49,7 @@ The installer fetches atr into `~/.atr/src`, asks where your data should live (d
 - **Lets agents in T3 find atr.** It links atr’s lead skill into `~/.claude/skills` and `~/.codex/skills`, where Claude Code and Codex look.
 - **Records your data folder** in `~/.config/atr/config.json`, so agents use the same one you do.
 
-`atr uninstall` undoes all three and keeps your data. The installer asks before each change; add `-s -- --yes` after `sh` to accept every default. See [Setup](docs/SETUP.md) for the details.
+`atr uninstall` undoes all three and keeps your data. The installer asks before each change; add `-s -- --yes` after `sh` to accept every default. To add the shell lines yourself, `atr setup --print-env` prints them for your shell and changes nothing. See [Setup](docs/SETUP.md) for the details.
 
 ## Your first project
 
