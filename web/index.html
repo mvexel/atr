@@ -334,8 +334,9 @@
 <script>
 const base = location.pathname.endsWith("/") ? location.pathname : location.pathname + "/";
 const params = new URLSearchParams(location.search);
-let lastRoom = params.get("room") || localStorage.getItem("room") || null;   // the last real room; the process view hangs off it
-let state = null, current = params.get("room") || (localStorage.getItem("view") === "process" ? "process" : lastRoom);
+let lastRoom = params.get("room") || localStorage.getItem("room") || null;   // the last selected tracker room
+let state = null, current = params.get("room") || lastRoom;
+let processView = false; // Documentation is optional; every visit starts on the regular tracker.
 let filter = localStorage.getItem("filter") || "all";
 const armed = {};                                              // one-way door waiting for a confirming tap
 const dkey = d => `${current}/${d.id}`;                        // ids repeat across rooms (every room has a D07)
@@ -724,7 +725,7 @@ function roomWord(x) {
     : x.continuity && x.continuity.state === "waiting" ? "waiting" : x.continuity?.state === "unavailable" ? "T3 state unknown" : "moving";
 }
 function computeOrder(mode) {
-  const rooms = state.rooms.filter(x => !x.standing), live = rooms.filter(x => !isClosed(x)), dead = rooms.filter(isClosed);
+  const rooms = state.rooms, live = rooms.filter(x => !isClosed(x)), dead = rooms.filter(isClosed);
   const recent = (a, b) => (lastActive(a) ?? 1e9) - (lastActive(b) ?? 1e9);
   const tier = x => needN(x) ? 0 : isStalled(x) ? 1 : 2;
   const needs = (a, b) => {
@@ -740,7 +741,7 @@ function computeOrder(mode) {
 }
 // Rooms in the current order; names the order has not seen yet go last.
 function orderedRooms() {
-  const reg = state.rooms.filter(x => !x.standing), byName = new Map(reg.map(x => [x.name, x]));
+  const reg = state.rooms, byName = new Map(reg.map(x => [x.name, x]));
   const known = roomOrder.filter(n => byName.has(n)).map(n => byName.get(n));
   return [...known, ...reg.filter(x => !roomOrder.includes(x.name))];
 }
@@ -767,11 +768,11 @@ function drawRoomSheet(host) {
   host.append(el("div", { class: "sheet-bg", onclick: e => { if (e.target === e.currentTarget) closeSheet(); } }, sheet));
 }
 function pick(name) {
-  if (name !== current) {
+  const wasProcess = processView;
+  processView = false;
+  if (name !== current || wasProcess) {
     for (const k of Object.keys(sent)) if (k.startsWith(current + "/")) delete sent[k];   // receipts end when you leave the room
-    const std = state && state.rooms.find(x => x.name === name && x.standing);
-    if (std) localStorage.setItem("view", "process");
-    else { lastRoom = name; localStorage.setItem("room", name); localStorage.removeItem("view"); }
+    lastRoom = name; localStorage.setItem("room", name); localStorage.removeItem("view");
     current = name;
     pending = false; $("newpill").hidden = true;
     draw(true);
@@ -780,8 +781,14 @@ function pick(name) {
 }
 
 function leaveProcess() {
-  const reg = (state?.rooms || []).filter(x => !x.standing), t = reg.find(x => x.name === lastRoom) || reg.find(x => !isClosed(x)) || reg[0];
-  if (t) pick(t.name);
+  processView = false;
+  localStorage.removeItem("view");
+  draw(true);
+}
+function showProcess(name) {
+  pick(name);
+  processView = true;
+  draw(true);
 }
 
 function statusCard(r) {
@@ -1177,7 +1184,7 @@ function draw(top) {
   if (!state) { app.style.minHeight = ""; return; }
   const rooms = state.rooms;
   // Rooms whose lead thread is settled in T3 leave the tabs for the "Settled" dropdown.
-  const reg = rooms.filter(x => !x.standing), std = rooms.find(x => x.standing);
+  const reg = rooms, std = rooms.find(x => x.standing);
   const open = reg.filter(x => !isClosed(x)), settled = reg.filter(isClosed);
   if (!current || !rooms.find(r => r.name === current)) current = (open[0] || rooms[0])?.name;
   const r = room();
@@ -1189,11 +1196,11 @@ function draw(top) {
 
   const settledAsks = settled.reduce((n, x) => n + needN(x), 0);
   const ordered = orderedRooms();
-  const inStd = !!r.standing, shell = inStd ? (reg.find(x => x.name === lastRoom) || open[0] || reg[0]) : r;
+  const inStd = processView && !!r.standing, shell = inStd ? (reg.find(x => x.name === lastRoom) || open[0] || reg[0]) : r;
   if (std) {
     const fb = std.feedback || {}, need = needN(std);
     app.append(el("button", { class: "pin" + (inStd ? " on" : ""), "aria-pressed": String(inStd), "aria-label": "How we work",
-        onclick: inStd ? leaveProcess : () => pick(std.name) },
+        onclick: inStd ? leaveProcess : () => showProcess(std.name) },
       el("span", { "aria-hidden": "true" }, "⚙"), el("b", {}, "How we work"),
       inStd ? el("small", {}, "agent-rooms' own improvements")
         : [need ? el("span", { class: "n", "aria-label": `${need} need you` }, need) : null,

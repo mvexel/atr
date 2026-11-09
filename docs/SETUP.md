@@ -144,3 +144,9 @@ Keep the default loopback binding for local use. If publishing through a trusted
 Read `docs/OPERATIONS.md` for unavailable/uncertain delivery and recovery. Use `docs/MIGRATION.md` only with quiescent copies when rehearsing existing rooms. Neither setup nor migration changes a service or performs a live cut-over.
 
 See [validation](VALIDATION.md) for the checked setup/restore commands and their limits.
+
+## Maintainer on first install
+
+Accepting installer setup creates the standing `process` room and starts its lead in the `atr` T3 project, registering the atr source clone as the project workspace if necessary. Setup opens the accepted thread in T3 Code desktop when installed on macOS, otherwise in T3 web. The lead initializes the room, names and pins itself, and reports readiness. Provider authentication must already be available to T3 for the agent to run; CLI acceptance alone is not initialization completion.
+
+Subsequent owner instructions in that lead conversation are recorded before replies: the lead updates the relevant item, state, Result, successor and room status so the tracker reflects actual work. Existing data is kept. Re-running setup reuses the recorded lead rather than creating a duplicate; `--no-maintainer` remains available for intentionally unattended setup.

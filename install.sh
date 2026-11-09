@@ -93,13 +93,19 @@ for c in ${T3CODE_CLI_PATH:-} "$HOME/.t3/bin/t3" "$HOME/.local/bin/t3" "$(comman
   if [ -n "$c" ] && [ -f "$c" ]; then t3=$c; break; fi
 done
 t3_new=false
-t3_answers() { [ -n "$t3" ] && "$t3" thread list --log-level error </dev/null >/dev/null 2>&1; }
+t3_answers() {
+  [ -n "$t3" ] || return 1
+  t3_reply=$("$t3" thread list --log-level error </dev/null 2>&1) && return 0
+  # Project lookup requires a live server; it must not be mistaken for downtime.
+  case "$t3_reply" in *"No T3 Code project matches"*) return 0 ;; esac
+  return 1
+}
 if [ -n "$t3" ]; then
   ok T3 "$(tilde "$t3")"
 else
   printf '\n  T3 is required: atr records, T3 runs the agents. Not found.\n'
   printf '  %sT3 Code'"'"'s official installer: %s (into ~/.t3 and ~/.local/bin/t3)%s\n' "$D" "$T3_INSTALLER" "$N"
-  if ask "Install T3?"; then
+  if ask "Install and start T3?"; then
     tmp=$(mktemp -d)
     ok=false
     download "$T3_INSTALLER" "$tmp/install.sh" || true
@@ -121,7 +127,7 @@ else
   fi
 fi
 if [ -n "$t3" ] && ! t3_answers; then
-  if ask "T3 is not answering. Start it now?"; then
+  if "$t3_new" || ask "T3 is installed but not running. Start it now?"; then
     nohup "$t3" serve --no-browser </dev/null >/dev/null 2>&1 &
     n=0
     while [ "$n" -lt 20 ] && ! t3_answers; do sleep 1; n=$((n + 1)); done
@@ -161,7 +167,11 @@ if "$interactive" && ! "$yes"; then
 fi
 case "$data" in /*) ;; *) die "the data directory must be an absolute path: $data" ;; esac
 case "$data/" in "$src_dir"/*) die "keep the data directory outside the source: $data" ;; esac
-ok Data "$(tilde "$data")"
+if [ -d "$data" ]; then
+  ok Data "$(tilde "$data") (existing directory; keeping your data)"
+else
+  ok Data "$(tilde "$data") (new directory)"
+fi
 
 # --- shell startup file -----------------------------------------------------
 shell=$(basename -- "${SHELL:-sh}")
@@ -219,7 +229,7 @@ fi
 # links the lead skill where Claude Code and Codex (the agents T3 runs) look for skills, and keeps the web page
 # running as a user service. Without a terminal and without --yes it does neither.
 set_up=false
-printf '\n  %sSetup%s %screates the process room, lets agents in T3 find atr, keeps the web page running, and offers a maintainer thread%s\n' "$B" "$N" "$D" "$N"
+printf '\n  %sSetup%s %screates the process room, lets agents in T3 find atr, keeps the web page running, and opens its maintainer lead in T3%s\n' "$B" "$N" "$D" "$N"
 if ask_default_yes "Set up atr now?"; then
   set_up=true
   export ATR_INSTALLER=1     # atr setup leaves out what this script already reported

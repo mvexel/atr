@@ -11,12 +11,13 @@ class ProcessPin(unittest.TestCase):
         for needle in ['class: "pin"', "How we work", "processBlocks", "leaveProcess", "r.standing", "fbk[k]"]:
             self.assertIn(needle, HTML)
 
-    def test_standing_room_is_out_of_the_room_lists_but_asks_still_count(self):
-        self.assertIn("state.rooms.filter(x => !x.standing)", HTML)
+    def test_standing_room_is_in_room_lists_and_asks_count(self):
+        self.assertIn("const reg = state.rooms, byName", HTML)
         self.assertIn("state.rooms.reduce((n, x) => n + needN(x), 0)", HTML)   # decisions waiting on the owner
 
     def test_process_view_is_not_stored_as_the_room(self):
-        self.assertIn('localStorage.setItem("view", "process")', HTML)
+        self.assertIn("let processView = false", HTML)
+        self.assertIn("const inStd = processView && !!r.standing", HTML)
 
     def test_palette_present_and_guards_redraws(self):
         # Ctrl-K / Cmd-K / "/" palette; behaviour was driven with real keys in headless Chrome
