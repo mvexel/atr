@@ -2415,9 +2415,22 @@ def cmd_t3(a):
             title = worker_title(room.name, item["id"], worker_role(item, getattr(a, "role", None)))
             if a.title and a.title.strip() != title:
                 print(f"title {a.title!r} does not follow the convention; using {title!r}", file=sys.stderr)
-            action = queue_t3_action("launch", a.project or t3_project(), a.text, room=room.name, source=item,
-                                    options={"item": item["id"], "provider": a.provider, "model": a.model, "title": title})
-    print(json.dumps(delivery_actions()[action["id"]], indent=2))
+            role = worker_role(item, getattr(a, "role", None))
+            task = delegate_task_text(room.name, item["id"], a.text)
+    # atr is a CLI and cannot call T3 MCP tools: only the lead agent can call delegate_task. No top-level thread is made.
+    print(json.dumps({"tool": "delegate_task", "title": title, "role": "implementation", "isolation": "worktree",
+                      "task": task, "item": f"{room.name}/{item['id']}", "convention_role": role}, indent=2))
+    print(f"\nRun this with delegate_task yourself (isolation: worktree, role: implementation), then record the child:\n"
+          f"  {atr_command()} set {room.name} {item['id']} agent=<childThreadId>\n"
+          "You must be mid-turn to delegate. If delegate_task is unavailable, do NOT launch a top-level thread instead: "
+          f"set the item to blocked and tell the owner/lead why. Child threads take no messages: they message the lead.", file=sys.stderr)
+
+def delegate_task_text(room, item, text):
+    """The task text for a delegated worker: the lead's instructions plus the room, item, store and atr command."""
+    return (f"{text.strip()}\n\nAtr room: {room}. Item: {item}. Selected store: {ROOT}.\n"
+            f"Use: {shlex.join([sys.executable, '-I', str(SOURCE_ROOT / 'bin/atr'), '--data-dir', str(ROOT)])} <command>.\n"
+            "Keep all atr updates in that store; source resources are separate. You are a child thread and take no "
+            "messages: report to the lead via your final answer and `atr need`.")
 
 def tell_thread(thread, text):
     related = lead_rooms(thread)

@@ -36,9 +36,19 @@ To lead an existing room, run `lead ROOM YOUR_THREAD_ID`, then `inbox ROOM` and 
 - Name store files by absolute path (under the store's `rooms/` directory), never relative to a checkout.
 - atr's web page links the lead and each worker that way once their ids are known (set `ATR_T3_ENVIRONMENT` if T3 doesn't report the environment).
 
+## Delegating workers
+
+`atr t3 launch ROOM "instructions" --item ID` is a CLI and cannot call T3 tools, so it creates no thread. After the dependency and brief checks it prints a ready `delegate_task` brief (title `<room> · <item> · <role>`, task text with room, item, store and atr command, `isolation: worktree`, role `implementation`). Then:
+
+1. Call `delegate_task` yourself with that brief (isolation worktree: each editing agent gets its own checkout).
+2. Record the child: `atr set ROOM ID agent=<childThreadId>`.
+3. You must be mid-turn to delegate: only a running lead can call `delegate_task`. Dispatch before you yield.
+4. Child threads take no messages. Don't `t3_thread_send` to a worker; it messages you (final answer, `atr need`). Review and re-delegate instead.
+5. If `delegate_task` is unavailable, block: set the item `state=blocked`, tell the owner plainly why. Never fall back to a top-level thread.
+
 ## Lead
 
-Plan bounded items with acceptance, inputs, dependencies, locks, owners and caps before dispatch. Start workers with `t3 launch ROOM "instructions" --item ID`. Each editing agent gets a separate checkout; workers report unplanned needs with `need`. Keep the integration branch and checkout in BRIEF. Use T3 for execution and messages; don't invent a replacement runner.
+Plan bounded items with acceptance, inputs, dependencies, locks, owners and caps before dispatch. Start workers with `t3 launch ROOM "instructions" --item ID`; see Delegating workers. Each editing agent gets a separate checkout; workers report unplanned needs with `need`. Keep the integration branch and checkout in BRIEF. Use T3 for execution and messages; don't invent a replacement runner.
 
 Save records before communicating. Use `delivery list` to tell local saves from pending, uncertain or confirmed T3 acceptance. Reconcile uncertainty with actual evidence before retrying. A confirmed message is not proof that the agent received it or resumed work.
 
