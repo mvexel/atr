@@ -1195,6 +1195,78 @@ def t3_configured():
     """True when the T3 command-line program exists where atr will look for it (runtime acceptance is not checked)."""
     return Path(t3_cli()).is_file()
 
+T3_INSTALLER = "https://t3.codes/install.sh"
+T3_MISSING = ("T3 is required and was not found: agents will not receive or act on anything; atr only records.\n"
+              "Set T3CODE_CLI_PATH or install T3: see docs/SETUP.md")
+
+def t3_responds():
+    """True when the T3 program answers a read-only query (a running T3 server is needed for it)."""
+    if not t3_configured():
+        return False
+    try:
+        r = subprocess.run([t3_cli(), "thread", "list", "--log-level", "error", *t3_cli_options()],
+                           capture_output=True, text=True, timeout=15, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0
+
+def t3_install():
+    """Run T3's official CLI installer. True when a T3 program is found afterwards."""
+    import tempfile, urllib.request
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            script = Path(d) / "install.sh"
+            with urllib.request.urlopen(T3_INSTALLER, timeout=30) as r:
+                script.write_bytes(r.read())
+            subprocess.run(["sh", str(script)], check=True)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return t3_configured()
+
+def t3_start(wait=20):
+    """Start T3 without a browser, detached, and wait until it answers. True when it does."""
+    if not t3_configured():
+        return False
+    try:
+        subprocess.Popen([t3_cli(), "serve", *t3_cli_options()], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        return False
+    deadline = time.time() + wait
+    while time.time() < deadline:
+        if t3_responds():
+            return True
+        time.sleep(1)
+    return False
+
+def offer_t3(a, say):
+    """FR9: T3 first. Offer install, then start; only on a yes or --yes, never without a terminal. Declining is fine."""
+    if from_installer_env() or getattr(a, "skip_t3", False) or t3_responds():
+        return
+    can_ask = a.yes or sys.stdin.isatty()
+    def yes(q):
+        return a.yes or (can_ask and ASK(q).strip().lower() in ("y", "yes"))
+    if not t3_configured():
+        if not yes("T3 (required) is not installed. Run T3's official installer? [y/N] "):
+            return
+        if not t3_install():
+            say("T3 install failed; try: curl -fsSL " + T3_INSTALLER + " | sh", "warn")
+            return
+        say("T3 installed")
+    if not yes("T3 is not answering. Start it now? [y/N] "):
+        return
+    say("T3 started and answering" if t3_start() else "T3 did not answer; start it yourself: t3 serve", "ok" if t3_responds() else "warn")
+
+def from_installer_env():
+    return os.environ.get("ATR_INSTALLER") == "1"
+
+def t3_status():
+    """What /api/state reports: whether T3 is configured, the location atr uses, and what it tried (no file-path assumption:
+    `location` is an opaque string a remote T3 could fill later)."""
+    home = Path.home()
+    looked = ["$T3CODE_CLI_PATH"] if os.environ.get("T3CODE_CLI_PATH") else [str(home / ".t3/bin/t3"), str(home / ".local/bin/t3"), "PATH"]
+    return {"configured": t3_configured(), "kind": "local-cli", "location": t3_cli(), "looked": looked, "setting": "T3CODE_CLI_PATH"}
+
 def fetch_thread(thread):
     """One `t3 thread show` -> {'status','settled','provider','model','title',…} or None."""
     if getattr(_store_state, "depth", 0) or migration_block():
@@ -2967,7 +3039,7 @@ def cmd_serve(a):
                 rooms = rooms_from([])
                 if want and want not in {room.name for room in rooms}:
                     return self.send(404, b'{"error":"no such room"}')
-                body = {"rooms": [room_json(x, x.name == want) for x in rooms], "now": stamp(), "t3": {"configured": t3_configured()}}
+                body = {"rooms": [room_json(x, x.name == want) for x in rooms], "now": stamp(), "t3": t3_status()}
                 return self.send(200, json.dumps(body).encode(), cache="no-cache", etag=True)
             if r == "/api/search":      # only q is read; files come from the fixed globs in _search_sources
                 return self.send(200, json.dumps(search_data(self.query().get("q", ""))).encode())
@@ -3470,6 +3542,16 @@ def path_note():
 def cmd_setup(a):
     if getattr(a, "print_env", False):
         return _cmd_setup_local(a)      # prints only: no T3 lookups, no store lock
+    if not a.check:
+        # prerequisite first (FR9): before anything else is created
+        offer_t3(a, lambda line, mark="ok": print(line))
+    try:
+        return _cmd_setup(a)
+    finally:
+        if not a.check and not getattr(a, "skip_t3", False) and not t3_configured():
+            print(T3_MISSING)
+
+def _cmd_setup(a):
     # Ask T3 about the maintainer thread before taking the store lock: under the lock, lookups read only
     # the cache, and an empty cache would read as "T3 does not find it".
     for fallback in (False, True):
@@ -3485,9 +3567,12 @@ def _cmd_setup_local(a):
     # install.sh sets ATR_INSTALLER and has already reported T3, the data directory and the PATH
     from_installer = os.environ.get("ATR_INSTALLER") == "1"
     if not from_installer:
-        print("T3: configured; runtime acceptance unverified" if t3_configured() else "T3: unavailable (executable missing); local records remain usable")
+        print("T3: skipped (--skip-t3)" if getattr(a, "skip_t3", False) else
+              "T3: configured; runtime acceptance unverified" if t3_configured() else "T3: not found (required)")
     if a.check:
         problems = check_setup()
+        if not t3_configured() and not getattr(a, "skip_t3", False):
+            problems.insert(0, T3_MISSING.replace("\n", "; ") + " (CI or restore: --skip-t3)")
         for w in setup_warnings():
             print(f"warning: {w}")
         for p in problems:
@@ -4052,7 +4137,8 @@ def build_parser():
     su = sub.add_parser("setup", help="first run: create the process room, optionally start the maintainer thread")
     su.add_argument("--check", action="store_true", help="report what is missing and exit non-zero; changes nothing")
     su.add_argument("--print-env", nargs="?", const=True, metavar="SHELL", help="print the shell lines (fish, zsh or bash; default $SHELL) that put atr on your PATH and exit; changes nothing")
-    su.add_argument("--yes", action="store_true", help="start the maintainer thread without asking")
+    su.add_argument("--yes", action="store_true", help="start the maintainer thread, and install/start T3 if missing, without asking")
+    su.add_argument("--skip-t3", action="store_true", help="don't require or offer T3 (CI, restore)")
     su.add_argument("--no-maintainer", action="store_true", help="record that no maintainer thread is wanted")
     su.add_argument("--recreate-maintainer", action="store_true", help="start a new maintainer thread (the old one is gone)")
     su.add_argument("--no-skills", action="store_true", help="don't link the lead skill into Claude Code's and Codex's skills")

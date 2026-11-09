@@ -1,12 +1,12 @@
 # Setup
 
-Atr coordinates projects on T3. It keeps briefs, work items, decisions and evidence in local Markdown; T3 supplies agents, threads, execution and communication. The web server is optional. T3 must be available and configured for automated work, while local reading and decision capture continue during an outage.
+Atr coordinates projects on T3. It keeps briefs, work items, decisions and evidence in local Markdown; T3 supplies agents, threads, execution and communication. **T3 is required.** It is a prerequisite: the installer and `atr setup` check for it first and offer to install and start it. If you decline, setup still finishes and reports T3 as missing; `atr setup --check` then exits non-zero (use `--skip-t3` for CI or a restore). Without T3, atr keeps recording (reading, search and decision capture continue) but nothing reaches an agent. The web server is optional.
 
 ## Prerequisites
 
 - Python 3.13, using its standard library, on a POSIX system with `fcntl.flock` and an IANA timezone database. This is the rehearsed Python version; a browser is needed only for the web page.
 - A complete atr source installation: `bin/`, `template/`, `web/`, assets and supporting rules/docs stay together. There is no pip or frontend build step for the core.
-- A separately installed [T3 Code](https://t3.codes/) runtime and public CLI for dispatch and communication, with a working project and provider configuration. The installer below offers to run T3's official CLI installer; provider sign-in and project setup stay with T3.
+- **Required:** a separately installed [T3 Code](https://t3.codes/) runtime and public CLI for dispatch and communication, with a working project and provider configuration. The installer below offers to run T3's official CLI installer; provider sign-in and project setup stay with T3.
 
 ## Install
 
@@ -75,7 +75,7 @@ Back up the selected store, including its hidden `.atr/` data. The source reposi
 
 ## Connect T3 for automated work
 
-Without T3 installed and linked, atr only records. Answers, pauses and notes are saved locally, but nothing is sent to agents and no agent starts or reacts. When atr cannot find the T3 program, the web page shows a banner saying so, and `setup --check` reports "T3: unavailable".
+T3 is required for automated work. Without it installed and linked, atr keeps running but only records. Answers, pauses and notes are saved locally, but nothing is sent to agents and no agent starts or reacts. When atr cannot find the T3 program, the web page shows a banner saying so, and `setup --check` reports "T3: unavailable".
 
 Set the public CLI executable and a valid existing T3 project path or ID in the environment of every atr process:
 

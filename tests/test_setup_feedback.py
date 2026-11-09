@@ -15,7 +15,7 @@ TID = "11111111-aaaa-bbbb-cccc-000000000001"
 
 
 def ns(**kw):
-    base = dict(check=False, print_env=False, yes=False, no_maintainer=False, recreate_maintainer=False)
+    base = dict(check=False, print_env=False, yes=False, no_maintainer=False, recreate_maintainer=False, skip_t3=True)
     base.update(kw)
     return argparse.Namespace(**base)
 
@@ -149,7 +149,7 @@ class SetupTests(Base):
         self.alive.clear()
         code, out = self.run_cmd(tr.cmd_setup, ns(check=True))
         self.assertEqual(code, 0)
-        self.assertIn("local records remain usable", out)
+        self.assertIn("T3: skipped", out)
 
     def test_recreate_replaces_thread(self):
         self.run_cmd(tr.cmd_setup, ns(yes=True))
