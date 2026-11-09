@@ -747,6 +747,7 @@ def cmd_set(a):
     if "state=doing" in a.pairs and not r["cap_h"] and not any(p.startswith("cap_h=") and p[6:] for p in a.pairs):
         print(f"warn: {r['id']} goes to doing with no cap_h: an uncapped doing item nudges the room's lead "
               f"(bin/atr set {room.name} {r['id']} cap_h=<hours>)", file=sys.stderr)
+    before = r["state"]
     for kv in a.pairs:
         k, _, v = kv.partition("=")
         r.set(k, parse_value(v) if v.startswith("[") else v)
@@ -755,6 +756,9 @@ def cmd_set(a):
         r.append_to("Log", f"- {logstamp()} {a.by}: set {' '.join(a.pairs)}")
     r.save()
     tap_unblocked(room, r)
+    if r in room.items and r["state"] in ("review", "done") and r["state"] != before and a.by != "lead":
+        tell_lead_or_defer(room, f"{r['id']} ({r['title']}) in room {room.name} reached {r['state']} ({a.by}). "
+                                 f"Review it: atr inbox {room.name}; atr check {room.name}")
 
 def open_items(room):
     return [i for i in room.items if i["state"] not in ("done", "dropped")]
@@ -1518,6 +1522,12 @@ def continuity(room, yielding=False):
     waiting, resume = (room.head["waiting"], room.head["resume"]) if room.head else (None, None)
     if waiting and resume:
         at = parse_time(resume)
+        if not at and lead != "running":
+            awaited = set(re.findall(r"\bT\d{2,}\b", f"{waiting} {resume}"))
+            states = {i["id"]: i["state"] for i in room.items}
+            if awaited and awaited <= set(states) and all(states[x] in ("review", "done", "dropped") for x in awaited):
+                return "stalled", (f"everything awaited ({', '.join(sorted(awaited))}) finished "
+                                   "but the lead is idle and nobody resumed the room")
         if at and at < now():
             return "stalled", f"the wait on {waiting} was due to resume at {room.when(at)} and nobody resumed it"
         return "waiting", f"waiting on {waiting}; resumes {room.when(at) if at else resume}"

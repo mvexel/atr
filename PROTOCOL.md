@@ -22,6 +22,6 @@ Use the concrete T3 commands for launches, thread facts and communication. A sav
 
 ## Checkpoints and handoffs
 
-Keep `BRIEF.md` repository/branch/checkouts and `now-head.md` phase, waiting owner and resume event current. Run `status ROOM` and `check ROOM`; before yielding run `check ROOM --yield`. A moving room needs active work, a real owner question, or an external event/time that can resume it. Native helper completion alone does not promise a new T3 turn.
+Keep `BRIEF.md` repository/branch/checkouts and `now-head.md` phase, waiting owner and resume event current. Run `status ROOM` and `check ROOM`; before yielding run `check ROOM --yield`. A moving room needs active work, a real owner question, or an external event/time that can resume it. Native helper completion alone does not promise a new T3 turn. A worker's `set state=review|done` queues a notice to the lead thread (delivery rules apply), and `check` flags a room stalled when its free-text `resume:` awaits only finished items and the lead is idle; still keep the turn open on `inbox` as the fallback.
 
 Before handoff, name the current commit, unfinished items, open decisions, checks, preserved artifacts and exact resume steps. Before close, finish/drop items and record disposition of source branches. Do not auto-merge, deploy or delete unmerged work. Back up whole stores including hidden runtime/recovery data; source control alone is not a store backup.
