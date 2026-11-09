@@ -1155,6 +1155,8 @@ def cmd_status(a):
         durable_write(room.dir / "README.md", md)
         durable_write(room.dir / "decisions" / "INDEX.md", render_index(room))
         print("\n".join(lines))
+        if (w := organize_warn(room)):
+            print(f"hint: {w}")
 
 _thread_cache = {}       # thread id -> (fetched at, facts or None)
 _refresher_on = False    # serve mode: request paths read the cache only, never the CLI
@@ -1205,6 +1207,7 @@ def fetch_thread(thread):
     return {"status": t.get("status"), "settled": bool(t.get("settled")),
             "provider": t.get("providerInstanceId"), "model": t.get("model", ""), "title": t.get("title") or "", "updated": t.get("updatedAt"),
             "parent": t.get("parentThreadId"), "relationship": t.get("relationshipToParent"),
+            "pinned": t.get("pinned") if isinstance(t.get("pinned"), bool) else None,
             "snoozed": bool(t.get("snoozed")), "snoozed_until": t.get("snoozedUntil"),
             "env": (re.search(r"/threads/([^/\s]+)/[^/\s]+/?$", str(t.get("link") or "")) or [None, ""])[1],
 }
@@ -1831,6 +1834,8 @@ def problems(room, yielding=False):
         p.append(w)
     if settled_open_warn(room):
         p.append(f"{room.name}: {settled_open_warn(room)['text']}")
+    if (w := organize_warn(room)):
+        p.append(w)
     for x in bottlenecks(room):
         p.append(f"{room.name}/{x['id']}: {x['text']}")
     for d in room.decisions:
@@ -2391,7 +2396,66 @@ def cmd_migrate(a):
     print(json.dumps(result, sort_keys=True, indent=2))
 
 
+def organize_wanted(room):
+    """The lead's desired T3 organize state from room state (pure): pin while the owner is needed (an open owner
+    decision, ask, or PRD/refinement agree card), unpin and settle once the room is closed, else leave it alone.
+    {'pinned': True|False|None, 'settled': True|None, 'reason': str}; None means unchanged."""
+    if room.closed:
+        return {"pinned": False, "settled": True, "reason": "room closed"}
+    ny = needs_you(room)
+    if ny:
+        return {"pinned": True, "settled": None, "reason": f"owner needed: {', '.join(d['id'] for d in ny)}"}
+    return {"pinned": None, "settled": None, "reason": "owner not needed"}
+
+def organize_plan(room, info=None):
+    """The t3_thread_organize calls the lead should make. T3 facts (info: thread_info of the lead, None = unknown) skip
+    steps already satisfied; unknown facts keep the step and mark it. Never an error (FR10)."""
+    want = organize_wanted(room)
+    thread = active_lead(room)
+    info = thread_info(thread) if info is None else info
+    steps = []
+    def add(action, key, target):
+        known = (info or {}).get(key)
+        if known is target:
+            return
+        steps.append({"tool": "t3_thread_organize", "action": action, "threadId": thread,
+                      "state": "unknown" if known is None else "pending",
+                      **({"note": "settling the current thread applies at turn end; run it last"} if action == "settle" else {})})
+    if want["pinned"] is True:
+        add("pin", "pinned", True)
+    elif want["pinned"] is False:
+        add("unpin", "pinned", False)
+    if want["settled"]:
+        if not (info or {}).get("settled"):
+            steps.append({"tool": "t3_thread_organize", "action": "settle", "threadId": thread,
+                          "state": "unknown" if info is None else "pending",
+                          "note": "settling the current thread applies at turn end; run it last"})
+    return {"room": room.name, "lead": thread, "wanted": want, "t3_known": info is not None, "steps": steps}
+
+def organize_warn(room):
+    """Hint when the lead's pin state is known to be out of line with the room; None when fine or unknown."""
+    if room.brief is None or not room.brief["lead_thread"] or is_standing(room):
+        return None
+    plan = organize_plan(room)
+    known = [s for s in plan["steps"] if s["state"] == "pending"]
+    if not known:
+        return None
+    acts = " then ".join(s["action"] for s in known)
+    return (f"{room.name}: lead thread needs organizing ({plan['wanted']['reason']}): run "
+            f"`{atr_command()} t3 organize {room.name}` and its t3_thread_organize calls ({acts})")
+
+def cmd_t3_organize(a):
+    with store_transaction():
+        room = known_room(a.target)
+        plan = organize_plan(room)
+    print(json.dumps(plan, indent=2))
+    if plan["steps"]:
+        print("\nRun these t3_thread_organize calls yourself (atr cannot call T3 tools); threadId may be omitted for your own thread. "
+              "A step already satisfied in T3 is skipped on the next run; state 'unknown' means T3 facts were unavailable: run it anyway, repeating is harmless.", file=sys.stderr)
+
 def cmd_t3(a):
+    if a.verb == "organize":
+        return cmd_t3_organize(a)
     if a.verb == "show":
         refresh_thread(a.target)
         print(json.dumps({"thread": thread_info(a.target), "detail": "No cached facts means unavailable or unknown; local records remain usable"}))
@@ -3900,7 +3964,7 @@ def build_parser():
     mg.add_argument("--destination", required=True, help="distinct empty local data directory or its owned migration")
     mg.add_argument("--evidence", default="", help="required for review; imported actions still need individual delivery reconciliation")
     t3 = sub.add_parser("t3", help="concrete T3 thread facts, communication and gated item dispatch")
-    t3.add_argument("verb", choices=["show", "send", "launch"])
+    t3.add_argument("verb", choices=["show", "send", "launch", "organize"])
     t3.add_argument("target", help="thread id for show; room for send or launch")
     t3.add_argument("text", nargs="?", default="")
     t3.add_argument("--item", help="item id required for launch")
