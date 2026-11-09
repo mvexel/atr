@@ -59,6 +59,8 @@ atr serve --host 127.0.0.1 --port 8787
 
 Open `http://127.0.0.1:8787/` and you should see your new Demo project room. For the full walkthrough, see **[Setup](docs/SETUP.md)**.
 
+Tab completion for commands, rooms and item IDs comes with the install in bash, zsh and fish. If you put `atr` on your PATH yourself, load it with `eval "$(atr completion bash)"` (or `zsh`; in fish: `atr completion fish | source`).
+
 ## Update and diagnose
 
 Run `atr self-update` to update the running installation. Git checkouts must be clean and on a branch with an upstream; updates only fast-forward. Installer tarballs are downloaded again using `ATR_REPO` and `ATR_REF` (defaults: this repository and `main`). Tarball updates replace the bundled source, so keep custom edits in a Git checkout. Updates keep your data, shell configuration and T3; restart a running `atr serve` afterward.

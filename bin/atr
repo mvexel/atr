@@ -28,6 +28,7 @@ Usage (ROOM is a folder name under rooms/):
   atr doctor                                               diagnose local setup without changing it
   atr self-update                                          update this source installation
   atr uninstall [--yes]                                     undo install.sh (keeps your data and T3)
+  atr completion bash|zsh|fish                              print the tab-completion script (install.sh loads it)
   atr feedback "text" --doc PROTOCOL|skill|charter --from ROOM [--cites REC] [--from-thread ID] [--blocks ROOM/ITEM,...]   file feedback
   atr inbox ROOM                  Martijn's taps and pause changes since you last looked (run it mid-turn)
 
@@ -3353,7 +3354,144 @@ def feedback_counts(room, now_t=None):
     out["week_days"] = 7
     return out
 
+# ---------- shell completion ----------
+# The scripts in completions/ are thin: on <Tab> they run `atr __complete WORD... CURRENT` and show what it
+# prints, one "value<TAB>description" per line. A first line ":dirs" asks the shell for directories instead.
+# Everything else is read from the argparse parser below, so completion cannot drift from the commands.
+COMPLETION_SHELLS = {"bash": "atr.bash", "zsh": "atr.zsh", "fish": "atr.fish"}
+COMPLETE_DIRS = {"data_dir", "source", "destination"}
+COMPLETE_ROOMS = {"room", "rooms", "from_room"}
+COMPLETE_ITEM_LISTS = {("new", "depends"), ("new", "blocks"), ("need", "needs")}
+COMPLETE_IDS = {"set": "TD", "log": "TD", "need": "T", "reply": "D", "answer": "D"}
+
+def cmd_completion(a):
+    print((SOURCE_ROOT / "completions" / COMPLETION_SHELLS[a.shell]).read_text(), end="")
+
+def _completion_rooms(rooms_dir):
+    try:
+        return sorted(p.name for p in rooms_dir.iterdir() if p.is_dir() and not p.name.startswith("."))
+    except OSError:
+        return []
+
+def _completion_records(rooms_dir, room, kinds):
+    """(id, title) for a room's items (T) and/or decisions (D), read without locks: completion only looks."""
+    out = []
+    for kind, folder in (("T", "items"), ("D", "decisions")):
+        if kind not in kinds or "/" in room or room.startswith("."):
+            continue
+        found = []
+        for p in (rooms_dir / room / folder).glob("*.md"):
+            if p.name == "INDEX.md":
+                continue
+            try:
+                m = re.search(r"^title:\s*(.*)$", p.read_text(errors="replace").split("\n---", 1)[0], re.M)
+            except OSError:
+                m = None
+            found.append((p.name.split("-")[0].removesuffix(".md"), m.group(1).strip() if m else ""))
+        out += sorted(found, key=lambda r: idkey(r[0]))
+    return out
+
+def completion_candidates(parser, words):
+    """What can follow `atr WORDS[:-1]`, filtered by the partial last word: (value, description) pairs,
+    or [(":dirs", "")] when the shell should complete a directory."""
+    *done, cur = words or [""]
+    p, index, values, pending, path, data_dir = parser, 0, {}, None, [], None
+    for w in done:
+        if pending is not None:
+            values[pending.dest] = w
+            pending = None
+            continue
+        if w.startswith("-") and w != "-":
+            name, eq, value = w.partition("=")
+            action = p._option_string_actions.get(name)
+            if action is not None and action.nargs != 0:
+                if eq:
+                    values[action.dest] = value
+                else:
+                    pending = action
+            continue
+        positionals = [x for x in p._actions if not x.option_strings]
+        if index >= len(positionals):
+            continue
+        action = positionals[index]
+        if isinstance(action, argparse._SubParsersAction):
+            if w not in action.choices:
+                return []
+            if p is parser:
+                data_dir = values.get("data_dir")
+            p, index = action.choices[w], 0
+            path.append(action._name_parser_map[w].prog.split()[-1])
+            continue
+        if action.nargs in ("*", "+"):
+            values.setdefault(action.dest, []).append(w)
+        else:
+            values[action.dest] = w
+            index += 1
+    cmd = path[0] if path else ""
+    try:
+        rooms_dir = select_data_dir(explicit=data_dir)[0] / "rooms" if data_dir else ROOMS
+    except ValueError:
+        rooms_dir = ROOMS
+
+    def pick(pairs, prefix=""):
+        return [(prefix + v, d) for v, d in pairs if v.startswith(cur[len(prefix):]) or not cur[len(prefix):]]
+
+    def for_value(action):
+        if action.dest in COMPLETE_DIRS:
+            return [(":dirs", "")]
+        if action.choices is not None and not isinstance(action, argparse._SubParsersAction):
+            return pick((str(c), "") for c in action.choices)
+        if (cmd, action.dest) in COMPLETE_ITEM_LISTS and values.get("room"):
+            head = cur.rpartition(",")[0]
+            given = set(head.split(","))
+            return [(v, d) for v, d in pick(_completion_records(rooms_dir, values["room"], "T"),
+                                            head + "," if head else "") if v.rpartition(",")[2] not in given]
+        if action.dest in COMPLETE_ROOMS:
+            taken = values.get(action.dest) if isinstance(values.get(action.dest), list) else []
+            return pick((r, "") for r in _completion_rooms(rooms_dir) if r not in taken)
+        if action.dest == "id" and cmd in COMPLETE_IDS and values.get("room"):
+            return pick(_completion_records(rooms_dir, values["room"], COMPLETE_IDS[cmd]))
+        return []
+
+    if pending is not None:
+        return for_value(pending)
+    if cur.startswith("-"):
+        seen = {o for o in done if o.startswith("--")}
+        return pick((o, x.help or "") for x in p._actions for o in x.option_strings
+                    if o.startswith("--") and x.help != argparse.SUPPRESS
+                    and (o not in seen or isinstance(x, argparse._AppendAction)))
+    positionals = [x for x in p._actions if not x.option_strings]
+    if index >= len(positionals):
+        return []
+    action = positionals[index]
+    if isinstance(action, argparse._SubParsersAction):
+        helps = {c.dest: c.help or "" for c in action._choices_actions}
+        return pick((name, helps.get(name, "")) for name, sp in action.choices.items()
+                    if sp.prog.split()[-1] == name)       # canonical names only, not aliases
+    return for_value(action)
+
 def main():
+    ap = build_parser()
+    if sys.argv[1:2] == ["__complete"]:
+        for value, description in completion_candidates(ap, sys.argv[2:]):
+            print(f"{value}\t{' '.join(description.split())}" if description else value)
+        return
+    a = ap.parse_args()
+    if a.lock_directory:
+        print(LOCKDIR)
+        return
+    if not a.cmd:
+        ap.error("a command is required")
+    if a.cmd == "setup":
+        if os.environ.get("ATR_INSTALLER") != "1":
+            print(f"Atr data: {ROOT} ({DATA_SELECTION})")
+    {"new": cmd_new, "set": cmd_set, "need": cmd_need, "log": cmd_log, "answer": cmd_answer, "reply": cmd_reply, "status": cmd_status,
+     "check": cmd_check, "serve": cmd_serve,
+     "name": cmd_name, "team": cmd_team, "rooms": cmd_rooms, "room": cmd_rooms, "prd": cmd_prd, "refinement": cmd_refinement, "brief": cmd_brief, "inbox": cmd_inbox, "lead": cmd_lead,
+     "setup": cmd_setup, "doctor": cmd_doctor, "self-update": cmd_self_update, "uninstall": cmd_uninstall, "feedback": cmd_feedback, "delivery": cmd_delivery, "migrate": cmd_migrate, "t3": cmd_t3,
+     "completion": cmd_completion}[a.cmd](a)
+
+def build_parser():
     ap = argparse.ArgumentParser(prog="atr", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data-dir", help="local Markdown store (overrides ATR_DATA_DIR, config.json and the XDG default)")
     ap.add_argument("--lock-directory", action="store_true", help=argparse.SUPPRESS)
@@ -3446,19 +3584,9 @@ def main():
     un = sub.add_parser("uninstall", help="undo install.sh: remove atr from your shell startup files and delete the "
                         "fetched source; keeps your data and T3")
     un.add_argument("--yes", action="store_true", help="remove without asking")
-    a = ap.parse_args()
-    if a.lock_directory:
-        print(LOCKDIR)
-        return
-    if not a.cmd:
-        ap.error("a command is required")
-    if a.cmd == "setup":
-        if os.environ.get("ATR_INSTALLER") != "1":
-            print(f"Atr data: {ROOT} ({DATA_SELECTION})")
-    {"new": cmd_new, "set": cmd_set, "need": cmd_need, "log": cmd_log, "answer": cmd_answer, "reply": cmd_reply, "status": cmd_status,
-     "check": cmd_check, "serve": cmd_serve,
-     "name": cmd_name, "team": cmd_team, "rooms": cmd_rooms, "room": cmd_rooms, "prd": cmd_prd, "refinement": cmd_refinement, "brief": cmd_brief, "inbox": cmd_inbox, "lead": cmd_lead,
-     "setup": cmd_setup, "doctor": cmd_doctor, "self-update": cmd_self_update, "uninstall": cmd_uninstall, "feedback": cmd_feedback, "delivery": cmd_delivery, "migrate": cmd_migrate, "t3": cmd_t3}[a.cmd](a)
+    cp = sub.add_parser("completion", help="print the shell completion script (install.sh already loads it)")
+    cp.add_argument("shell", choices=sorted(COMPLETION_SHELLS))
+    return ap
 
 # All canonical entry points participate in the same lock/recovery boundary, including calls made
 # directly by the web server and its background loops. CLI commands acquire before reading Room.

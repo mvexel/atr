@@ -119,16 +119,23 @@ ok Data "$(tilde "$data")"
 
 # --- shell startup file -----------------------------------------------------
 shell=$(basename -- "${SHELL:-sh}")
+# atr is a function, not an alias: zsh completes an alias as the command it expands to (python).
+# The completion file asks atr itself what can come next, so it never goes stale.
+completions="$src_dir/completions"
 case "$shell" in
   fish) rc="${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish"
         lines="set -gx ATR_DATA_DIR $(q "$data")
-alias atr $(q "$py -I $atr_bin")" ;;
+function atr; $(q "$py") -I $(q "$atr_bin") \$argv; end
+source $(q "$completions/atr.fish")" ;;
   zsh)  rc="${ZDOTDIR:-$HOME}/.zshrc" ;;
   bash) rc="$HOME/.bashrc" ;;
   *)    rc= ;;
 esac
 [ "$shell" = fish ] || lines="export ATR_DATA_DIR=$(q "$data")
-alias atr=$(q "$py -I $atr_bin")"
+unalias atr 2>/dev/null
+function atr { $(q "$py") -I $(q "$atr_bin") \"\$@\"; }"
+case "$shell" in bash|zsh) lines="$lines
+. $(q "$completions/atr.$shell")" ;; esac
 block="$BEGIN
 $lines
 $END"

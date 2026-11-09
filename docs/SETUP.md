@@ -16,7 +16,7 @@ curl -fsSL https://raw.githubusercontent.com/mvexel/atr/main/install.sh | sh
 
 The installer fetches the source into `$ATR_HOME/src` (default `~/.atr/src`; git clone, or a tarball without git), picks Python 3.13+ (`PYTHON` overrides), asks for the data directory (`ATR_DATA_DIR`, default `~/.local/share/atr`), offers to put `atr` on your PATH, offers to install the T3 CLI if atr cannot find it, and runs `atr setup`. Run from a checkout, `./install.sh` uses that checkout. `--yes` (`sh -s -- --yes` when piped) accepts every default; without a terminal and without `--yes` it changes no startup file and installs nothing.
 
-To put `atr` on your PATH it adds an alias and `ATR_DATA_DIR` to your shell's startup file (`~/.zshrc`, `~/.bashrc` or `~/.config/fish/config.fish`, picked from `$SHELL`), between `# >>> atr >>>` and `# <<< atr <<<` markers. It shows the lines first. Rerunning replaces the block instead of adding another; a symlinked dotfile stays a symlink. `setup --check` notes when `atr` is not on your `PATH`; this never fails the check.
+To put `atr` on your PATH it adds an `atr` shell function, `ATR_DATA_DIR` and a line that loads tab completion to your shell's startup file (`~/.zshrc`, `~/.bashrc` or `~/.config/fish/config.fish`, picked from `$SHELL`), between `# >>> atr >>>` and `# <<< atr <<<` markers. It shows the lines first. Rerunning replaces the block instead of adding another; a symlinked dotfile stays a symlink. `setup --check` notes when `atr` is not on your `PATH`; this never fails the check.
 
 atr finds the T3 CLI at `$T3CODE_CLI_PATH`, else `~/.t3/bin/t3` (desktop app), else `~/.local/bin/t3` (CLI installer), else `t3` on `PATH`.
 

@@ -38,7 +38,8 @@ class Install(unittest.TestCase):
         text = rc.read_text()
         self.assertTrue(text.startswith("# mine\n"))
         self.assertEqual(text.count(BEGIN), 1)
-        self.assertIn(f"alias atr='", text)
+        self.assertIn("function atr { '", text)
+        self.assertIn(f". '{REPO}/completions/atr.zsh'", text)
         self.assertIn(str(self.home / ".local/share/atr"), text)
         self.assertTrue((self.home / ".local/share/atr/rooms/process/BRIEF.md").exists())
 
@@ -57,7 +58,8 @@ class Install(unittest.TestCase):
         self.assertEqual(self.run_install("fish", "--yes").returncode, 0)
         text = (self.home / ".config/fish/config.fish").read_text()
         self.assertIn("set -gx ATR_DATA_DIR ", text)
-        self.assertIn("alias atr '", text)
+        self.assertIn("function atr; '", text)
+        self.assertIn(f"source '{REPO}/completions/atr.fish'", text)
 
     def test_no_terminal_without_yes_changes_no_rc(self):
         r = self.run_install("zsh")
