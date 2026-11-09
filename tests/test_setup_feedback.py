@@ -336,7 +336,7 @@ class BlocksTests(Base):
                                                 "locks: []\nupdated: 2026-01-01T00:00Z\n---\n## Log\n- 00:00Z x: set state=doing\n")
         self.deferred = []
         self.saved_t = tr.tell_lead_or_defer
-        tr.tell_lead_or_defer = lambda room, text, thread=None: self.deferred.append((room.name, text)) or True
+        tr.tell_lead_or_defer = lambda room, text, thread=None: (self.deferred.append((room.name, text)) if " reached " not in text else None) or True
         self.run_cmd(tr.cmd_feedback, fb("plain one"))
         self.sent.clear()
 

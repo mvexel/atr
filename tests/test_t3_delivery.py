@@ -199,34 +199,37 @@ assert not path.exists(), 'sibling write escaped the canonical rollback'
         self.assertEqual(len(calls), 2)
         self.assertNotEqual(calls[0]["id"], calls[1]["id"])
 
-    def test_public_cli_launch_propagates_store_and_retains_item_thread_correlation(self):
+    def test_item_launch_prints_delegate_task_brief_and_creates_no_thread(self):
         tr = self.tr
         item = self.room / "items/T01-work.md"
         item.write_text("---\nid: T01\ntitle: Work\nstate: todo\ndepends_on: []\n---\n## Acceptance\n- [ ] Result exists\n\n## Inputs\n- Synthetic fixture\n")
-        project = self.root / "project"
-        project.mkdir()
         capture = self.root / "public-cli-capture.json"
         cli = self.root / "fake-public-t3"
-        cli.write_text("#!" + os.sys.executable + "\nimport json,sys\nfrom pathlib import Path\n"
-                       + f"Path({str(capture)!r}).write_text(json.dumps({{'args':sys.argv[1:],'input':sys.stdin.read()}}))\n"
-                       + "print(json.dumps({'thread': {'id':'synthetic-launched-thread'}}))\n")
+        cli.write_text("#!" + os.sys.executable + "\nfrom pathlib import Path\n" + f"Path({str(capture)!r}).write_text('called')\n")
         cli.chmod(0o755)
         args = SimpleNamespace(verb="launch", target="demo", text="Do the bounded fixture work", item="T01", project=None,
-                               provider="synthetic-provider", model="synthetic-model", title=None)
-        with patch.dict(os.environ, T3CODE_CLI_PATH=str(cli), ATR_T3_PROJECT=str(project), ATR_T3_BASE_DIR=str(self.root / "isolated-t3")), contextlib.redirect_stdout(io.StringIO()):
+                               provider=None, model=None, title="my own title")
+        out, err = io.StringIO(), io.StringIO()
+        with patch.dict(os.environ, T3CODE_CLI_PATH=str(cli)), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             tr.cmd_t3(args)
-        captured = json.loads(capture.read_text())
-        self.assertEqual(captured["args"][:4], ["thread", "start", str(project), "-"])
-        self.assertIn("--base-dir", captured["args"])
-        self.assertIn(str(self.root), captured["input"])
-        self.assertIn("--data-dir", captured["input"])
-        self.assertIn("Atr room: demo", captured["input"])
-        record = tr.Record(item)
-        self.assertEqual((record["state"], record["agent"]), ("doing", "synthetic-launched-thread"))
-        action = next(iter(tr.delivery_actions().values()))
-        self.assertEqual(action["state"], "confirmed")
-        self.assertEqual(action["thread"], record["agent"])
-        with self.assertRaises(tr.StoreConflict):
+        self.assertFalse(capture.exists(), "no T3 CLI call: no top-level thread")
+        self.assertEqual(tr.delivery_actions(), {})
+        brief = json.loads(out.getvalue())
+        self.assertEqual((brief["tool"], brief["title"], brief["isolation"], brief["role"]),
+                         ("delegate_task", "demo · T01 · worker", "worktree", "implementation"))
+        for needle in ("Do the bounded fixture work", "Atr room: demo. Item: T01", str(self.root), "--data-dir"):
+            self.assertIn(needle, brief["task"])
+        self.assertIn("agent=<childThreadId>", err.getvalue())
+        self.assertIn("do NOT launch a top-level thread", err.getvalue())
+        self.assertIn("mid-turn", err.getvalue())
+        self.assertEqual(tr.Record(item)["agent"], "")
+
+    def test_item_launch_keeps_dependency_and_brief_gap_checks(self):
+        tr = self.tr
+        item = self.room / "items/T01-work.md"
+        item.write_text("---\nid: T01\nstate: todo\ndepends_on: []\n---\n")
+        args = SimpleNamespace(verb="launch", target="demo", text="x", item="T01", project=None, provider=None, model=None, title=None)
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(tr.StoreConflict):
             tr.cmd_t3(args)
 
     def test_item_launch_reservation_survives_uncertain_acceptance_and_record_edits(self):

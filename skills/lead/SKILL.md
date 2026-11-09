@@ -28,9 +28,31 @@ Don't create a second room for a thread that already leads one, and don't add ne
 
 To lead an existing room, run `lead ROOM YOUR_THREAD_ID`, then `inbox ROOM` and `check ROOM --yield`, and carry on.
 
+## Titles, links and paths
+
+- Title your own thread `Room · <room> · lead` (set it with `t3_thread_update`). `atr t3 launch` titles each worker `<room> · <item> · <role>` (role: `--role`, else the item owner) and corrects any other title it is given. Tell workers to keep that title.
+- T3 can regenerate a thread's title. If it did, set the convention title again with `t3_thread_update`; `atr check` warns when the lead's title is off.
+- When you mention a thread to the owner, use a link, `t3-thread://v2/<env>/<thread>`: it shows the thread's current title and opens it. `<env>` is the environment id in the thread's T3 link (`https://app.t3.codes/threads/<env>/<thread>`). Don't write bare thread ids.
+- Name store files by absolute path (under the store's `rooms/` directory), never relative to a checkout.
+- atr's web page links the lead and each worker that way once their ids are known (set `ATR_T3_ENVIRONMENT` if T3 doesn't report the environment).
+
+## Pin while the owner is needed, settle on close
+
+`atr t3 organize ROOM` prints the `t3_thread_organize` calls your own thread needs (JSON; atr cannot call T3 tools): `pin` while an owner decision, ask or PRD/refinement agree card is open, `unpin` then `settle` once the room is closed. Only the lead is pinned; nothing is snoozed. Run it before `check ROOM --yield` and again when you close the room, then make the calls it lists (omit `threadId` for your own thread; settle last, it applies at turn end). Steps T3 already satisfies are skipped, and a repeat is harmless. If T3 facts are unavailable the steps are marked `unknown`: make them anyway. `atr status` and `check` hint when the pin state is out of line.
+
+## Delegating workers
+
+`atr t3 launch ROOM "instructions" --item ID` is a CLI and cannot call T3 tools, so it creates no thread. After the dependency and brief checks it prints a ready `delegate_task` brief (title `<room> · <item> · <role>`, task text with room, item, store and atr command, `isolation: worktree`, role `implementation`). Then:
+
+1. Call `delegate_task` yourself with that brief (isolation worktree: each editing agent gets its own checkout).
+2. Record the child: `atr set ROOM ID agent=<childThreadId>`.
+3. You must be mid-turn to delegate: only a running lead can call `delegate_task`. Dispatch before you yield.
+4. Child threads take no messages. Don't `t3_thread_send` to a worker; it messages you (final answer, `atr need`). Review and re-delegate instead.
+5. If `delegate_task` is unavailable, block: set the item `state=blocked`, tell the owner plainly why. Never fall back to a top-level thread.
+
 ## Lead
 
-Plan bounded items with acceptance, inputs, dependencies, locks, owners and caps before dispatch. Start workers with `t3 launch ROOM "instructions" --item ID`. Each editing agent gets a separate checkout; workers report unplanned needs with `need`. Keep the integration branch and checkout in BRIEF. Use T3 for execution and messages; don't invent a replacement runner.
+Plan bounded items with acceptance, inputs, dependencies, locks, owners and caps before dispatch. Start workers with `t3 launch ROOM "instructions" --item ID`; see Delegating workers. Each editing agent gets a separate checkout; workers report unplanned needs with `need`. Keep the integration branch and checkout in BRIEF. Use T3 for execution and messages; don't invent a replacement runner.
 
 When you mention a store file (a note, decision or item) to the owner, link it by its absolute path under the store's `data_dir`, not a store-relative path: T3 resolves relative links against the workspace, which is often not the store, and its viewer then reports the file missing.
 

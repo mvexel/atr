@@ -747,6 +747,7 @@ def cmd_set(a):
     if "state=doing" in a.pairs and not r["cap_h"] and not any(p.startswith("cap_h=") and p[6:] for p in a.pairs):
         print(f"warn: {r['id']} goes to doing with no cap_h: an uncapped doing item nudges the room's lead "
               f"(bin/atr set {room.name} {r['id']} cap_h=<hours>)", file=sys.stderr)
+    before = r["state"]
     for kv in a.pairs:
         k, _, v = kv.partition("=")
         r.set(k, parse_value(v) if v.startswith("[") else v)
@@ -755,6 +756,9 @@ def cmd_set(a):
         r.append_to("Log", f"- {logstamp()} {a.by}: set {' '.join(a.pairs)}")
     r.save()
     tap_unblocked(room, r)
+    if r in room.items and r["state"] in ("review", "done") and r["state"] != before and a.by != "lead":
+        tell_lead_or_defer(room, f"{r['id']} ({r['title']}) in room {room.name} reached {r['state']} ({a.by}). "
+                                 f"Review it: atr inbox {room.name}; atr check {room.name}")
 
 def open_items(room):
     return [i for i in room.items if i["state"] not in ("done", "dropped")]
@@ -1155,6 +1159,8 @@ def cmd_status(a):
         durable_write(room.dir / "README.md", md)
         durable_write(room.dir / "decisions" / "INDEX.md", render_index(room))
         print("\n".join(lines))
+        if (w := organize_warn(room)):
+            print(f"hint: {w}")
 
 _thread_cache = {}       # thread id -> (fetched at, facts or None)
 _refresher_on = False    # serve mode: request paths read the cache only, never the CLI
@@ -1205,7 +1211,9 @@ def fetch_thread(thread):
     return {"status": t.get("status"), "settled": bool(t.get("settled")),
             "provider": t.get("providerInstanceId"), "model": t.get("model", ""), "title": t.get("title") or "", "updated": t.get("updatedAt"),
             "parent": t.get("parentThreadId"), "relationship": t.get("relationshipToParent"),
+            "pinned": t.get("pinned") if isinstance(t.get("pinned"), bool) else None,
             "snoozed": bool(t.get("snoozed")), "snoozed_until": t.get("snoozedUntil"),
+            "env": (re.search(r"/threads/([^/\s]+)/[^/\s]+/?$", str(t.get("link") or "")) or [None, ""])[1],
 }
 
 def refresh_thread(thread):
@@ -1514,6 +1522,12 @@ def continuity(room, yielding=False):
     waiting, resume = (room.head["waiting"], room.head["resume"]) if room.head else (None, None)
     if waiting and resume:
         at = parse_time(resume)
+        if not at and lead != "running":
+            awaited = set(re.findall(r"\bT\d{2,}\b", f"{waiting} {resume}"))
+            states = {i["id"]: i["state"] for i in room.items}
+            if awaited and awaited <= set(states) and all(states[x] in ("review", "done", "dropped") for x in awaited):
+                return "stalled", (f"everything awaited ({', '.join(sorted(awaited))}) finished "
+                                   "but the lead is idle and nobody resumed the room")
         if at and at < now():
             return "stalled", f"the wait on {waiting} was due to resume at {room.when(at)} and nobody resumed it"
         return "waiting", f"waiting on {waiting}; resumes {room.when(at) if at else resume}"
@@ -1700,6 +1714,25 @@ def refinement_problems(room):
                          "was last touched); re-read it against the refinement")
     return p
 
+def t3_thread_link(thread):
+    """t3-thread://v2/<env>/<thread> for a thread whose environment T3 reported (or ATR_T3_ENVIRONMENT names); else None."""
+    thread = (thread or "").strip()
+    if not THREAD_ID.fullmatch(thread):
+        return None
+    env = ((thread_info(thread) or {}).get("env") or os.environ.get("ATR_T3_ENVIRONMENT", "")).strip()
+    return f"t3-thread://v2/{env}/{thread}" if re.fullmatch(r"[A-Za-z0-9._~-]+", env) else None
+
+def lead_title(room):
+    return f"Room · {room} · lead"
+
+def worker_title(room, item, role):
+    return f"{room} · {item} · {role}"
+
+def worker_role(item, role=None):
+    """The role word in a worker title: --role, else the item owner's role, else 'worker'."""
+    word = slug(role or (item["owner"] or "").split(" ")[0] or "") or "worker"
+    return word
+
 def lead_title_warn(room):
     """The active lead thread's title should start with 'Room · '. None for closed and standing rooms
     and when T3 doesn't know the thread."""
@@ -1811,6 +1844,8 @@ def problems(room, yielding=False):
         p.append(w)
     if settled_open_warn(room):
         p.append(f"{room.name}: {settled_open_warn(room)['text']}")
+    if (w := organize_warn(room)):
+        p.append(w)
     for x in bottlenecks(room):
         p.append(f"{room.name}/{x['id']}: {x['text']}")
     for d in room.decisions:
@@ -1977,7 +2012,8 @@ def room_json(room, with_records=False):
         lanes.setdefault(i["owner"].split(" ")[0] or "unassigned", []).append(
             {"id": i["id"], "title": i["title"], "state": i["state"], "waits": pending if i["state"] == "todo" else [],
              "updated_min": int((now() - parse_time(i["updated"])).total_seconds() // 60) if parse_time(i["updated"]) else None,
-             "cap_h": str(i["cap_h"] or ""), "agent": str(i["agent"] or "")})
+             "cap_h": str(i["cap_h"] or ""), "agent": str(i["agent"] or ""),
+             "agent_link": t3_thread_link(str(i["agent"] or "")) or ""})
     order = {"doing": 0, "review": 1, "blocked": 2, "todo": 3}
     lane_list = [{"owner": o, "name": room.team.get(o, ("", ""))[0], "pronoun": room.team.get(o, ("", ""))[1],
                   "items": sorted(v, key=lambda x: order.get(x["state"], 9))}
@@ -2003,7 +2039,7 @@ def room_json(room, with_records=False):
             "recent": [{"id": d["id"], "title": d["title"], "decider": d["decider"], "answer": d.section("Answer")}
                        for d in recent],
             "lanes": lane_list, "plan": plan(room), "counts": counts, "locks": [{"name": n, "holder": h} for n, h in held_locks()],
-            "code": code_info(room), "lead_thread": bool(room.brief and room.brief["lead_thread"]), "lead_commands": lead_commands(room.name),
+            "code": code_info(room), "lead_thread": bool(room.brief and room.brief["lead_thread"]), "lead_link": t3_thread_link(active_lead(room)) or "", "lead_commands": lead_commands(room.name),
             "team": [{"role": r, "name": n, "pronoun": pr} for r, (n, pr) in room.team.items()],
             "records": {r["id"]: record_json(room, r) for r in room.items + room.decisions + room.refinements + ([room.prd] if room.prd else [])}
                        if with_records else {}, "records_included": with_records,
@@ -2370,7 +2406,66 @@ def cmd_migrate(a):
     print(json.dumps(result, sort_keys=True, indent=2))
 
 
+def organize_wanted(room):
+    """The lead's desired T3 organize state from room state (pure): pin while the owner is needed (an open owner
+    decision, ask, or PRD/refinement agree card), unpin and settle once the room is closed, else leave it alone.
+    {'pinned': True|False|None, 'settled': True|None, 'reason': str}; None means unchanged."""
+    if room.closed:
+        return {"pinned": False, "settled": True, "reason": "room closed"}
+    ny = needs_you(room)
+    if ny:
+        return {"pinned": True, "settled": None, "reason": f"owner needed: {', '.join(d['id'] for d in ny)}"}
+    return {"pinned": None, "settled": None, "reason": "owner not needed"}
+
+def organize_plan(room, info=None):
+    """The t3_thread_organize calls the lead should make. T3 facts (info: thread_info of the lead, None = unknown) skip
+    steps already satisfied; unknown facts keep the step and mark it. Never an error (FR10)."""
+    want = organize_wanted(room)
+    thread = active_lead(room)
+    info = thread_info(thread) if info is None else info
+    steps = []
+    def add(action, key, target):
+        known = (info or {}).get(key)
+        if known is target:
+            return
+        steps.append({"tool": "t3_thread_organize", "action": action, "threadId": thread,
+                      "state": "unknown" if known is None else "pending",
+                      **({"note": "settling the current thread applies at turn end; run it last"} if action == "settle" else {})})
+    if want["pinned"] is True:
+        add("pin", "pinned", True)
+    elif want["pinned"] is False:
+        add("unpin", "pinned", False)
+    if want["settled"]:
+        if not (info or {}).get("settled"):
+            steps.append({"tool": "t3_thread_organize", "action": "settle", "threadId": thread,
+                          "state": "unknown" if info is None else "pending",
+                          "note": "settling the current thread applies at turn end; run it last"})
+    return {"room": room.name, "lead": thread, "wanted": want, "t3_known": info is not None, "steps": steps}
+
+def organize_warn(room):
+    """Hint when the lead's pin state is known to be out of line with the room; None when fine or unknown."""
+    if room.brief is None or not room.brief["lead_thread"] or is_standing(room):
+        return None
+    plan = organize_plan(room)
+    known = [s for s in plan["steps"] if s["state"] == "pending"]
+    if not known:
+        return None
+    acts = " then ".join(s["action"] for s in known)
+    return (f"{room.name}: lead thread needs organizing ({plan['wanted']['reason']}): run "
+            f"`{atr_command()} t3 organize {room.name}` and its t3_thread_organize calls ({acts})")
+
+def cmd_t3_organize(a):
+    with store_transaction():
+        room = known_room(a.target)
+        plan = organize_plan(room)
+    print(json.dumps(plan, indent=2))
+    if plan["steps"]:
+        print("\nRun these t3_thread_organize calls yourself (atr cannot call T3 tools); threadId may be omitted for your own thread. "
+              "A step already satisfied in T3 is skipped on the next run; state 'unknown' means T3 facts were unavailable: run it anyway, repeating is harmless.", file=sys.stderr)
+
 def cmd_t3(a):
+    if a.verb == "organize":
+        return cmd_t3_organize(a)
     if a.verb == "show":
         refresh_thread(a.target)
         print(json.dumps({"thread": thread_info(a.target), "detail": "No cached facts means unavailable or unknown; local records remain usable"}))
@@ -2391,10 +2486,25 @@ def cmd_t3(a):
                 raise StoreConflict("dispatch blocked by incomplete dependencies")
             if gaps := brief_gaps(item):
                 raise StoreConflict("dispatch blocked: " + "; ".join(gaps))
-            action = queue_t3_action("launch", a.project or t3_project(), a.text, room=room.name, source=item,
-                                    options={"item": item["id"], "provider": a.provider, "model": a.model,
-                                             "title": a.title or f"{room.name}: {item['id']} {item['title']}"})
-    print(json.dumps(delivery_actions()[action["id"]], indent=2))
+            title = worker_title(room.name, item["id"], worker_role(item, getattr(a, "role", None)))
+            if a.title and a.title.strip() != title:
+                print(f"title {a.title!r} does not follow the convention; using {title!r}", file=sys.stderr)
+            role = worker_role(item, getattr(a, "role", None))
+            task = delegate_task_text(room.name, item["id"], a.text)
+    # atr is a CLI and cannot call T3 MCP tools: only the lead agent can call delegate_task. No top-level thread is made.
+    print(json.dumps({"tool": "delegate_task", "title": title, "role": "implementation", "isolation": "worktree",
+                      "task": task, "item": f"{room.name}/{item['id']}", "convention_role": role}, indent=2))
+    print(f"\nRun this with delegate_task yourself (isolation: worktree, role: implementation), then record the child:\n"
+          f"  {atr_command()} set {room.name} {item['id']} agent=<childThreadId>\n"
+          "You must be mid-turn to delegate. If delegate_task is unavailable, do NOT launch a top-level thread instead: "
+          f"set the item to blocked and tell the owner/lead why. Child threads take no messages: they message the lead.", file=sys.stderr)
+
+def delegate_task_text(room, item, text):
+    """The task text for a delegated worker: the lead's instructions plus the room, item, store and atr command."""
+    return (f"{text.strip()}\n\nAtr room: {room}. Item: {item}. Selected store: {ROOT}.\n"
+            f"Use: {shlex.join([sys.executable, '-I', str(SOURCE_ROOT / 'bin/atr'), '--data-dir', str(ROOT)])} <command>.\n"
+            "Keep all atr updates in that store; source resources are separate. You are a child thread and take no "
+            "messages: report to the lead via your final answer and `atr need`.")
 
 def tell_thread(thread, text):
     related = lead_rooms(thread)
@@ -3878,12 +3988,12 @@ def build_parser():
     mg.add_argument("--destination", required=True, help="distinct empty local data directory or its owned migration")
     mg.add_argument("--evidence", default="", help="required for review; imported actions still need individual delivery reconciliation")
     t3 = sub.add_parser("t3", help="concrete T3 thread facts, communication and gated item dispatch")
-    t3.add_argument("verb", choices=["show", "send", "launch"])
+    t3.add_argument("verb", choices=["show", "send", "launch", "organize"])
     t3.add_argument("target", help="thread id for show; room for send or launch")
     t3.add_argument("text", nargs="?", default="")
     t3.add_argument("--item", help="item id required for launch")
     t3.add_argument("--project", help="existing public T3 project id or registered path; defaults to ATR_T3_PROJECT/source")
-    t3.add_argument("--provider"); t3.add_argument("--model"); t3.add_argument("--title")
+    t3.add_argument("--provider"); t3.add_argument("--model"); t3.add_argument("--title"); t3.add_argument("--role", help="role in the worker title (default: the item owner)")
     dl = sub.add_parser("delivery", help="inspect pending T3 actions; reconcile uncertain acceptance before retrying")
     dl.add_argument("verb", choices=["list", "retry", "reconcile"])
     dl.add_argument("id", nargs="?")
