@@ -2607,6 +2607,13 @@ def cmd_t3(a):
                 print(f"title {a.title!r} does not follow the convention; using {title!r}", file=sys.stderr)
             role = worker_role(item, getattr(a, "role", None))
             task = delegate_task_text(room.name, item["id"], a.text)
+    if a.verb == "send":
+        # The committed message action is distinct from a worker launch brief.
+        # Read its final ledger state after the post-commit delivery attempt.
+        with store_transaction():
+            delivery = dict(delivery_actions()[action["id"]])
+        print(json.dumps({"delivery": delivery}, indent=2))
+        return
     # atr is a CLI and cannot call T3 MCP tools: only the lead agent can call delegate_task. No top-level thread is made.
     print(json.dumps({"tool": "delegate_task", "title": title, "role": "implementation", "isolation": "worktree",
                       "task": task, "item": f"{room.name}/{item['id']}", "convention_role": role}, indent=2))

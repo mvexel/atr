@@ -328,6 +328,19 @@ assert not path.exists(), 'sibling write escaped the canonical rollback'
 
 
 
+    def test_room_send_reports_delivery_without_falling_into_launch_output(self):
+        tr = self.tr
+        for state in ("confirmed", "uncertain", "failed"):
+            with self.subTest(state=state):
+                out = io.StringIO()
+                with patch.object(tr, "t3_execute", return_value={"state": state, "evidence": "fixture"}) as send, contextlib.redirect_stdout(out):
+                    tr.cmd_t3(SimpleNamespace(verb="send", target="demo", text="message " + state))
+                response = json.loads(out.getvalue())
+                self.assertEqual(response["delivery"]["state"], state)
+                self.assertEqual(response["delivery"]["kind"], "message")
+                self.assertNotIn("tool", response)
+                self.assertEqual(send.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
