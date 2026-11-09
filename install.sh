@@ -1,6 +1,6 @@
 #!/bin/sh
 # Installs atr: fetches the source (or uses the checkout this script sits in), checks Python, picks a data
-# directory, puts `atr` on your PATH through your shell's startup file, offers to install the T3 CLI,
+# directory, puts `atr` on your PATH through your shell's startup file, checks the T3 prerequisite first (offers to install and start it),
 # then runs `atr setup`. Needs sh, Python 3.13+, and git or curl/wget + tar.
 #
 #   curl -fsSL https://raw.githubusercontent.com/mvexel/atr/main/install.sh | sh
@@ -86,6 +86,51 @@ fi
 title "atr installer" "Puts atr on your PATH and creates its data directory. Nothing changes without a yes."
 "$yes" && note "--yes: answering yes to every question"
 
+# --- T3 (prerequisite, checked first) ---------------------------------------
+# T3 is required: agents run in it. Missing is not fatal: atr finishes setup and says what does not work.
+t3=
+for c in ${T3CODE_CLI_PATH:-} "$HOME/.t3/bin/t3" "$HOME/.local/bin/t3" "$(command -v t3 2>/dev/null || true)"; do
+  if [ -n "$c" ] && [ -f "$c" ]; then t3=$c; break; fi
+done
+t3_new=false
+t3_answers() { [ -n "$t3" ] && "$t3" thread list --log-level error </dev/null >/dev/null 2>&1; }
+if [ -n "$t3" ]; then
+  ok T3 "$(tilde "$t3")"
+else
+  printf '\n  T3 is required: atr records, T3 runs the agents. Not found.\n'
+  printf '  %sT3 Code'"'"'s official installer: %s (into ~/.t3 and ~/.local/bin/t3)%s\n' "$D" "$T3_INSTALLER" "$N"
+  if ask "Install T3?"; then
+    tmp=$(mktemp -d)
+    ok=false
+    download "$T3_INSTALLER" "$tmp/install.sh" || true
+    if [ -s "$tmp/install.sh" ]; then
+      if "$interactive"; then sh "$tmp/install.sh" </dev/tty && ok=true; else sh "$tmp/install.sh" && ok=true; fi
+    fi
+    rm -rf "$tmp"
+    if "$ok"; then
+      ok T3 installed
+      for c in "$HOME/.t3/bin/t3" "$HOME/.local/bin/t3" "$(command -v t3 2>/dev/null || true)"; do
+        if [ -n "$c" ] && [ -f "$c" ]; then t3=$c; break; fi
+      done
+      t3_new=true
+    else
+      warn T3 "install failed; try it yourself: curl -fsSL $T3_INSTALLER | sh"
+    fi
+  else
+    warn T3 "not installed; atr only records until you add it (set T3CODE_CLI_PATH, see docs/SETUP.md)"
+  fi
+fi
+if [ -n "$t3" ] && ! t3_answers; then
+  if ask "T3 is not answering. Start it now?"; then
+    nohup "$t3" serve --no-browser </dev/null >/dev/null 2>&1 &
+    n=0
+    while [ "$n" -lt 20 ] && ! t3_answers; do sleep 1; n=$((n + 1)); done
+    if t3_answers; then ok T3 "started and answering"; else warn T3 "did not answer; start it yourself: t3 serve"; fi
+  else
+    warn T3 "not running; agents will not act until it is (t3 serve)"
+  fi
+fi
+
 if [ -n "$here" ] && [ -f "$here/bin/atr" ]; then
   src_dir=$here
   ok Source "$(tilde "$src_dir") (this checkout)"
@@ -169,36 +214,6 @@ else
   fi
 fi
 
-# --- T3 CLI -----------------------------------------------------------------
-t3=
-for c in ${T3CODE_CLI_PATH:-} "$HOME/.t3/bin/t3" "$HOME/.local/bin/t3" "$(command -v t3 2>/dev/null || true)"; do
-  if [ -n "$c" ] && [ -f "$c" ]; then t3=$c; break; fi
-done
-t3_new=false
-if [ -n "$t3" ]; then
-  ok T3 "$(tilde "$t3")"
-else
-  printf '\n  The T3 CLI is not installed. Without it atr only records: no agent starts or hears back.\n'
-  printf '  %sT3 Code'"'"'s official installer: %s (into ~/.t3 and ~/.local/bin/t3)%s\n' "$D" "$T3_INSTALLER" "$N"
-  if ask "Install T3?"; then
-    tmp=$(mktemp -d)
-    ok=false
-    download "$T3_INSTALLER" "$tmp/install.sh" || true
-    if [ -s "$tmp/install.sh" ]; then
-      if "$interactive"; then sh "$tmp/install.sh" </dev/tty && ok=true; else sh "$tmp/install.sh" && ok=true; fi
-    fi
-    rm -rf "$tmp"
-    if "$ok"; then
-      ok T3 installed
-      t3=installed t3_new=true
-    else
-      warn T3 "install failed; try it yourself: curl -fsSL $T3_INSTALLER | sh"
-    fi
-  else
-    warn T3 "not installed; atr only records until you add it"
-  fi
-fi
-
 # --- atr setup --------------------------------------------------------------
 # Default yes: setup creates the process room, records the store for agents in ~/.config/atr/config.json,
 # links the lead skill where Claude Code and Codex (the agents T3 runs) look for skills, and keeps the web page
@@ -230,7 +245,7 @@ else
 fi
 "$set_up" || step "Run ${B}atr setup${N}"
 if [ -z "$t3" ]; then
-  step "Install T3 when you want agents to act: ${B}curl -fsSL $T3_INSTALLER | sh${N}"
+  step "T3 is required: ${B}curl -fsSL $T3_INSTALLER | sh${N}, or set ${B}T3CODE_CLI_PATH${N} (docs/SETUP.md)"
 elif "$t3_new"; then
   step "Sign in to a provider (e.g. ${B}claude auth login${N}), start ${B}t3${N} once, and register a project"
 fi
