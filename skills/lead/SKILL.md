@@ -54,6 +54,8 @@ To lead an existing room, run `lead ROOM YOUR_THREAD_ID`, then `inbox ROOM` and 
 
 Plan bounded items with acceptance, inputs, dependencies, locks, owners and caps before dispatch. Start workers with `t3 launch ROOM "instructions" --item ID`; see Delegating workers. Each editing agent gets a separate checkout; workers report unplanned needs with `need`. Keep the integration branch and checkout in BRIEF. Use T3 for execution and messages; don't invent a replacement runner.
 
+When you mention a store file (a note, decision or item) to the owner, link it by its absolute path under the store's `data_dir`, not a store-relative path: T3 resolves relative links against the workspace, which is often not the store, and its viewer then reports the file missing.
+
 Save records before communicating. Use `delivery list` to tell local saves from pending, uncertain or confirmed T3 acceptance. Reconcile uncertainty with actual evidence before retrying. A confirmed message is not proof that the agent received it or resumed work.
 
 The owner's taps on the web page reach you between turns; run `inbox ROOM` mid-turn to pick them up sooner. Review results, run appropriate checks, update now-head and advance the next eligible item while your turn lasts. Before yielding, run `status ROOM` and `check ROOM --yield`, and leave a concrete event, time or owner question that will resume the room.

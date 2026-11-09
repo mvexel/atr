@@ -15,7 +15,7 @@ TID = "11111111-aaaa-bbbb-cccc-000000000001"
 
 
 def ns(**kw):
-    base = dict(check=False, yes=False, no_maintainer=False, recreate_maintainer=False, skip_t3=True)
+    base = dict(check=False, print_env=False, yes=False, no_maintainer=False, recreate_maintainer=False, skip_t3=True)
     base.update(kw)
     return argparse.Namespace(**base)
 
@@ -219,6 +219,25 @@ class SetupTests(Base):
         finally:
             shutil.which = saved
 
+    def test_print_env_prints_per_shell_lines_and_changes_nothing(self):
+        for shell, first in (("fish", "set -gx ATR_DATA_DIR "), ("zsh", "export ATR_DATA_DIR="), ("bash", "export ATR_DATA_DIR=")):
+            code, out = self.run_cmd(tr.cmd_setup, ns(print_env=shell))
+            self.assertEqual(code, 0)
+            self.assertTrue(out.startswith(first), out)
+            self.assertIn("atr", out)
+            self.assertIn(f"completions/atr.{shell}", out)
+        self.assertFalse((tr.ROOMS / tr.PROCESS_ROOM).exists())
+
+    def test_print_env_defaults_to_shell_env_and_bash_for_unknown(self):
+        saved = os.environ.get("SHELL")
+        try:
+            os.environ["SHELL"] = "/usr/bin/fish"
+            self.assertTrue(tr.env_snippet()[0].startswith("set -gx"))
+            os.environ["SHELL"] = "/bin/tcsh"
+            self.assertTrue(tr.env_snippet()[0].startswith("export"))
+        finally:
+            os.environ.pop("SHELL") if saved is None else os.environ.__setitem__("SHELL", saved)
+
     def test_check_still_ok_with_path_note(self):
         self.run_cmd(tr.cmd_setup, ns(no_maintainer=True))
         code, out = self.run_cmd(tr.cmd_setup, ns(check=True))
@@ -317,7 +336,7 @@ class BlocksTests(Base):
                                                 "locks: []\nupdated: 2026-01-01T00:00Z\n---\n## Log\n- 00:00Z x: set state=doing\n")
         self.deferred = []
         self.saved_t = tr.tell_lead_or_defer
-        tr.tell_lead_or_defer = lambda room, text, thread=None: self.deferred.append((room.name, text)) or True
+        tr.tell_lead_or_defer = lambda room, text, thread=None: (self.deferred.append((room.name, text)) if " reached " not in text else None) or True
         self.run_cmd(tr.cmd_feedback, fb("plain one"))
         self.sent.clear()
 

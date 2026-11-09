@@ -27,7 +27,7 @@ Usage (ROOM is a folder name under rooms/):
   atr refinement ROOM RFnn review   signed: open an "Agree RFnn" card
   atr brief ROOM                  print the binding: PRD.md + agreed refinements
   atr team [ROOM]                 show who is who
-  atr setup [--check] [--yes|--no-maintainer] [--recreate-maintainer]   first run: process room + maintainer thread
+  atr setup [--check] [--print-env [SHELL]] [--yes|--no-maintainer] [--recreate-maintainer]   first run: process room + maintainer thread
   atr doctor                                               diagnose local setup without changing it
   atr self-update                                          update this source installation
   atr uninstall [--yes]                                     undo install.sh (keeps your data and T3)
@@ -747,6 +747,7 @@ def cmd_set(a):
     if "state=doing" in a.pairs and not r["cap_h"] and not any(p.startswith("cap_h=") and p[6:] for p in a.pairs):
         print(f"warn: {r['id']} goes to doing with no cap_h: an uncapped doing item nudges the room's lead "
               f"(bin/atr set {room.name} {r['id']} cap_h=<hours>)", file=sys.stderr)
+    before = r["state"]
     for kv in a.pairs:
         k, _, v = kv.partition("=")
         r.set(k, parse_value(v) if v.startswith("[") else v)
@@ -755,6 +756,9 @@ def cmd_set(a):
         r.append_to("Log", f"- {logstamp()} {a.by}: set {' '.join(a.pairs)}")
     r.save()
     tap_unblocked(room, r)
+    if r in room.items and r["state"] in ("review", "done") and r["state"] != before and a.by != "lead":
+        tell_lead_or_defer(room, f"{r['id']} ({r['title']}) in room {room.name} reached {r['state']} ({a.by}). "
+                                 f"Review it: atr inbox {room.name}; atr check {room.name}")
 
 def open_items(room):
     return [i for i in room.items if i["state"] not in ("done", "dropped")]
@@ -1590,6 +1594,12 @@ def continuity(room, yielding=False):
     waiting, resume = (room.head["waiting"], room.head["resume"]) if room.head else (None, None)
     if waiting and resume:
         at = parse_time(resume)
+        if not at and lead != "running":
+            awaited = set(re.findall(r"\bT\d{2,}\b", f"{waiting} {resume}"))
+            states = {i["id"]: i["state"] for i in room.items}
+            if awaited and awaited <= set(states) and all(states[x] in ("review", "done", "dropped") for x in awaited):
+                return "stalled", (f"everything awaited ({', '.join(sorted(awaited))}) finished "
+                                   "but the lead is idle and nobody resumed the room")
         if at and at < now():
             return "stalled", f"the wait on {waiting} was due to resume at {room.when(at)} and nobody resumed it"
         return "waiting", f"waiting on {waiting}; resumes {room.when(at) if at else resume}"
@@ -3515,12 +3525,23 @@ def cmd_open(a):
         import webbrowser
         webbrowser.open(web_url(port))
 
+def env_snippet(shell=None):
+    """The lines ./install.sh puts in the shell's startup file, for `shell` (default: $SHELL); fish, zsh or bash."""
+    shell = shell if shell in ("fish", "zsh", "bash") else (login_shell() if login_shell() in ("fish", "zsh", "bash") else "bash")
+    q, py, exe = shlex.quote, shlex.quote(sys.executable), shlex.quote(str(Path(__file__).resolve()))
+    comp = shlex.quote(str(SOURCE_ROOT / "completions" / f"atr.{shell}"))
+    if shell == "fish":
+        return [f"set -gx ATR_DATA_DIR {q(str(ROOT))}", f"function atr; {py} -I {exe} $argv; end", f"source {comp}"]
+    return [f"export ATR_DATA_DIR={q(str(ROOT))}", "unalias atr 2>/dev/null", f'function atr {{ {py} -I {exe} "$@"; }}', f". {comp}"]
+
 def path_note():
     if on_path() or rc_has_atr():
         return []
-    return [f"atr is not on your PATH; run {SOURCE_ROOT / 'install.sh'} to add it to your shell's startup file"]
+    return [f"atr is not on your PATH; run {SOURCE_ROOT / 'install.sh'} to add it to your shell's startup file, or see the lines with: atr setup --print-env"]
 
 def cmd_setup(a):
+    if getattr(a, "print_env", False):
+        return _cmd_setup_local(a)      # prints only: no T3 lookups, no store lock
     if not a.check:
         # prerequisite first (FR9): before anything else is created
         offer_t3(a, lambda line, mark="ok": print(line))
@@ -3540,6 +3561,9 @@ def _cmd_setup(a):
     return _cmd_setup_local(a)
 
 def _cmd_setup_local(a):
+    if getattr(a, "print_env", False):
+        print("\n".join(env_snippet(a.print_env if isinstance(a.print_env, str) else None)))
+        return
     # install.sh sets ATR_INSTALLER and has already reported T3, the data directory and the PATH
     from_installer = os.environ.get("ATR_INSTALLER") == "1"
     if not from_installer:
@@ -4112,6 +4136,7 @@ def build_parser():
     sv.add_argument("--port", type=int, default=8787)
     su = sub.add_parser("setup", help="first run: create the process room, optionally start the maintainer thread")
     su.add_argument("--check", action="store_true", help="report what is missing and exit non-zero; changes nothing")
+    su.add_argument("--print-env", nargs="?", const=True, metavar="SHELL", help="print the shell lines (fish, zsh or bash; default $SHELL) that put atr on your PATH and exit; changes nothing")
     su.add_argument("--yes", action="store_true", help="start the maintainer thread, and install/start T3 if missing, without asking")
     su.add_argument("--skip-t3", action="store_true", help="don't require or offer T3 (CI, restore)")
     su.add_argument("--no-maintainer", action="store_true", help="record that no maintainer thread is wanted")
