@@ -27,7 +27,7 @@ Usage (ROOM is a folder name under rooms/):
   atr refinement ROOM RFnn review   signed: open an "Agree RFnn" card
   atr brief ROOM                  print the binding: PRD.md + agreed refinements
   atr team [ROOM]                 show who is who
-  atr setup [--check] [--yes|--no-maintainer] [--recreate-maintainer]   first run: process room + maintainer thread
+  atr setup [--check] [--print-env [SHELL]] [--yes|--no-maintainer] [--recreate-maintainer]   first run: process room + maintainer thread
   atr doctor                                               diagnose local setup without changing it
   atr self-update                                          update this source installation
   atr uninstall [--yes]                                     undo install.sh (keeps your data and T3)
@@ -3343,12 +3343,23 @@ def cmd_open(a):
         import webbrowser
         webbrowser.open(web_url(port))
 
+def env_snippet(shell=None):
+    """The lines ./install.sh puts in the shell's startup file, for `shell` (default: $SHELL); fish, zsh or bash."""
+    shell = shell if shell in ("fish", "zsh", "bash") else (login_shell() if login_shell() in ("fish", "zsh", "bash") else "bash")
+    q, py, exe = shlex.quote, shlex.quote(sys.executable), shlex.quote(str(Path(__file__).resolve()))
+    comp = shlex.quote(str(SOURCE_ROOT / "completions" / f"atr.{shell}"))
+    if shell == "fish":
+        return [f"set -gx ATR_DATA_DIR {q(str(ROOT))}", f"function atr; {py} -I {exe} $argv; end", f"source {comp}"]
+    return [f"export ATR_DATA_DIR={q(str(ROOT))}", "unalias atr 2>/dev/null", f'function atr {{ {py} -I {exe} "$@"; }}', f". {comp}"]
+
 def path_note():
     if on_path() or rc_has_atr():
         return []
-    return [f"atr is not on your PATH; run {SOURCE_ROOT / 'install.sh'} to add it to your shell's startup file"]
+    return [f"atr is not on your PATH; run {SOURCE_ROOT / 'install.sh'} to add it to your shell's startup file, or see the lines with: atr setup --print-env"]
 
 def cmd_setup(a):
+    if getattr(a, "print_env", False):
+        return _cmd_setup_local(a)      # prints only: no T3 lookups, no store lock
     # Ask T3 about the maintainer thread before taking the store lock: under the lock, lookups read only
     # the cache, and an empty cache would read as "T3 does not find it".
     for fallback in (False, True):
@@ -3358,6 +3369,9 @@ def cmd_setup(a):
     return _cmd_setup_local(a)
 
 def _cmd_setup_local(a):
+    if getattr(a, "print_env", False):
+        print("\n".join(env_snippet(a.print_env if isinstance(a.print_env, str) else None)))
+        return
     # install.sh sets ATR_INSTALLER and has already reported T3, the data directory and the PATH
     from_installer = os.environ.get("ATR_INSTALLER") == "1"
     if not from_installer:
@@ -3927,6 +3941,7 @@ def build_parser():
     sv.add_argument("--port", type=int, default=8787)
     su = sub.add_parser("setup", help="first run: create the process room, optionally start the maintainer thread")
     su.add_argument("--check", action="store_true", help="report what is missing and exit non-zero; changes nothing")
+    su.add_argument("--print-env", nargs="?", const=True, metavar="SHELL", help="print the shell lines (fish, zsh or bash; default $SHELL) that put atr on your PATH and exit; changes nothing")
     su.add_argument("--yes", action="store_true", help="start the maintainer thread without asking")
     su.add_argument("--no-maintainer", action="store_true", help="record that no maintainer thread is wanted")
     su.add_argument("--recreate-maintainer", action="store_true", help="start a new maintainer thread (the old one is gone)")
