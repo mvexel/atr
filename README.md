@@ -82,3 +82,7 @@ This removes the atr block from your shell startup files and deletes the source 
 - **What it does:** local records, rooms, items and decisions, dependency tracking, review gates, the CLI and web view, the T3 bridge, delivery tracking, and explicit migration tools.
 - **What it doesn’t, for now:** Git/PR tracking, third-party relay, usage and budget collection, scheduled runs, external notifications.
 - **Licensing:** project licensing and any public release are separate decisions; see [Dependencies](docs/DEPENDENCIES.md).
+
+## License
+
+atr is licensed under the [Functional Source License 1.1](LICENSE.md) (FSL-1.1-ALv2). You may use, modify and redistribute it for anything except offering a competing commercial product or service. Each release becomes available under the Apache License 2.0 two years after it is published. For other terms, contact the author.

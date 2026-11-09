@@ -14,4 +14,4 @@ T3 Code and its public CLI are separately installed and required for execution/c
 
 Git and external integration clients are absent from the core runtime dependency set. Historical workflows and optional integration implementations have been preserved outside the source tree for possible future plugins. There is no plugin loading framework in this core.
 
-No project-wide license has been selected. Dependency licenses do not license atr itself; source/asset/instruction provenance and a future release allowlist still need review. This inventory does not authorize public release. Never distribute private room data, attachments, hidden `.atr` state, operator configuration, credentials or provider logs as part of a core source package.
+Atr itself is licensed under the [Functional Source License 1.1, Apache 2.0 future license](../LICENSE.md) (FSL-1.1-ALv2); dependency licenses do not license atr. Never distribute private room data, attachments, hidden `.atr` state, operator configuration, credentials or provider logs as part of a core source package.
