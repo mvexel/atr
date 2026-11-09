@@ -24,6 +24,7 @@ Usage (ROOM is a folder name under rooms/):
   atr brief ROOM                  print the binding: PRD.md + agreed refinements
   atr team [ROOM]                 show who is who
   atr setup [--check] [--yes|--no-maintainer] [--recreate-maintainer]   first run: process room + maintainer thread
+  atr uninstall [--yes]                                     undo install.sh (keeps your data and T3)
   atr feedback "text" --doc PROTOCOL|skill|charter --from ROOM [--cites REC] [--from-thread ID] [--blocks ROOM/ITEM,...]   file feedback
   atr inbox ROOM                  Martijn's taps and pause changes since you last looked (run it mid-turn)
 
@@ -3052,6 +3053,15 @@ def cmd_setup(a):
     set_lead_thread(d, tid)
     print(f"maintainer thread {tid} started; room {PROCESS_ROOM} lead_thread set")
 
+def cmd_uninstall(a):
+    """Hand over to install.sh --uninstall, which undoes what the installer did (data and T3 stay)."""
+    script = SOURCE_ROOT / "install.sh"
+    if not script.is_file():
+        sys.exit(f"{script} is missing; remove the atr block from your shell startup file by hand")
+    sys.stdout.flush()
+    os.execvpe("sh", ["sh", str(script), "--uninstall", *(["--yes"] if a.yes else [])],
+               {**os.environ, "ATR_DATA_DIR": os.environ.get("ATR_DATA_DIR") or str(ROOT)})
+
 def norm_text(s):
     return re.sub(r"\s+", " ", s or "").strip().lower()
 
@@ -3336,6 +3346,9 @@ def main():
     ld = sub.add_parser("lead", help="hand a room's lead to another T3 thread")
     ld.add_argument("room"); ld.add_argument("thread", nargs="?", help="omit to print copyable take-the-lead text")
     ld.add_argument("--keep-old", action="store_true", help="keep the old lead in threads: even if it is settled")
+    un = sub.add_parser("uninstall", help="undo install.sh: remove atr from your shell startup files and delete the "
+                        "fetched source; keeps your data and T3")
+    un.add_argument("--yes", action="store_true", help="remove without asking")
     a = ap.parse_args()
     if a.lock_directory:
         print(LOCKDIR)
@@ -3347,7 +3360,7 @@ def main():
     {"new": cmd_new, "set": cmd_set, "need": cmd_need, "log": cmd_log, "answer": cmd_answer, "reply": cmd_reply, "status": cmd_status,
      "check": cmd_check, "serve": cmd_serve,
      "name": cmd_name, "team": cmd_team, "room": cmd_room, "prd": cmd_prd, "refinement": cmd_refinement, "brief": cmd_brief, "inbox": cmd_inbox, "lead": cmd_lead,
-     "setup": cmd_setup, "feedback": cmd_feedback, "delivery": cmd_delivery, "migrate": cmd_migrate, "t3": cmd_t3}[a.cmd](a)
+     "setup": cmd_setup, "uninstall": cmd_uninstall, "feedback": cmd_feedback, "delivery": cmd_delivery, "migrate": cmd_migrate, "t3": cmd_t3}[a.cmd](a)
 
 # All canonical entry points participate in the same lock/recovery boundary, including calls made
 # directly by the web server and its background loops. CLI commands acquire before reading Room.

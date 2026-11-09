@@ -6,6 +6,8 @@
 #   curl -fsSL https://raw.githubusercontent.com/mvexel/atr/main/install.sh | sh
 #   curl -fsSL https://raw.githubusercontent.com/mvexel/atr/main/install.sh | sh -s -- --yes
 #   ./install.sh [--yes]          from a checkout: installs that checkout
+#   ... | sh -s -- --uninstall    or `atr uninstall`: remove the startup-file block and the fetched
+#                                 source; your data directory and T3 stay
 #
 # Environment:
 #   ATR_HOME       where a fetched source goes (default: ~/.atr; source in $ATR_HOME/src)
@@ -27,10 +29,11 @@ repo=${ATR_REPO:-https://github.com/mvexel/atr}
 ref=${ATR_REF:-main}
 atr_home=${ATR_HOME:-$HOME/.atr}
 
-yes=false
+yes=false uninstall=false
 for arg in "$@"; do
   case "$arg" in
     -y|--yes) yes=true ;;
+    --uninstall) uninstall=true ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'install.sh: unknown option %s (try --help)\n' "$arg" >&2; exit 2 ;;
   esac
@@ -39,6 +42,8 @@ done
 # Prompts read the terminal, not stdin: under `curl | sh` stdin is this script.
 interactive=false
 if [ -t 1 ] && (exec </dev/tty) 2>/dev/null; then interactive=true; fi
+
+if "$uninstall"; then do_uninstall; return; fi
 
 # --- source -----------------------------------------------------------------
 # Under `curl | sh` $0 is the shell, not this file: only a real install.sh path means a checkout.
@@ -101,23 +106,16 @@ elif [ -f "$rc" ] && [ "$(awk -v b="$BEGIN" -v e="$END" '$0 == b { on = 1 } on {
 else
   printf '\nThese lines put atr on your PATH (%s):\n%s\n' "$shell" "$block"
   if ask "Add them to $rc?"; then
-    target=$rc
-    [ -L "$rc" ] && target=$(readlink -f -- "$rc")     # keep a symlinked dotfile a symlink
-    mkdir -p "$(dirname -- "$target")"
-    tmp=$(mktemp "$(dirname -- "$target")/.atr-rc.XXXXXX")
-    if [ -f "$target" ] && grep -qxF "$BEGIN" "$target"; then
+    if [ -f "$rc" ] && grep -qxF "$BEGIN" "$rc"; then
       # replace the old block in place
-      BLK=$block awk -v b="$BEGIN" -v e="$END" '
-        $0 == b { print ENVIRON["BLK"]; skip = 1; next }
-        skip && $0 == e { skip = 0; next }
-        !skip' "$target" > "$tmp"
+      BLK=$block; export BLK
+      # shellcheck disable=SC2016
+      rewrite_rc "$rc" '$0 == b { print ENVIRON["BLK"]; skip = 1; next } skip && $0 == e { skip = 0; next } !skip'
     else
-      { [ -s "$target" ] && { cat "$target"; [ -n "$(tail -c1 "$target")" ] && echo; echo; }
-        printf '%s\n' "$block"; } > "$tmp"
+      BLK=$block; export BLK
+      # shellcheck disable=SC2016
+      rewrite_rc "$rc" '{ print; last = $0; n++ } END { if (n && last != "") print ""; print ENVIRON["BLK"] }'
     fi
-    if [ -f "$target" ]; then chmod "$(stat -c %a "$target" 2>/dev/null || stat -f %Lp "$target")" "$tmp"
-    else chmod 644 "$tmp"; fi
-    mv -f "$tmp" "$target"
     echo "Shell: added atr to $rc; open a new terminal to use it"
   else
     echo "Shell: not changed; add the lines above yourself, or rerun the installer"
@@ -167,10 +165,68 @@ Install atr: fetch the source, put `atr` on your PATH, offer to install the T3 C
   curl -fsSL https://raw.githubusercontent.com/mvexel/atr/main/install.sh | sh -s -- --yes
   ./install.sh [--yes]     from a checkout: installs that checkout
 
-  -y, --yes    answer yes to every question
+  -y, --yes      answer yes to every question
+  --uninstall    remove the atr block from your shell startup files and the fetched source;
+                 keeps your data directory and T3 (also: atr uninstall)
 
 Environment: ATR_HOME (~/.atr), ATR_REPO, ATR_REF (main), ATR_DATA_DIR (~/.local/share/atr), PYTHON.
 USAGE
+}
+
+# rewrite_rc file awk-program: run the program (b, e = block markers) over the file and replace it
+# atomically, keeping its mode and following a symlinked dotfile.
+rewrite_rc() {
+  target=$1
+  [ -L "$target" ] && target=$(readlink -f -- "$target")
+  mkdir -p "$(dirname -- "$target")"
+  [ -f "$target" ] || : > "$target"
+  tmp=$(mktemp "$(dirname -- "$target")/.atr-rc.XXXXXX")
+  awk -v b="$BEGIN" -v e="$END" "$2" "$target" > "$tmp" || { rm -f "$tmp"; die "could not rewrite $target"; }
+  chmod "$(stat -c %a "$target" 2>/dev/null || stat -f %Lp "$target")" "$tmp"
+  mv -f "$tmp" "$target"
+}
+
+# Undo what the installer did: the atr block in shell startup files and a source it fetched.
+# The data directory and T3 are left alone.
+do_uninstall() {
+  data=
+  found=false
+  for rc in "$HOME/.bashrc" "${ZDOTDIR:-$HOME}/.zshrc" "${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish"; do
+    if [ ! -f "$rc" ] || ! grep -qxF "$BEGIN" "$rc"; then continue; fi
+    found=true
+    [ -n "$data" ] || data=$(awk -v b="$BEGIN" -v e="$END" '$0 == b { on = 1 } on && /ATR_DATA_DIR/ { sub(/.*ATR_DATA_DIR[= ]/, ""); gsub(/\047/, ""); print; exit } $0 == e { on = 0 }' "$rc")
+    if ask "Remove the atr block from $rc?"; then
+      # drop the block and the blank line the installer put before it
+      # shellcheck disable=SC2016
+      rewrite_rc "$rc" '$0 == b { skip = 1; held = 0; next } skip { if ($0 == e) skip = 0; next }
+        held { print ""; held = 0 } $0 == "" { held = 1; next } { print } END { if (held) print "" }'
+      echo "Shell: removed atr from $rc"
+    else
+      echo "Shell: kept atr in $rc"
+    fi
+  done
+  "$found" || echo "Shell: no atr block in your startup files"
+
+  src_dir=$atr_home/src
+  if [ -f "$src_dir/.atr-tarball" ] || [ -d "$src_dir/.git" ]; then
+    if [ -d "$src_dir/.git" ] && [ -n "$(git -C "$src_dir" status --porcelain 2>/dev/null)" ]; then
+      echo "Source: $src_dir has local changes; kept (delete it yourself if you mean to)"
+    elif ask "Delete the atr source in $src_dir?"; then
+      rm -rf "$src_dir"
+      rmdir "$atr_home" 2>/dev/null || true
+      echo "Source: deleted $src_dir"
+    else
+      echo "Source: kept $src_dir"
+    fi
+  elif [ -e "$src_dir" ]; then
+    echo "Source: $src_dir was not made by this installer; kept"
+  else
+    echo "Source: nothing fetched by the installer (a checkout you cloned yourself stays)"
+  fi
+
+  data=${data:-${ATR_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/atr}}
+  echo "Data: kept $data (your rooms and records); delete it yourself if you no longer want them"
+  echo "T3: not touched"
 }
 
 die() { printf 'install.sh: %s\n' "$1" >&2; exit 1; }
