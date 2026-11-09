@@ -385,14 +385,14 @@ class BlocksTests(Base):
         flight = [l for l in lines if l.startswith(("T01", "T02"))]
         self.assertTrue(flight[0].startswith("T02"))
 
-    def test_done_or_outcome_taps_blocked_lead_once(self):
+    def test_done_or_outcome_resolves_without_notifying_project_lead(self):
         self.run_cmd(tr.cmd_feedback, fb("Accessibility gaps", blocks="app/T07"))
         for pairs in (["state=done"], ["state=done"]):
             self.run_cmd(tr.cmd_set, argparse.Namespace(room="process", id="T02", pairs=pairs, force=False, by="M"))
-        self.assertEqual(self.deferred, [("app", "process/T02 resolved: app/T07 may proceed")])
+        self.assertEqual(self.deferred, [])
         self.run_cmd(tr.cmd_feedback, fb("Another", blocks="app/T07"))
         self.run_cmd(tr.cmd_set, argparse.Namespace(room="process", id="T03", pairs=["outcome=rejected"], force=False, by="M"))
-        self.assertEqual(len(self.deferred), 2)
+        self.assertEqual(self.deferred, [])
 
     def test_no_tap_when_blocked_item_already_done(self):
         self.run_cmd(tr.cmd_feedback, fb("Accessibility gaps", blocks="app/T07"))
@@ -405,17 +405,18 @@ class BlocksTests(Base):
             r = tr.Room("process").find(rid); r.append_to("Result", next_line); r.save()
         self.run_cmd(tr.cmd_set, argparse.Namespace(room="process", id=rid, pairs=["state=done"], force=False, by="M"))
 
-    def test_successor_named_gets_block_and_one_message(self):
+    def test_successor_named_gets_block_without_project_message(self):
         self.run_cmd(tr.cmd_feedback, fb("Split me", blocks="app/T07"))   # T02
         self.run_cmd(tr.cmd_feedback, fb("Follow-up"))                      # T03
         self._resolve("T02", "Next: process T03")
         self.assertEqual(tr.Room("process").find("T03")["blocks"], ["app/T07"])
         self.assertFalse(tr.Room("process").find("T02")["unblocked_sent"])
-        self.assertEqual(self.deferred, [("app", "process/T02 closed, the block moved to process/T03: app/T07 still waits")])
+        self.assertEqual(self.deferred, [])
         self._resolve("T02")                                                # again: no duplicate
-        self.assertEqual(len(self.deferred), 1)
+        self.assertEqual(self.deferred, [])
         self._resolve("T03")                                                # successor resolves: usual rule
-        self.assertEqual(self.deferred[-1], ("app", "process/T03 resolved: app/T07 may proceed"))
+        self.assertEqual(self.deferred, [])
+        self.assertEqual(tr.Room("process").find("T03")["unblocked_sent"], "yes")
 
     def test_two_successors_both_carry_block(self):
         self.run_cmd(tr.cmd_feedback, fb("Split me", blocks="app/T07"))
@@ -426,14 +427,14 @@ class BlocksTests(Base):
     def test_no_successor_unchanged(self):
         self.run_cmd(tr.cmd_feedback, fb("Split me", blocks="app/T07"))
         self._resolve("T02", "Next: none (finished)")
-        self.assertEqual(self.deferred, [("app", "process/T02 resolved: app/T07 may proceed")])
+        self.assertEqual(self.deferred, [])
 
     def test_successor_already_done_is_not_a_successor(self):
         self.run_cmd(tr.cmd_feedback, fb("Split me", blocks="app/T07"))
         self.run_cmd(tr.cmd_feedback, fb("Old"))
         o = tr.Room("process").find("T03"); o.set("state", "done"); o.save()
         self._resolve("T02", "Next: T03")
-        self.assertEqual(self.deferred, [("app", "process/T02 resolved: app/T07 may proceed")])
+        self.assertEqual(self.deferred, [])
         self.assertEqual(tr.Room("process").find("T03")["blocks"] or [], [])
 
     def test_check_warns_when_successor_lacks_block(self):

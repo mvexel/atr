@@ -328,6 +328,20 @@ assert not path.exists(), 'sibling write escaped the canonical rollback'
 
 
 
+    def test_process_source_cannot_notify_project_lead(self):
+        tr = self.tr
+        process = self.root / "rooms/process"
+        process.mkdir()
+        (process / "BRIEF.md").write_text("---\nlead_thread: maintainer-thread\n---\n")
+        source = process / "feedback.md"
+        source.write_text("---\nid: T01\n---\n")
+        with patch.object(tr, "t3_execute") as send:
+            with self.assertRaisesRegex(tr.StoreConflict, "Maintenance messages"):
+                tr.queue_t3_action("message", "project-lead", "completion", room="demo", source=tr.Record(source))
+            send.assert_not_called()
+        held = dict(kind="message", source="rooms/process/feedback.md", target="project-lead", room="demo")
+        self.assertIn("cross-room delivery blocked", tr._delivery_block(held))
+
 
 if __name__ == "__main__":
     unittest.main()
