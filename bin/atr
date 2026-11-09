@@ -1787,12 +1787,13 @@ def refinement_problems(room):
     return p
 
 def t3_thread_link(thread):
-    """t3-thread://v2/<env>/<thread> for a thread whose environment T3 reported (or ATR_T3_ENVIRONMENT names); else None."""
+    """Portable HTTPS tracker link; custom desktop protocols are not available in every browser."""
     thread = (thread or "").strip()
     if not THREAD_ID.fullmatch(thread):
         return None
     env = ((thread_info(thread) or {}).get("env") or os.environ.get("ATR_T3_ENVIRONMENT", "")).strip()
-    return f"t3-thread://v2/{env}/{thread}" if re.fullmatch(r"[A-Za-z0-9._~-]+", env) else None
+    from urllib.parse import quote
+    return f"https://app.t3.codes/threads/{env}/{quote(thread, safe='')}" if re.fullmatch(r"[A-Za-z0-9._~-]+", env) else None
 
 def lead_title(room):
     return f"Room · {room} · lead"

@@ -34,14 +34,19 @@ class Titles(unittest.TestCase):
     def test_link_needs_env(self):
         self.assertIsNone(tr.t3_thread_link(THREAD))
         self.info[THREAD] = {"env": "env-1"}
-        self.assertEqual(tr.t3_thread_link(THREAD), f"t3-thread://v2/env-1/{THREAD}")
+        self.assertEqual(tr.t3_thread_link(THREAD), f"https://app.t3.codes/threads/env-1/{THREAD}")
 
     def test_link_env_fallback_and_bad(self):
         os.environ["ATR_T3_ENVIRONMENT"] = "env-2"
-        self.assertEqual(tr.t3_thread_link(THREAD), f"t3-thread://v2/env-2/{THREAD}")
+        self.assertEqual(tr.t3_thread_link(THREAD), f"https://app.t3.codes/threads/env-2/{THREAD}")
         self.assertIsNone(tr.t3_thread_link(""))
         os.environ["ATR_T3_ENVIRONMENT"] = "bad/env"
         self.assertIsNone(tr.t3_thread_link(THREAD))
+
+    def test_web_link_encodes_provider_thread_id(self):
+        thread = "mcp:11111111-aaaa-bbbb-cccc-000000000001"
+        self.info[thread] = {"env": "env-1"}
+        self.assertEqual(tr.t3_thread_link(thread), "https://app.t3.codes/threads/env-1/mcp%3A11111111-aaaa-bbbb-cccc-000000000001")
 
     def test_skill_and_page(self):
         skill = (REPO / "skills/lead/SKILL.md").read_text()
