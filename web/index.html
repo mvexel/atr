@@ -474,7 +474,7 @@ function chip(item, extra, flags) {
     el("span", { class: "i" }, `${icon} ${item.id}`), el("span", { class: "t" }, item.title),
     extra ? el("span", { class: "st" }, extra) : null, flags && flagChips(flags).length ? el("span", { class: "flags" }, ...flagEls(flags)) : null);
   // A link next to the button, not inside it: the worker's thread in T3 where its id and environment are known.
-  return item.agent_link ? el("span", { class: "chipwrap" }, b, el("a", { href: item.agent_link, class: "t3link", title: "Open the worker's thread in T3" }, "T3")) : b;
+  return item.agent_link ? el("span", { class: "chipwrap" }, b, el("a", { href: item.agent_link, target: "atr-t3", class: "t3link", title: "Open the worker's thread in T3" }, "T3")) : b;
 }
 
 // ---------- pop-out with the full record ----------
@@ -818,7 +818,7 @@ function leadLine(r) {
     : r.lead_status === "interrupted" ? ["bad", "■", "interrupted"]
     : r.lead_status === "unavailable" || !r.lead_status ? ["", "○", "T3 lead state unavailable"]
     : ["", "○", ["completed", "idle"].includes(r.lead_status) ? "Lead idle" : `Lead ${r.lead_status}`];
-  return [el("span", { class: "dot " + st[0] }, st[1]), st[2], ...(r.lead_link ? [" · ", el("a", { href: r.lead_link, class: "t3link" }, "open lead in T3")] : [])];
+  return [el("span", { class: "dot " + st[0] }, st[1]), st[2], ...(r.lead_link ? [" · ", el("a", { href: r.lead_link, target: "atr-t3", class: "t3link" }, "open lead in T3")] : [])];
 }
 // One line each, always present, so nothing above the thumb changes height between reloads.
 function msgLine(r) {
