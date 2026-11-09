@@ -1256,6 +1256,13 @@ def offer_t3(a, say):
 def from_installer_env():
     return os.environ.get("ATR_INSTALLER") == "1"
 
+def t3_status():
+    """What /api/state reports: whether T3 is configured, the location atr uses, and what it tried (no file-path assumption:
+    `location` is an opaque string a remote T3 could fill later)."""
+    home = Path.home()
+    looked = ["$T3CODE_CLI_PATH"] if os.environ.get("T3CODE_CLI_PATH") else [str(home / ".t3/bin/t3"), str(home / ".local/bin/t3"), "PATH"]
+    return {"configured": t3_configured(), "kind": "local-cli", "location": t3_cli(), "looked": looked, "setting": "T3CODE_CLI_PATH"}
+
 def fetch_thread(thread):
     """One `t3 thread show` -> {'status','settled','provider','model','title',…} or None."""
     if getattr(_store_state, "depth", 0) or migration_block():
@@ -3022,7 +3029,7 @@ def cmd_serve(a):
                 rooms = rooms_from([])
                 if want and want not in {room.name for room in rooms}:
                     return self.send(404, b'{"error":"no such room"}')
-                body = {"rooms": [room_json(x, x.name == want) for x in rooms], "now": stamp(), "t3": {"configured": t3_configured()}}
+                body = {"rooms": [room_json(x, x.name == want) for x in rooms], "now": stamp(), "t3": t3_status()}
                 return self.send(200, json.dumps(body).encode(), cache="no-cache", etag=True)
             if r == "/api/search":      # only q is read; files come from the fixed globs in _search_sources
                 return self.send(200, json.dumps(search_data(self.query().get("q", ""))).encode())
