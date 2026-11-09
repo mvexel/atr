@@ -212,7 +212,7 @@ assert not path.exists(), 'sibling write escaped the canonical rollback'
                        + "print(json.dumps({'thread': {'id':'synthetic-launched-thread'}}))\n")
         cli.chmod(0o755)
         args = SimpleNamespace(verb="launch", target="demo", text="Do the bounded fixture work", item="T01", project=None,
-                               provider="synthetic-provider", model="synthetic-model", title=None)
+                               provider="synthetic-provider", model="synthetic-model", title="my own title")
         with patch.dict(os.environ, T3CODE_CLI_PATH=str(cli), ATR_T3_PROJECT=str(project), ATR_T3_BASE_DIR=str(self.root / "isolated-t3")), contextlib.redirect_stdout(io.StringIO()):
             tr.cmd_t3(args)
         captured = json.loads(capture.read_text())
@@ -221,6 +221,7 @@ assert not path.exists(), 'sibling write escaped the canonical rollback'
         self.assertIn(str(self.root), captured["input"])
         self.assertIn("--data-dir", captured["input"])
         self.assertIn("Atr room: demo", captured["input"])
+        self.assertEqual(captured["args"][captured["args"].index("--title") + 1], "demo · T01 · worker")
         record = tr.Record(item)
         self.assertEqual((record["state"], record["agent"]), ("doing", "synthetic-launched-thread"))
         action = next(iter(tr.delivery_actions().values()))

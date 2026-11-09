@@ -28,6 +28,14 @@ Don't create a second room for a thread that already leads one, and don't add ne
 
 To lead an existing room, run `lead ROOM YOUR_THREAD_ID`, then `inbox ROOM` and `check ROOM --yield`, and carry on.
 
+## Titles, links and paths
+
+- Title your own thread `Room · <room> · lead` (set it with `t3_thread_update`). `atr t3 launch` titles each worker `<room> · <item> · <role>` (role: `--role`, else the item owner) and corrects any other title it is given. Tell workers to keep that title.
+- T3 can regenerate a thread's title. If it did, set the convention title again with `t3_thread_update`; `atr check` warns when the lead's title is off.
+- When you mention a thread to the owner, use a link, `t3-thread://v2/<env>/<thread>`: it shows the thread's current title and opens it. `<env>` is the environment id in the thread's T3 link (`https://app.t3.codes/threads/<env>/<thread>`). Don't write bare thread ids.
+- Name store files by absolute path (under the store's `rooms/` directory), never relative to a checkout.
+- atr's web page links the lead and each worker that way once their ids are known (set `ATR_T3_ENVIRONMENT` if T3 doesn't report the environment).
+
 ## Lead
 
 Plan bounded items with acceptance, inputs, dependencies, locks, owners and caps before dispatch. Start workers with `t3 launch ROOM "instructions" --item ID`. Each editing agent gets a separate checkout; workers report unplanned needs with `need`. Keep the integration branch and checkout in BRIEF. Use T3 for execution and messages; don't invent a replacement runner.

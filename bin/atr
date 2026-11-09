@@ -1206,6 +1206,7 @@ def fetch_thread(thread):
             "provider": t.get("providerInstanceId"), "model": t.get("model", ""), "title": t.get("title") or "", "updated": t.get("updatedAt"),
             "parent": t.get("parentThreadId"), "relationship": t.get("relationshipToParent"),
             "snoozed": bool(t.get("snoozed")), "snoozed_until": t.get("snoozedUntil"),
+            "env": (re.search(r"/threads/([^/\s]+)/[^/\s]+/?$", str(t.get("link") or "")) or [None, ""])[1],
 }
 
 def refresh_thread(thread):
@@ -1700,6 +1701,25 @@ def refinement_problems(room):
                          "was last touched); re-read it against the refinement")
     return p
 
+def t3_thread_link(thread):
+    """t3-thread://v2/<env>/<thread> for a thread whose environment T3 reported (or ATR_T3_ENVIRONMENT names); else None."""
+    thread = (thread or "").strip()
+    if not THREAD_ID.fullmatch(thread):
+        return None
+    env = ((thread_info(thread) or {}).get("env") or os.environ.get("ATR_T3_ENVIRONMENT", "")).strip()
+    return f"t3-thread://v2/{env}/{thread}" if re.fullmatch(r"[A-Za-z0-9._~-]+", env) else None
+
+def lead_title(room):
+    return f"Room · {room} · lead"
+
+def worker_title(room, item, role):
+    return f"{room} · {item} · {role}"
+
+def worker_role(item, role=None):
+    """The role word in a worker title: --role, else the item owner's role, else 'worker'."""
+    word = slug(role or (item["owner"] or "").split(" ")[0] or "") or "worker"
+    return word
+
 def lead_title_warn(room):
     """The active lead thread's title should start with 'Room · '. None for closed and standing rooms
     and when T3 doesn't know the thread."""
@@ -1977,7 +1997,8 @@ def room_json(room, with_records=False):
         lanes.setdefault(i["owner"].split(" ")[0] or "unassigned", []).append(
             {"id": i["id"], "title": i["title"], "state": i["state"], "waits": pending if i["state"] == "todo" else [],
              "updated_min": int((now() - parse_time(i["updated"])).total_seconds() // 60) if parse_time(i["updated"]) else None,
-             "cap_h": str(i["cap_h"] or ""), "agent": str(i["agent"] or "")})
+             "cap_h": str(i["cap_h"] or ""), "agent": str(i["agent"] or ""),
+             "agent_link": t3_thread_link(str(i["agent"] or "")) or ""})
     order = {"doing": 0, "review": 1, "blocked": 2, "todo": 3}
     lane_list = [{"owner": o, "name": room.team.get(o, ("", ""))[0], "pronoun": room.team.get(o, ("", ""))[1],
                   "items": sorted(v, key=lambda x: order.get(x["state"], 9))}
@@ -2003,7 +2024,7 @@ def room_json(room, with_records=False):
             "recent": [{"id": d["id"], "title": d["title"], "decider": d["decider"], "answer": d.section("Answer")}
                        for d in recent],
             "lanes": lane_list, "plan": plan(room), "counts": counts, "locks": [{"name": n, "holder": h} for n, h in held_locks()],
-            "code": code_info(room), "lead_thread": bool(room.brief and room.brief["lead_thread"]), "lead_commands": lead_commands(room.name),
+            "code": code_info(room), "lead_thread": bool(room.brief and room.brief["lead_thread"]), "lead_link": t3_thread_link(active_lead(room)) or "", "lead_commands": lead_commands(room.name),
             "team": [{"role": r, "name": n, "pronoun": pr} for r, (n, pr) in room.team.items()],
             "records": {r["id"]: record_json(room, r) for r in room.items + room.decisions + room.refinements + ([room.prd] if room.prd else [])}
                        if with_records else {}, "records_included": with_records,
@@ -2391,9 +2412,11 @@ def cmd_t3(a):
                 raise StoreConflict("dispatch blocked by incomplete dependencies")
             if gaps := brief_gaps(item):
                 raise StoreConflict("dispatch blocked: " + "; ".join(gaps))
+            title = worker_title(room.name, item["id"], worker_role(item, getattr(a, "role", None)))
+            if a.title and a.title.strip() != title:
+                print(f"title {a.title!r} does not follow the convention; using {title!r}", file=sys.stderr)
             action = queue_t3_action("launch", a.project or t3_project(), a.text, room=room.name, source=item,
-                                    options={"item": item["id"], "provider": a.provider, "model": a.model,
-                                             "title": a.title or f"{room.name}: {item['id']} {item['title']}"})
+                                    options={"item": item["id"], "provider": a.provider, "model": a.model, "title": title})
     print(json.dumps(delivery_actions()[action["id"]], indent=2))
 
 def tell_thread(thread, text):
@@ -3869,7 +3892,7 @@ def build_parser():
     t3.add_argument("text", nargs="?", default="")
     t3.add_argument("--item", help="item id required for launch")
     t3.add_argument("--project", help="existing public T3 project id or registered path; defaults to ATR_T3_PROJECT/source")
-    t3.add_argument("--provider"); t3.add_argument("--model"); t3.add_argument("--title")
+    t3.add_argument("--provider"); t3.add_argument("--model"); t3.add_argument("--title"); t3.add_argument("--role", help="role in the worker title (default: the item owner)")
     dl = sub.add_parser("delivery", help="inspect pending T3 actions; reconcile uncertain acceptance before retrying")
     dl.add_argument("verb", choices=["list", "retry", "reconcile"])
     dl.add_argument("id", nargs="?")

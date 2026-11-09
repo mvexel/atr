@@ -320,6 +320,8 @@
     .card .top .line { margin: 0; }
   }
   .tip { font-size: 13px; color: var(--text-secondary); min-height: 18px; margin: 4px 4px 0; }
+.chipwrap{display:inline-flex;align-items:center;gap:.3em}
+.t3link{font-size:.85em}
 </style>
 </head>
 <body>
@@ -456,9 +458,11 @@ function flagEls(x) { return flagChips(x).map(f => el("span", { class: `flag ${f
 function chip(item, extra, flags) {
   const s = item.state === "todo" && item.waits && item.waits.length ? "waits" : item.state;
   const [icon, label] = STATE[s] || ["?", s];
-  return el("button", { class: `chip s-${s}`, title: `${item.id} ${item.title} · ${label}`, onclick: () => openRecord(item.id) },
+  const b = el("button", { class: `chip s-${s}`, title: `${item.id} ${item.title} · ${label}`, onclick: () => openRecord(item.id) },
     el("span", { class: "i" }, `${icon} ${item.id}`), el("span", { class: "t" }, item.title),
     extra ? el("span", { class: "st" }, extra) : null, flags && flagChips(flags).length ? el("span", { class: "flags" }, ...flagEls(flags)) : null);
+  // A link next to the button, not inside it: the worker's thread in T3 where its id and environment are known.
+  return item.agent_link ? el("span", { class: "chipwrap" }, b, el("a", { href: item.agent_link, class: "t3link", title: "Open the worker's thread in T3" }, "T3")) : b;
 }
 
 // ---------- pop-out with the full record ----------
@@ -792,7 +796,7 @@ function leadLine(r) {
     : r.lead_status === "interrupted" ? ["bad", "■", "interrupted"]
     : r.lead_status === "unavailable" || !r.lead_status ? ["", "○", "T3 lead state unavailable"]
     : ["", "○", r.lead_status];
-  return [el("span", { class: "dot " + st[0] }, st[1]), st[2]];
+  return [el("span", { class: "dot " + st[0] }, st[1]), st[2], ...(r.lead_link ? [" · ", el("a", { href: r.lead_link, class: "t3link" }, "open lead in T3")] : [])];
 }
 // One line each, always present, so nothing above the thumb changes height between reloads.
 function msgLine(r) {
