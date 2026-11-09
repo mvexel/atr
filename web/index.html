@@ -416,16 +416,27 @@ const $ = id => document.getElementById(id);
 const saveDrafts = () => localStorage.setItem("drafts", JSON.stringify(drafts));
 
 // Light, safe markdown: **bold**, `code`, - [x] checkboxes, and T12 / D05 / A01 / P03 as tappable record links.
+function safeDocumentLink(href) {
+  if (/[\\\x00-\x20]/.test(href)) return null;
+  if (!/^https?:\/\//i.test(href) && !/^\/(?!\/)/.test(href)) return null;
+  try {
+    const url = new URL(href, location.href);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : null;
+  } catch (_) { return null; }
+}
 function inline(text) {
   const known = recs(current);
   const out = [];
   let last = 0;
-  for (const m of text.matchAll(/\*\*(.+?)\*\*|`([^`]+)`|\b(RF\d{2,3}|[TBDAPR]\d{2,3}|PRD)\b/g)) {
+  for (const m of text.matchAll(/\*\*(.+?)\*\*|`([^`]+)`|\b(RF\d{2,3}|[TBDAPR]\d{2,3}|PRD)\b|\[([^\]]+)\]\(([^)]+)\)/g)) {
     if (m[3] && !known[m[3]]) continue;
     out.push(text.slice(last, m.index));
     if (m[1] != null) out.push(el("b", {}, inline(m[1])));
     else if (m[2] != null) out.push(el("code", {}, m[2]));
-    else out.push(el("button", { class: "ref", onclick: () => openRecord(m[3], true) }, m[3]));
+    else if (m[4] != null) {
+      const href = safeDocumentLink(m[5]);
+      out.push(href ? el("a", { href, target: "_blank", rel: "noopener" }, m[4]) : m[0]);
+    } else out.push(el("button", { class: "ref", onclick: () => openRecord(m[3], true) }, m[3]));
     last = m.index + m[0].length;
   }
   out.push(text.slice(last));
@@ -797,17 +808,16 @@ function showProcess(name) {
 }
 
 function statusCard(r) {
-  return el("div", { class: "card", id: "statuscard" }, el("div", { class: "top" }, msgLine(r),
-    el("div", { class: "line", role: "status" }, "Saved locally")));
+  return el("div", { class: "card", id: "statuscard" }, msgLine(r));
 }
 
 // ---------- pause / resume the whole team ----------
 function leadLine(r) {
   if (!r.lead_thread) return [el("span", { class: "dot" }, "○"), "no T3 lead configured"];
-  const st = r.lead_status === "running" ? ["on", "●", "working now"]
+  const st = r.lead_status === "running" ? ["on", "●", "Lead running in T3"]
     : r.lead_status === "interrupted" ? ["bad", "■", "interrupted"]
     : r.lead_status === "unavailable" || !r.lead_status ? ["", "○", "T3 lead state unavailable"]
-    : ["", "○", r.lead_status];
+    : ["", "○", ["completed", "idle"].includes(r.lead_status) ? "Lead idle" : `Lead ${r.lead_status}`];
   return [el("span", { class: "dot " + st[0] }, st[1]), st[2], ...(r.lead_link ? [" · ", el("a", { href: r.lead_link, class: "t3link" }, "open lead in T3")] : [])];
 }
 // One line each, always present, so nothing above the thumb changes height between reloads.
@@ -974,7 +984,7 @@ function receiptCard(key, s) {
     el("p", { class: "pick" }, `${s.opt.key}) ${s.opt.text}`),
     el("div", { class: "meta", role: "status" },
       el("span", {}, s.already ? `Already saved: ${s.opt.key})`
-        : `Saved locally ${s.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${deliveryText(s.delivery)}`),
+        : `Your answer was saved at ${s.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${deliveryText(s.delivery)}`),
       el("button", { class: "openrec", onclick: () => openRecord(s.id) }, "Open record")));
 }
 
@@ -1009,13 +1019,15 @@ function askCard(roomName, d, maxImpact) {
         imp.agents.length ? ` (${imp.agents.join(", ")})` : "", imp.hours ? ` · ${imp.hours} h of work` : ""),
       el("div", { class: "bar", role: "img", "aria-label": `blocks ${n} items` }, el("span", { style: `width:${pct}%` })),
       el("div", { class: "path" }, imp.items.flatMap((it, i) => [i ? el("span", { class: "arrow" }, "→") : null, chip(it)]))));
-  } else {
-    card.append(el("div", { class: "impact" }, el("div", { class: "label" }, d.urgent ? "Not blocking work, but a live risk" : "Blocks nothing right now")));
   }
-  if (d.why || d.source) {
+  const sourceDoc = d.source && /^(rooms|docs|skills)\/[^?#]+\.md$/.test(d.source) && !d.source.split("/").includes("..");
+  const sourceHref = sourceDoc ? docURL(d.source) : d.source ? safeDocumentLink(d.source) : null;
+  if (sourceHref) card.append(el("p", {}, el("a", { class: "ref", href: sourceHref, target: "_blank", rel: "noopener" },
+    /proposal/i.test(d.source) ? "Read proposal" : /github\.com\/.+\/pull\//.test(d.source) ? "Review pull request" : "Read source document")));
+  if (d.why || (d.source && !sourceHref)) {
     const det = el("details", { class: "why", ontoggle: e => e.target.open ? openWhy.add(dkey(d)) : openWhy.delete(dkey(d)) },
       el("summary", {}, "Why it matters"), d.why ? el("div", {}, linked(d.why)) : null,
-      d.source ? el("div", {}, "Source: ", linked(d.source)) : null);
+      d.source && !sourceHref ? el("div", {}, "Source: ", linked(d.source)) : null);
     if (openWhy.has(dkey(d))) det.open = true;
     card.append(det);
   }
@@ -1288,7 +1300,7 @@ function draw(top) {
   if (!lists.b.length && !lists.l.length) if (!needN(r) || r.asks.length) app.append(el("p", { class: "empty" }, needN(r) ? "Nothing of this kind." : "Nothing needs you."));
   lists.b.forEach((e, i) => app.append(cardNode("b", e, i)));
   if (lists.l.length) {
-    app.append(el("div", { class: "divider" }, `Not blocking anything yet · ${lists.l.filter(e => e.d).length}`));
+    app.append(el("div", { class: "divider" }, `Other decisions · ${lists.l.filter(e => e.d).length}`));
     lists.l.forEach((e, i) => app.append(cardNode("l", e, i)));
   }
   if (r.provisional.length) {
