@@ -79,6 +79,7 @@ if "$self_update"; then
   else
     die "$src_dir is not a Git checkout or installer tarball; reinstall atr"
   fi
+  restart_service
   return
 fi
 
@@ -199,16 +200,20 @@ else
 fi
 
 # --- atr setup --------------------------------------------------------------
-# Default yes: setup only creates the process room and records a choice in the data directory.
+# Default yes: setup creates the process room, records the store for agents in ~/.config/atr/config.json,
+# links the lead skill where Claude Code and Codex (the agents T3 runs) look for skills, and keeps the web page
+# running as a user service. Without a terminal and without --yes it does neither.
 set_up=false
-printf '\n  %sSetup%s %screates the process room in the data directory and offers a maintainer thread%s\n' "$B" "$N" "$D" "$N"
+printf '\n  %sSetup%s %screates the process room, lets agents in T3 find atr, keeps the web page running, and offers a maintainer thread%s\n' "$B" "$N" "$D" "$N"
 if ask_default_yes "Set up atr now?"; then
   set_up=true
   export ATR_INSTALLER=1     # atr setup leaves out what this script already reported
+  skills=
+  "$interactive" || "$yes" || skills="--no-skills --no-service"
   if "$interactive"; then
     "$py" -I "$atr_bin" --data-dir "$data" setup </dev/tty || die "atr setup failed (see above); rerun: atr setup"
   else
-    "$py" -I "$atr_bin" --data-dir "$data" setup || die "atr setup failed (see above); rerun: atr setup"
+    "$py" -I "$atr_bin" --data-dir "$data" setup $skills || die "atr setup failed (see above); rerun: atr setup"
   fi
 else
   warn Setup "skipped"
@@ -229,7 +234,8 @@ if [ -z "$t3" ]; then
 elif "$t3_new"; then
   step "Sign in to a provider (e.g. ${B}claude auth login${N}), start ${B}t3${N} once, and register a project"
 fi
-step "Run ${B}atr room list${N} to see your rooms, or ${B}atr serve${N} for the web page"
+step "Open the web page: ${B}atr open${N}"
+step "In a new T3 thread, ask: ${B}start an atr room for${N} <what you want built>"
 }
 
 # Terminal styling: colour only on a terminal that wants it (NO_COLOR, TERM=dumb opt out); marks
@@ -304,6 +310,35 @@ do_uninstall() {
   done
   "$found" || ok Shell "no atr block in your startup files"
 
+  unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/atr.service"
+  plist="$HOME/Library/LaunchAgents/atr.web.plist"
+  if [ -f "$unit" ] || [ -f "$plist" ]; then
+    if ask "Stop the atr web page service and remove it?"; then
+      if [ -f "$unit" ]; then
+        systemctl --user disable --now atr.service >/dev/null 2>&1 || true
+        rm -f "$unit"; systemctl --user daemon-reload >/dev/null 2>&1 || true
+        ok Service "removed $(tilde "$unit")"
+      fi
+      if [ -f "$plist" ]; then
+        launchctl bootout "gui/$(id -u)/atr.web" >/dev/null 2>&1 || true
+        rm -f "$plist"; ok Service "removed $(tilde "$plist")"
+      fi
+    else
+      warn Service "kept the web page service"
+    fi
+  fi
+
+  for link in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/atr-lead" "${CODEX_HOME:-$HOME/.codex}/skills/atr-lead"; do
+    [ -L "$link" ] || continue
+    case "$(readlink "$link")" in
+      */skills/lead) if ask "Remove the atr lead skill link $(tilde "$link")?"; then
+                       rm -f "$link"; ok Skill "removed $(tilde "$link")"
+                     else
+                       warn Skill "kept $(tilde "$link")"
+                     fi ;;
+    esac
+  done
+
   src_dir=$atr_home/src
   if [ -f "$src_dir/.atr-tarball" ] || [ -d "$src_dir/.git" ]; then
     if [ -d "$src_dir/.git" ] && [ -n "$(git -C "$src_dir" status --porcelain 2>/dev/null)" ]; then
@@ -324,6 +359,20 @@ do_uninstall() {
   data=${data:-${ATR_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/atr}}
   ok Data "kept $(tilde "$data") (your rooms and records); delete it yourself if you no longer want them"
   ok T3 "not touched"
+}
+
+# After an update, a running web page service picks up the new code.
+restart_service() {
+  [ "${ATR_SERVICE:-}" = off ] && return 0
+  if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/atr.service" ]; then
+    if systemctl --user restart atr.service >/dev/null 2>&1; then ok Service "web page restarted"
+    else warn Service "could not restart the web page; run: atr service restart"; fi
+  elif [ -f "$HOME/Library/LaunchAgents/atr.web.plist" ]; then
+    if launchctl kickstart -k "gui/$(id -u)/atr.web" >/dev/null 2>&1; then ok Service "web page restarted"
+    else warn Service "could not restart the web page; run: atr service restart"; fi
+  else
+    note "restart a running atr serve to use the new version"
+  fi
 }
 
 die() { printf '  %s%s%s %s\n' "${R:-}" "${BAD:-x}" "${N:-}" "$1" >&2; exit 1; }

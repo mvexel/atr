@@ -10,7 +10,7 @@ class RoomsList(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.store = Path(self.tmp.name) / "store"
-        self.env = {**os.environ, "ATR_DATA_DIR": str(self.store), "XDG_CONFIG_HOME": self.tmp.name + "/cfg",
+        self.env = {**os.environ, "ATR_DATA_DIR": str(self.store), "XDG_CONFIG_HOME": self.tmp.name + "/cfg", "CLAUDE_CONFIG_DIR": self.tmp.name + "/claude", "CODEX_HOME": self.tmp.name + "/codex", "ATR_SERVICE": "off",
                     "T3CODE_CLI_PATH": "/nonexistent"}
 
     def atr(self, *args):

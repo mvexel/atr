@@ -14,66 +14,85 @@
 
 If you run several agents at once, you’ve probably asked yourself both of those questions. `atr` is a small local tool that answers them. It keeps a plain-text record of what’s planned, what’s in progress, what’s waiting on you, and what has actually shipped.
 
-It works alongside [T3 Code](https://t3.codes/). T3 runs the agents and threads. `atr` remembers what they were supposed to do, and gives you a CLI and a simple web view to check.
+`atr` is a layer on top of [T3 Code](https://t3.codes/). T3 runs the agents (Claude, Codex or whichever providers you’ve signed in) and their threads. `atr` adds the plan, the record of what happened, and a CLI and simple web view to check on it.
 
 > **Back up your data directory.** Your plans and decisions live there (including the hidden `.atr/` folder). Installing or updating `atr` never restores them, and T3 and project state need their own backup, using T3’s process.
 
-## What it’s like
+## How it works
 
-You create a *room* for a project, write a brief, and break the work into items with dependencies. Agents pick up items through T3. When you open the web view, you see what’s blocked, what needs a decision from you, and what’s done, without scrolling through agent threads to piece it together.
+You work in T3 and check in on atr’s web page. You don’t need the `atr` command much:
+
+- **You** describe what you want in a T3 thread, answer questions, and approve plans.
+- **The lead**, the agent in that thread, writes the plan, splits it into items, starts a worker thread in T3 for each item, and records what happened. It uses the `atr` command to do this.
+- **atr** keeps all of it as plain files and shows it on a web page, so you can see the state without reading agent threads.
+
+One room is one project or feature, led by one T3 thread.
 
 ## Why it’s useful
 
 - **Your files, your folder.** Plans and decisions are plain Markdown in a folder you pick, separate from the installed code. Read them, grep them, put them in git.
 - **Works when T3 doesn’t.** If T3 is down, you can still read, search, and record decisions. They go out when it’s back.
-- **No wishful thinking about delivery.** `atr` won’t claim an agent got your message just because T3 accepted it. It shows saved, pending, uncertain, and accepted as separate states.
-- **Review before building.** Rooms can use PRDs, decisions, and review gates, so agents don’t start building until you’ve signed off on the plan.
+- **No wishful thinking about delivery.** atr won’t claim an agent got your message just because T3 accepted it. It shows saved, pending, uncertain, and accepted as separate states.
+- **Review before building.** Agents don’t start building until you’ve agreed to the plan.
 
-## Quick start
+## Install
 
-You’ll need Python 3.13+ on a POSIX system (Linux or macOS), and git or curl + tar.
+You’ll need Python 3.13+ on a POSIX system (Linux or macOS), git or curl + tar, and [T3](https://t3.codes/) with at least one model provider signed in (for example `claude auth login`).
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mvexel/atr/main/install.sh | sh
 ```
 
-The installer:
+The installer fetches atr into `~/.atr/src`, asks where your data should live (default `~/.local/share/atr`), offers to put `atr` on your PATH and to install the T3 CLI if it’s missing, and runs `atr setup`. Setup does three things so you never have to manage atr by hand:
 
-1. fetches the source into `~/.atr/src` (rerun it to update),
-2. asks where your data should live (default `~/.local/share/atr`),
-3. shows the lines that put `atr` on your PATH and, if you say yes, adds them to `~/.zshrc`, `~/.bashrc` or your fish config,
-4. offers to install the [T3 CLI](https://t3.codes/) with T3’s own installer if it’s missing,
-5. runs `atr setup`.
+- **Keeps the web page running.** It installs a user service (systemd on Linux, launchd on macOS) that starts when you log in. The same process keeps track of your T3 threads and sends queued messages to them.
+- **Lets agents in T3 find atr.** It links atr’s lead skill into `~/.claude/skills` and `~/.codex/skills`, where Claude Code and Codex look.
+- **Records your data folder** in `~/.config/atr/config.json`, so agents use the same one you do.
 
-It asks before each change. Add `-s -- --yes` after `sh` to accept every default. From a checkout, `./install.sh` installs that checkout instead of fetching one.
+`atr uninstall` undoes all three and keeps your data. The installer asks before each change; add `-s -- --yes` after `sh` to accept every default. See [Setup](docs/SETUP.md) for the details.
 
-T3 needs at least one model provider signed in (for example `claude auth login`) before atr can dispatch agent work. Local recording works without it.
+## Your first project
 
-Then, in a new terminal:
+1. **Open the web page** at `http://127.0.0.1:8787/`, or run `atr open`. Bookmark it; it’s always there.
 
-```sh
-atr doctor                  # diagnose local setup (T3 is reported separately)
-atr room new demo "Demo project"
-atr serve --host 127.0.0.1 --port 8787
-```
+2. **Start a room from T3.** Open a new thread in T3, in the project you want worked on, and ask for it, like you’d brief a person:
 
-Open `http://127.0.0.1:8787/` and you should see your new Demo project room. For the full walkthrough, see **[Setup](docs/SETUP.md)**.
+   > Start an atr room for a settings page: dark mode, language, and notification preferences.
 
-Tab completion for commands, rooms and item IDs comes with the install in bash, zsh and fish. If you put `atr` on your PATH yourself, load it with `eval "$(atr completion bash)"` (or `zsh`; in fish: `atr completion fish | source`).
+   The agent creates the room and becomes its lead. The room shows up on the web page.
 
-## Update and diagnose
+   From a terminal, `atr start "a settings page …"` does the same: it starts the thread in T3 for you, in the project of the folder you run it from.
 
-Run `atr self-update` to update the running installation. Git checkouts must be clean and on a branch with an upstream; updates only fast-forward. Installer tarballs are downloaded again using `ATR_REPO` and `ATR_REF` (defaults: this repository and `main`). Tarball updates replace the bundled source, so keep custom edits in a Git checkout. Updates keep your data, shell configuration and T3; restart a running `atr serve` afterward.
+3. **Agree the plan.** The lead drafts a plan with you in the thread. When it’s ready, a card on the web page asks you to agree. Nothing gets built before you do.
 
-Run `atr doctor` to check Python, bundled files, data-directory access and local setup without changing files. Missing local requirements exit nonzero. Missing T3 is a warning because local records still work; doctor does not verify T3 execution or provider sign-in. `atr setup --check` remains available.
+From there, the lead splits the work into items and starts workers in T3.
 
-## Uninstall
+## Day to day
 
-```sh
-atr uninstall
-```
+Check the web page:
 
-This removes the atr block from your shell startup files and deletes the source the installer fetched, asking before each step. It keeps your data directory and leaves T3 alone. Without a working `atr`, run `curl -fsSL https://raw.githubusercontent.com/mvexel/atr/main/install.sh | sh -s -- --uninstall`.
+- **Cards waiting on you**: questions and decisions. Tap an answer and the lead picks it up.
+- **Items**: what’s to do, in progress, in review, blocked or done. Open one for its details and result.
+- **Rooms**: which of your rooms need you, if you run several.
+
+To change course, talk to the lead in its T3 thread. To start something new, ask in a new T3 thread: one thread leads one room.
+
+## The command line
+
+The `atr` command is mainly for the lead and its workers. The ones you might use:
+
+| Command | What it does |
+| --- | --- |
+| `atr open` | open the web page (and start it, if it isn’t running) |
+| `atr start "what you want"` | start a room’s lead thread in T3 from the terminal |
+| `atr lead ROOM` | text that hands an existing room to a different T3 thread |
+| `atr room list` | every room, from the terminal |
+| `atr doctor` | check your setup without changing anything |
+| `atr service status` | is the web page service running; `install`, `uninstall` and `restart` manage it |
+| `atr self-update` | update atr and restart the web page; keeps your data |
+| `atr uninstall` | remove atr from your shell and delete the fetched source; keeps your data and T3 |
+
+`atr --help` lists the rest. Tab completion comes with the install in bash, zsh and fish.
 
 ## Documentation
 

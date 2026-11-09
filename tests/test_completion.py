@@ -13,7 +13,7 @@ class Completion(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.store = Path(cls.tmp.name) / "store"
-        cls.env = {**os.environ, "ATR_DATA_DIR": str(cls.store), "XDG_CONFIG_HOME": cls.tmp.name + "/cfg",
+        cls.env = {**os.environ, "ATR_DATA_DIR": str(cls.store), "XDG_CONFIG_HOME": cls.tmp.name + "/cfg", "CLAUDE_CONFIG_DIR": cls.tmp.name + "/claude", "CODEX_HOME": cls.tmp.name + "/codex", "ATR_SERVICE": "off",
                    "T3CODE_CLI_PATH": "/nonexistent"}
         cls.run_atr("setup", "--no-maintainer")
         cls.run_atr("room", "new", "demo", "Demo project", "--waive-prd", "not a feature: test")
@@ -40,7 +40,7 @@ class Completion(unittest.TestCase):
             self.assertIn(name, commands)
         self.assertNotIn("rooms", commands)              # alias still works, but is not offered
         self.assertNotIn("__complete", commands)
-        self.assertEqual(self.values("se"), ["set", "serve", "setup", "self-update"])
+        self.assertEqual(self.values("se"), ["set", "serve", "setup", "service", "self-update"])
 
     def test_descriptions_ride_along(self):
         self.assertIn("room\tlist rooms, or start a feature room", self.run_atr("__complete", "ro").splitlines())

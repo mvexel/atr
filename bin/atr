@@ -14,8 +14,11 @@ Usage (ROOM is a folder name under rooms/):
   atr check [ROOM ...] [--strict] [--yield]   --yield: judge the room as if the lead's turn had ended
   atr migrate preview|copy|verify|rollback|review --source COPY --destination COPY [--evidence TEXT]
                                     explicit rehearsal only; never changes store selection or services
-  atr serve [--port 8787]  tap-to-decide web page (web/index.html)
+  atr serve [--port 8787]  tap-to-decide web page (web/index.html), in the foreground
+  atr open                       open the web page, starting it if it isn't running
+  atr service install|uninstall|status|restart   keep the web page running from login
   atr name ROOM ROLE NAME --pronoun she|he   give a role its first name (keeps he/she even)
+  atr start "what you want" [--project DIR]   start a T3 thread that creates a room and leads it
   atr lead ROOM [THREAD]          hand the lead to a T3 thread; without THREAD, print text to copy and paste to take it
   atr room list                  every room: state, open items, open decisions, title
   atr room new ROOM "Feature title" --lead-thread ID [--no-ux]  start a feature (one room per thread)
@@ -48,6 +51,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 SOURCE_ROOT = Path(__file__).resolve().parent.parent
+SKILL_DIR = SOURCE_ROOT / "skills" / "lead"
 
 
 class StoreConflict(RuntimeError):
@@ -1345,7 +1349,7 @@ def active_lead(room):
 
 def atr_command():
     """The explicit command prefix an agent or person can run from any directory: this source, this store."""
-    return f"python3 -I {shlex.quote(str(Path(__file__).resolve()))} --data-dir {shlex.quote(str(ROOT))}"
+    return f"{agent_command()} --data-dir {shlex.quote(str(ROOT))}"
 
 def lead_commands(room):
     """Copyable texts for taking the lead of `room`: a terminal command (fill in THREAD_ID) and an instruction to paste
@@ -1357,6 +1361,26 @@ def lead_commands(room):
                        f"Find your own T3 thread id in your thread configuration, then run:\n"
                        f"{base} lead {name} <your-thread-id>\n"
                        f"Then run `{base} inbox {name}` and `{base} check {name} --yield`, and carry on leading the room.")}
+
+def start_message(text):
+    """The first message of a new lead thread: start a room for what the owner wants, and lead it."""
+    return (f"Start a new atr room for what I describe below, and lead it. Use the atr-lead skill; if you don't have it, "
+            f"read {SKILL_DIR}/SKILL.md. Run atr as `{atr_command()}`.\n\nWhat I want:\n{text.strip()}")
+
+def cmd_start(a):
+    """Start a T3 thread that creates a room for what the owner wants and leads it."""
+    text = (a.text or "").strip()
+    if not text:
+        sys.exit('say what you want, e.g.: atr start "a settings page for the app"')
+    title = a.title or "atr lead: " + re.sub(r"\s+", " ", text)[:60]
+    action = queue_t3_action("launch", a.project or os.getcwd(), start_message(text),
+                             options={"provider": a.provider, "model": a.model, "title": title, "purpose": "lead"})
+    action = delivery_actions()[action["id"]]
+    if action["state"] == "confirmed":
+        print(f"lead thread started{': ' + action['thread'] if action.get('thread') else ''}. It creates the room; "
+              f"watch for it on the web page: {web_url()}")
+    else:
+        print(f"T3 launch {action['id']} is {action['state']}: {action['evidence']}\nCheck it with: atr delivery list")
 
 def cmd_lead(a):
     if not a.thread:
@@ -2149,7 +2173,7 @@ def t3_execute(action):
     cli = t3_cli()
     payload = action["payload"] + f"\n\n[atr-action:{action['id']}]"
     if action["kind"] == "launch":
-        payload += (f"\nAtr room: {action['room']}. Selected store: {ROOT}.\n"
+        payload += ((f"\nAtr room: {action['room']}." if action["room"] else "\nNo atr room yet.") + f" Selected store: {ROOT}.\n"
                     f"Use: {shlex.join([sys.executable, '-I', str(SOURCE_ROOT / 'bin/atr'), '--data-dir', str(ROOT)])} <command>.\n"
                     "Keep all atr updates in that store; source resources are separate.")
         args = ["thread", "start", action["target"], "-", "--json"]
@@ -2524,6 +2548,10 @@ def create_room_files(d, title, thread, waive_prd, t):
         brief_record.save()
 
 RENAME_HINT = "Next: rename your thread to 'Room · {room} · lead' (t3_thread_update, action rename)"
+NO_LEAD_HINT = "Next: give the room a lead. Run `atr lead {room}` and paste what it prints into a T3 thread"
+
+def next_hint(room, thread):
+    return (RENAME_HINT if thread else NO_LEAD_HINT).format(room=room)
 
 def cmd_room(a):
     durable_mkdir(ROOMS, parents=True, exist_ok=True)
@@ -2539,7 +2567,7 @@ def cmd_room(a):
     create_room_files(d, a.title, thread, a.waive_prd, t)
     if a.waive_prd:
         print(f"rooms/{a.name}: BRIEF created, PRD waived ({a.waive_prd}); create items with atr new item")
-        print(RENAME_HINT.format(room=a.name))
+        print(next_hint(a.name, thread))
         return
     durable_write(d / "now-head.md", (TEMPLATES / "now-head.md").read_text().format(
         phase="PRD: product lead drafting, building locked", now=stamp(t)))
@@ -2567,7 +2595,7 @@ def cmd_room(a):
     item("Tech review of the PRD", "techlead", ["notes/tech-approach.md written (riskiest assumption has a first test, one-way doors listed)",
          "each FR/NFR is testable (a test can be written for it)", "Tech lead line signed in Sign-off"], [draft, context])
     print(f"rooms/{a.name}: BRIEF, PRD draft and PRD items created; building stays locked until the owner agrees the PRD")
-    print(RENAME_HINT.format(room=a.name))
+    print(next_hint(a.name, thread))
 
 def cmd_prd(a):
     room = Room(a.room)
@@ -3015,6 +3043,306 @@ def rc_has_atr(shell=None):
     except OSError:
         return False
 
+# ---------- making atr discoverable to agents in T3 ----------
+# T3 has no skill directory of its own: its providers find skills (Claude Code in ~/.claude/skills, Codex in
+# ~/.codex/skills). Agents also don't inherit the owner's shell, so the `atr` function and ATR_DATA_DIR are
+# invisible to them; config.json records the store and the exact command instead.
+
+SKILL_NAME = "atr-lead"
+
+def skill_homes():
+    """[(provider, agent home, skill link)] for the providers T3 runs whose skills atr can be found by."""
+    home = Path.home()
+    claude = Path(os.environ.get("CLAUDE_CONFIG_DIR") or home / ".claude")
+    codex = Path(os.environ.get("CODEX_HOME") or home / ".codex")
+    return [("Claude Code", claude, claude / "skills" / SKILL_NAME), ("Codex", codex, codex / "skills" / SKILL_NAME)]
+
+def skill_source():
+    return SKILL_DIR.resolve()
+
+def skill_status():
+    """[(provider, link, state)]; state is linked, missing, other (something else is there) or no-agent."""
+    out = []
+    for provider, agent_home, link in skill_homes():
+        if link.is_symlink() or link.exists():
+            state = "linked" if link.resolve() == skill_source() else "other"
+        else:
+            state = "missing" if agent_home.is_dir() else "no-agent"
+        out.append((provider, link, state))
+    return out
+
+def install_skills():
+    """Link the lead skill into each installed provider's skills directory. Never replaces anything else."""
+    lines = []
+    for provider, link, state in skill_status():
+        if state == "missing":
+            durable_mkdir(link.parent, parents=True, exist_ok=True)
+            link.symlink_to(skill_source(), target_is_directory=True)
+            lines.append(("ok", f"lead skill: available to {provider} ({tilde(link)})"))
+        elif state == "linked":
+            lines.append(("ok", f"lead skill: available to {provider}"))
+        elif state == "other":
+            lines.append(("warn", f"lead skill: {tilde(link)} exists and is not atr's; left alone, so {provider} "
+                                  f"won't find atr's skill"))
+    if not any(state != "no-agent" for _, _, state in skill_status()):
+        lines.append(("warn", "lead skill: neither Claude Code nor Codex is installed here; "
+                              "run atr setup again after installing one"))
+    return lines
+
+def tilde(path):
+    p, home = str(path), str(Path.home())
+    return "~" + p[len(home):] if p == home or p.startswith(home + "/") else p
+
+def store_config_path():
+    home = Path.home()
+    xdg = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config")
+    return (xdg if xdg.is_absolute() else home / ".config") / "atr/config.json"
+
+def agent_command():
+    """How an agent runs atr without the owner's shell: this Python, isolated, this source."""
+    return shlex.join([sys.executable, "-I", str(Path(__file__).resolve())])
+
+def remember_store():
+    """Record this store and command in config.json so agents find both. Never repoints an existing choice."""
+    f = store_config_path()
+    try:
+        cfg = json.loads(f.read_text()) if f.exists() else {}
+    except (OSError, ValueError):
+        return ("warn", f"{tilde(f)} is unreadable; agents can't find the store from it. Fix or remove it, then run atr setup")
+    if not isinstance(cfg, dict):
+        return ("warn", f"{tilde(f)} is not a JSON object; fix or remove it, then run atr setup")
+    saved = cfg.get("data_dir")
+    if saved and Path(str(saved).replace("~", str(Path.home()), 1)).resolve() != ROOT:
+        return ("warn", f"{tilde(f)} points agents at {saved}, not this store ({tilde(ROOT)}); "
+                        "edit data_dir there if this store is the one you use")
+    if saved and cfg.get("command") == agent_command():
+        return ("ok", f"agents find this store through {tilde(f)}")
+    cfg.update(data_dir=str(ROOT), command=agent_command())
+    durable_mkdir(f.parent, parents=True, exist_ok=True)
+    durable_write(f, json.dumps(cfg, indent=2, sort_keys=True) + "\n")
+    return ("ok", f"agents find this store through {tilde(f)}")
+
+# ---------- the web page as a user service ----------
+# `atr serve` is the web page and also the T3 bridge's background loop (thread status, retrying queued deliveries).
+# A user service keeps it running from login: systemd --user on Linux, launchd on macOS. ATR_SERVICE=off disables
+# service management (tests); ATR_SYSTEMCTL / ATR_LAUNCHCTL name the tools.
+
+SERVICE_UNIT = "atr.service"
+LAUNCHD_LABEL = "atr.web"
+DEFAULT_PORT = 8787
+SERVICE_ENV = ("PATH", "T3CODE_CLI_PATH", "ATR_T3_PROJECT", "ATR_T3_BASE_DIR", "ATR_T3_TIMEOUT", "ATR_USERS")
+
+def read_config():
+    try:
+        cfg = json.loads(store_config_path().read_text())
+        return cfg if isinstance(cfg, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+def set_config(**values):
+    """Add keys to config.json; never rewrites a file atr can't read."""
+    f = store_config_path()
+    if f.exists() and not read_config():
+        try:
+            if json.loads(f.read_text()) != {}:
+                return
+        except (OSError, ValueError):
+            return
+    cfg = read_config()
+    cfg.update(values)
+    durable_mkdir(f.parent, parents=True, exist_ok=True)
+    durable_write(f, json.dumps(cfg, indent=2, sort_keys=True) + "\n")
+
+def web_port():
+    try:
+        return int(read_config().get("web_port") or DEFAULT_PORT)
+    except (TypeError, ValueError):
+        return DEFAULT_PORT
+
+def web_url(port=None):
+    return f"http://127.0.0.1:{port or web_port()}/"
+
+def web_alive(port=None, timeout=1.0):
+    """True when atr's page answers on the loopback port."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(web_url(port), timeout=timeout) as r:
+            return r.status == 200 and b"agent-rooms" in r.read(4096)
+    except (OSError, ValueError):
+        return False
+
+def wait_alive(port, seconds=6.0):
+    end = time.time() + seconds
+    while time.time() < end:
+        if web_alive(port):
+            return True
+        time.sleep(0.3)
+    return False
+
+def service_tool(kind):
+    import shutil
+    if kind == "systemd":
+        return os.environ.get("ATR_SYSTEMCTL") or shutil.which("systemctl")
+    return os.environ.get("ATR_LAUNCHCTL") or shutil.which("launchctl")
+
+def service_kind():
+    """'systemd', 'launchd' or None (no user service manager, or ATR_SERVICE=off)."""
+    if os.environ.get("ATR_SERVICE") == "off":
+        return None
+    if sys.platform == "darwin":
+        return "launchd" if service_tool("launchd") else None
+    tool = service_tool("systemd")
+    if not tool:
+        return None
+    try:
+        r = subprocess.run([tool, "--user", "show-environment"], capture_output=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return "systemd" if r.returncode == 0 else None
+
+def service_file(kind):
+    if kind == "systemd":
+        return store_config_path().parent.parent / "systemd/user" / SERVICE_UNIT
+    return Path.home() / "Library/LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
+
+def service_argv(port):
+    return [sys.executable, "-I", str(Path(__file__).resolve()), "--data-dir", str(ROOT),
+            "serve", "--host", "127.0.0.1", "--port", str(port)]
+
+def service_definition(kind, port):
+    env = {k: os.environ[k] for k in SERVICE_ENV if os.environ.get(k)}
+    if kind == "systemd":
+        q = lambda v: '"' + v.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%") + '"'
+        return ("[Unit]\nDescription=atr web page and T3 bridge\n\n[Service]\n"
+                f"ExecStart={' '.join(q(x) for x in service_argv(port))}\n"
+                + "".join(f"Environment={q(f'{k}={v}')}\n" for k, v in env.items())
+                + "Restart=on-failure\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n")
+    import plistlib
+    log = str(Path.home() / "Library/Logs/atr.log")
+    return plistlib.dumps({"Label": LAUNCHD_LABEL, "ProgramArguments": service_argv(port), "EnvironmentVariables": env,
+                           "RunAtLoad": True, "KeepAlive": True, "StandardOutPath": log, "StandardErrorPath": log}).decode()
+
+def service_run(kind, *args):
+    tool = service_tool(kind)
+    cmd = [tool, "--user", *args] if kind == "systemd" else [tool, *args]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return False, str(e)
+    return r.returncode == 0, (r.stderr or r.stdout).strip()
+
+def launchd_domain():
+    return f"gui/{os.getuid()}"
+
+def install_service(port=None):
+    """Install or refresh the user service and start it. Returns (mark, line)."""
+    kind = service_kind()
+    if not kind:
+        return ("warn", "web page: no user service manager here (systemd --user or launchd); open it with: atr open")
+    port = port or web_port()
+    f = service_file(kind)
+    taken = web_alive(port) and not f.exists()     # an `atr serve` someone started by hand holds the port
+    durable_mkdir(f.parent, parents=True, exist_ok=True)
+    durable_write(f, service_definition(kind, port))
+    set_config(web_port=port)
+    if kind == "systemd":
+        steps = [("daemon-reload",), ("enable", SERVICE_UNIT), ("restart", SERVICE_UNIT)]
+    else:
+        service_run(kind, "bootout", f"{launchd_domain()}/{LAUNCHD_LABEL}")
+        steps = [("bootstrap", launchd_domain(), str(f))]
+    for step in steps:
+        ok, detail = service_run(kind, *step)
+        if not ok:
+            return ("warn", f"web page: could not start the service ({' '.join(step)}: {detail}); "
+                            "see atr service status")
+    if taken:
+        return ("warn", f"web page: service installed, but something already serves {web_url(port)} (an atr serve "
+                        "you started?). Stop it; the service takes over within seconds and then starts when you log in")
+    if wait_alive(port):
+        return ("ok", f"web page: running at {web_url(port)} (starts when you log in)")
+    return ("warn", f"web page: service installed but nothing answers at {web_url(port)} yet "
+                    f"(another program on port {port}?); see atr service status")
+
+def uninstall_service():
+    kind = service_kind()
+    if not kind or not service_file(kind).exists():
+        return ("ok", "web page: no service installed")
+    f = service_file(kind)
+    if kind == "systemd":
+        service_run(kind, "disable", "--now", SERVICE_UNIT)
+        f.unlink()
+        service_run(kind, "daemon-reload")
+    else:
+        service_run(kind, "bootout", f"{launchd_domain()}/{LAUNCHD_LABEL}")
+        f.unlink()
+    return ("ok", f"web page: service removed ({tilde(f)})")
+
+def restart_service():
+    kind = service_kind()
+    if not kind or not service_file(kind).exists():
+        return None
+    if kind == "systemd":
+        return service_run(kind, "restart", SERVICE_UNIT)
+    return service_run(kind, "kickstart", "-k", f"{launchd_domain()}/{LAUNCHD_LABEL}")
+
+def service_summary():
+    """One line about the web page for doctor and status."""
+    kind = service_kind()
+    installed = bool(kind) and service_file(kind).exists()
+    alive = web_alive()
+    if installed and alive:
+        return f"Web page: {web_url()} (user service)"
+    if installed:
+        return f"note: the web page service is installed but nothing answers at {web_url()}; see atr service status"
+    if alive:
+        return f"Web page: {web_url()} (not a service; it stops with its terminal. To keep it running: atr service install)"
+    return "note: the web page isn't running. Keep it running with: atr service install (or open it once: atr open)"
+
+def cmd_service(a):
+    if a.verb == "install":
+        mark, line = install_service(a.port)
+        print(line)
+        if mark != "ok":
+            sys.exit(1)
+    elif a.verb == "uninstall":
+        print(uninstall_service()[1])
+    elif a.verb == "restart":
+        r = restart_service()
+        if r is None:
+            sys.exit("no service installed; install it with: atr service install")
+        if not r[0]:
+            sys.exit(f"restart failed: {r[1]}")
+        print(f"restarted; {'running at ' + web_url() if wait_alive(web_port()) else 'not answering yet'}")
+    else:
+        kind = service_kind()
+        print(f"Service manager: {kind or 'none found'}")
+        if kind:
+            f = service_file(kind)
+            print(f"Service file: {tilde(f)}" + ("" if f.exists() else " (not installed)"))
+            if f.exists() and kind == "systemd":
+                print("State: " + (service_run(kind, "is-active", SERVICE_UNIT)[1] or "unknown")
+                      + f" (logs: journalctl --user -u {SERVICE_UNIT})")
+            elif f.exists():
+                print(f"Logs: {tilde(Path.home() / 'Library/Logs/atr.log')}")
+        print(f"Web page: {web_url()} " + ("answers" if web_alive() else "does not answer"))
+
+def cmd_open(a):
+    """Open the web page, starting it first if it isn't running."""
+    port = web_port()
+    if not web_alive(port):
+        if restart_service() is None:
+            durable_mkdir(ROOT / ".atr", parents=True, exist_ok=True)
+            log = open(ROOT / ".atr/serve.log", "ab")
+            subprocess.Popen(service_argv(port), stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+            print(f"started the web page in the background (log: {tilde(ROOT / '.atr/serve.log')}); "
+                  "to keep it running across logins: atr service install")
+        if not wait_alive(port, 10):
+            sys.exit(f"the web page didn't come up at {web_url(port)}; see atr service status")
+    print(web_url(port))
+    if not a.no_browser:
+        import webbrowser
+        webbrowser.open(web_url(port))
+
 def path_note():
     if on_path() or rc_has_atr():
         return []
@@ -3054,6 +3382,14 @@ def cmd_setup(a):
         create_room_files(d, PROCESS_TITLE, "", PROCESS_WAIVE, now())
     if ensure_standing(d) or created:
         say(f"room {PROCESS_ROOM} created: it stays open and collects feedback on the protocol and lead skill")
+    mark, line = remember_store()
+    say(line, mark)
+    if not getattr(a, "no_skills", False):
+        for mark, line in install_skills():
+            say(line, mark)
+    if not getattr(a, "no_service", False):
+        mark, line = install_service()
+        say(line, mark)
     cfg = read_setup()
     if a.recreate_maintainer or a.yes:
         want = True
@@ -3129,6 +3465,21 @@ def cmd_doctor(a):
     else:
         print(f"warning: T3 unavailable or not executable: {cli}; install T3 or set T3CODE_CLI_PATH")
         print("Local records remain usable; automated work requires T3.")
+    for provider, link, state in skill_status():
+        if state == "linked":
+            print(f"Lead skill: {provider} ({tilde(link)})")
+        elif state == "missing":
+            print(f"note: {provider} can't find the lead skill; run atr setup to link it")
+        elif state == "other":
+            print(f"note: {tilde(link)} is not atr's lead skill; {provider} won't find atr's")
+    print(service_summary())
+    cfg_file = store_config_path()
+    try:
+        saved = json.loads(cfg_file.read_text()).get("data_dir") if cfg_file.exists() else None
+    except (OSError, ValueError, AttributeError):
+        saved = None
+    if not saved:
+        print(f"note: agents in T3 can't find this store; run atr setup to record it in {tilde(cfg_file)}")
     for note in path_note():
         print(f"note: {note}")
     for problem in problems:
@@ -3488,7 +3839,7 @@ def main():
             print(f"Atr data: {ROOT} ({DATA_SELECTION})")
     {"new": cmd_new, "set": cmd_set, "need": cmd_need, "log": cmd_log, "answer": cmd_answer, "reply": cmd_reply, "status": cmd_status,
      "check": cmd_check, "serve": cmd_serve,
-     "name": cmd_name, "team": cmd_team, "rooms": cmd_rooms, "room": cmd_rooms, "prd": cmd_prd, "refinement": cmd_refinement, "brief": cmd_brief, "inbox": cmd_inbox, "lead": cmd_lead,
+     "name": cmd_name, "team": cmd_team, "rooms": cmd_rooms, "room": cmd_rooms, "prd": cmd_prd, "refinement": cmd_refinement, "brief": cmd_brief, "inbox": cmd_inbox, "lead": cmd_lead, "start": cmd_start, "service": cmd_service, "open": cmd_open,
      "setup": cmd_setup, "doctor": cmd_doctor, "self-update": cmd_self_update, "uninstall": cmd_uninstall, "feedback": cmd_feedback, "delivery": cmd_delivery, "migrate": cmd_migrate, "t3": cmd_t3,
      "completion": cmd_completion}[a.cmd](a)
 
@@ -3570,6 +3921,13 @@ def build_parser():
     su.add_argument("--yes", action="store_true", help="start the maintainer thread without asking")
     su.add_argument("--no-maintainer", action="store_true", help="record that no maintainer thread is wanted")
     su.add_argument("--recreate-maintainer", action="store_true", help="start a new maintainer thread (the old one is gone)")
+    su.add_argument("--no-skills", action="store_true", help="don't link the lead skill into Claude Code's and Codex's skills")
+    su.add_argument("--no-service", action="store_true", help="don't install the web page as a user service")
+    sv2 = sub.add_parser("service", help="keep the web page running from login (systemd --user or launchd)")
+    sv2.add_argument("verb", choices=["install", "uninstall", "status", "restart"])
+    sv2.add_argument("--port", type=int, help=f"port for install (default {DEFAULT_PORT} or the saved one)")
+    op = sub.add_parser("open", help="open the web page, starting it if it isn't running")
+    op.add_argument("--no-browser", action="store_true", help="only make sure it runs and print the address")
     fb = sub.add_parser("feedback", help="file feedback on PROTOCOL.md, the lead skill or a charter")
     fb.add_argument("text"); fb.add_argument("--doc", required=True, choices=FEEDBACK_DOCS)
     fb.add_argument("--from", dest="from_room", required=True, help="the room the feedback comes from")
@@ -3577,6 +3935,10 @@ def build_parser():
     fb.add_argument("--blocks", help="room/item[,room/item] this feedback blocks, e.g. app/T07; the Maintainer is told "
                     "it is launch-blocking and the blocked room's lead is tapped when it is resolved")
     fb.add_argument("--by", default=who)
+    st = sub.add_parser("start", help="start a T3 thread that creates a room for what you want and leads it")
+    st.add_argument("text", nargs="?", help="what you want built, as you'd tell a person")
+    st.add_argument("--project", help="T3 project id or a path inside it (default: this directory)")
+    st.add_argument("--provider"); st.add_argument("--model"); st.add_argument("--title")
     ld = sub.add_parser("lead", help="hand a room's lead to another T3 thread")
     ld.add_argument("room"); ld.add_argument("thread", nargs="?", help="omit to print copyable take-the-lead text")
     ld.add_argument("--keep-old", action="store_true", help="keep the old lead in threads: even if it is settled")

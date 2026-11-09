@@ -21,8 +21,8 @@ class Install(unittest.TestCase):
 
     def run_install(self, shell, *args, piped=False, **extra):
         env = {k: v for k, v in os.environ.items() if k not in ("ATR_DATA_DIR", "XDG_DATA_HOME", "XDG_CONFIG_HOME",
-                                                                "ZDOTDIR", "T3CODE_CLI_PATH")}
-        env.update(HOME=str(self.home), SHELL=f"/bin/{shell}", **extra)
+                                                                "ZDOTDIR", "T3CODE_CLI_PATH", "CLAUDE_CONFIG_DIR", "CODEX_HOME")}
+        env.update(HOME=str(self.home), SHELL=f"/bin/{shell}", ATR_SERVICE="off", **extra)
         if piped:       # like `curl ... | sh -s -- ARGS`, run from an unrelated directory
             return subprocess.run(["sh", "-s", "--", *args], env=env, input=(REPO / "install.sh").read_text(),
                                   cwd=self.home, capture_output=True, text=True, timeout=60)

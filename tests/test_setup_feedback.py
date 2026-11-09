@@ -35,6 +35,9 @@ class Base(unittest.TestCase):
         tr.ROOMS, tr.TEMPLATES, tr.ROOT = root / "rooms", root / "template", root
         tr.ROOMS.mkdir()
         os.environ["HOME"] = str(root / "home")
+        self.addCleanup(lambda v=os.environ.get("ATR_SERVICE"): os.environ.__setitem__("ATR_SERVICE", v) if v is not None
+                        else os.environ.pop("ATR_SERVICE", None))
+        os.environ["ATR_SERVICE"] = "off"     # never touch the real systemd/launchd
         # keep a real T3 CLI on this machine out of the tests: atr also looks for `t3` on PATH
         for k in ("PATH", "T3CODE_CLI_PATH"):
             self.addCleanup(lambda k=k, v=os.environ.get(k): os.environ.__setitem__(k, v) if v is not None
@@ -118,7 +121,7 @@ class SetupTests(Base):
         self.assertEqual(self.run_cmd(tr.cmd_setup, ns(check=True))[0], 0)
 
     def test_interactive_answer_is_recorded(self):
-        tr.sys = type("S", (), {"stdin": type("I", (), {"isatty": lambda s: True})(), "exit": sys.exit, "stderr": sys.stderr})
+        tr.sys = type("S", (), {"stdin": type("I", (), {"isatty": lambda s: True})(), "exit": sys.exit, "stderr": sys.stderr, "executable": sys.executable})
         try:
             self.answer = "n"
             self.run_cmd(tr.cmd_setup, ns())

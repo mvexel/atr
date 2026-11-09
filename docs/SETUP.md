@@ -24,7 +24,7 @@ atr finds the T3 CLI at `$T3CODE_CLI_PATH`, else `~/.t3/bin/t3` (desktop app), e
 
 `atr doctor` checks Python, bundled assets, data-directory access and the saved setup choice without writing files or contacting T3. Missing local requirements exit nonzero; missing T3 and shell integration are advisory. Use `atr setup` to address missing setup. T3 execution and provider sign-in still need separate verification.
 
-`atr self-update` updates the running source installation without rerunning setup or changing shell configuration. Git checkouts must have no local changes and a branch with an upstream; only fast-forward updates are accepted. Installer tarballs are replaced from `ATR_REPO` / `ATR_REF` (defaults: this repository / `main`); preserve custom source edits in Git, and retain any custom repository/ref settings when updating. Tarballs containing legacy local data refuse to update. Restart `atr serve` after updating.
+`atr self-update` updates the running source installation without rerunning setup or changing shell configuration. Git checkouts must have no local changes and a branch with an upstream; only fast-forward updates are accepted. Installer tarballs are replaced from `ATR_REPO` / `ATR_REF` (defaults: this repository / `main`); preserve custom source edits in Git, and retain any custom repository/ref settings when updating. Tarballs containing legacy local data refuse to update. Self-update restarts the web page service if one is installed; restart an `atr serve` you started yourself.
 
 The manual route below gives the same result without the installer.
 
@@ -115,11 +115,23 @@ Use the actual ID printed by `new decision` if the room already contains cards. 
 
 For work that has passed its applicable gates, `t3 launch ROOM "bounded work instructions" --item ITEM_ID` dispatches through T3. `--project`, `--provider`, `--model` and `--title` select supported public T3 options; pass `--provider` and `--model` together. An item with a pending, attempting, uncertain or confirmed launch remains reserved against a second launch intent. Changing its prompt or editing the record does not resolve uncertain acceptance. See `docs/OPERATIONS.md` for reconciliation.
 
-## Open the optional web page
+## The web page and its service
+
+`atr setup` installs the web page as a user service that starts at login: a `systemd --user` unit (`~/.config/systemd/user/atr.service`) on Linux, a launchd agent (`~/Library/LaunchAgents/atr.web.plist`) on macOS. It runs `atr --data-dir STORE serve --host 127.0.0.1 --port 8787` with the Python that ran setup. The same process runs the T3 bridge's background loop: it refreshes thread status and retries queued deliveries every 20 seconds, so pending messages and launches go out once T3 is reachable. Without it, deliveries are only attempted by the command that queued them.
+
+The unit carries `PATH`, `T3CODE_CLI_PATH`, `ATR_T3_PROJECT`, `ATR_T3_BASE_DIR`, `ATR_T3_TIMEOUT` and `ATR_USERS` as they were when it was installed; after changing any of them, run `atr service install` again. `atr setup --no-service` skips the service, and the installer skips it when it runs without a terminal and without `--yes`.
 
 ```sh
-"$PYTHON" -I "$ATR_SOURCE/bin/atr" serve --host 127.0.0.1 --port 8787
+atr service status      # manager, unit file, state, whether the page answers
+atr service install     # install or refresh it; --port to change the port (saved in config.json)
+atr service restart
+atr service uninstall
+atr open                # open the page; starts the service, or a background server, if nothing answers
 ```
+
+Logs go to the journal (`journalctl --user -u atr.service`) or `~/Library/Logs/atr.log`. A server that `atr open` starts without a service logs to `.atr/serve.log` in the store and stops at logout. `atr serve` still runs the page in the foreground, for example on another port or behind Tailscale. If an `atr serve` you started holds the port, the service waits and takes over when you stop it.
+
+A user service runs while you're logged in. To keep it running after logout on a server, enable lingering: `loginctl enable-linger $USER`.
 
 Open `http://127.0.0.1:8787/` on the same machine. The page reads the selected store and offers search, records, local supporting documents, answers/questions and room pause. It does not add general creation/editing forms. The CLI and HTTP server can share the store; stale incompatible edits receive a conflict. On a conflict, reload the record and review the current content before resubmitting your draft.
 

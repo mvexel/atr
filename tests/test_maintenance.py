@@ -19,7 +19,7 @@ class Maintenance(unittest.TestCase):
         self.store = self.home / 'data'
         self.env = {**os.environ, 'HOME': str(self.home), 'ATR_DATA_DIR': str(self.store),
                     'XDG_CONFIG_HOME': str(self.home / 'config'), 'SHELL': '/bin/bash',
-                    'T3CODE_CLI_PATH': str(self.home / 'missing-t3')}
+                    'T3CODE_CLI_PATH': str(self.home / 'missing-t3'), 'ATR_SERVICE': 'off'}
 
     def cli(self, *args, source=REPO):
         return subprocess.run([sys.executable, '-I', str(source / 'bin/atr'), *args],

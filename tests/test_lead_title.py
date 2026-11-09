@@ -83,6 +83,19 @@ class LeadTitle(unittest.TestCase):
         self.assertEqual(out.getvalue().rstrip("\n").splitlines()[-1],
                          "Next: rename your thread to 'Room · newroom · lead' (t3_thread_update, action rename)")
 
+    def test_room_new_without_lead_points_at_atr_lead(self):
+        out = io.StringIO()
+        a = argparse.Namespace(name="newroom", title="New", lead_thread="", waive_prd="why", no_ux=False)
+        tr.ROOMS.mkdir(parents=True)
+        saved = tr.create_room_files
+        tr.create_room_files = lambda *x, **k: (tr.ROOMS / "newroom").mkdir()
+        try:
+            with contextlib.redirect_stdout(out):
+                tr.cmd_room(a)
+        finally:
+            tr.create_room_files = saved
+        self.assertIn("atr lead newroom", out.getvalue().rstrip("\n").splitlines()[-1])
+
 
 if __name__ == "__main__":
     unittest.main()
