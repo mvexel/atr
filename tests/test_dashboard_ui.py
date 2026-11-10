@@ -20,7 +20,7 @@ class OverviewRendering(unittest.TestCase):
         script = 'function el(tag, attrs, ...children) {return {tag, children, append(...xs){this.children.push(...xs)}}}; let dashboardError=null; let dashboard='+json.dumps(dict(rooms=[room]))+';'+ 'function dashboardView(app, selectedRoom = null) {'+fn+'; const app=el("main",{}); dashboardView(app, "maintenance"); console.log(JSON.stringify(app));'
         output = subprocess.check_output([NODE, '-e', script], text=True)
         self.assertNotIn('T01: Deferred code', output)
-        for text in ['Next action unclaimed:', 'Recorded activity: Write design', 'Execution: running', 'T3 thread observation', 'Limits unavailable', 'execution eligibility: unknown', 'account consumption: unknown', 'Completed documentation; code deferred', 'T02', 'explicit stale Result contradiction', 'Owner attention', 'Next actor:', 'Follow-up: T02', 'No recorded owner question', 'Outcome and next handoff']:
+        for text in ['Next action unclaimed:', 'Recorded activity: Write design', 'Execution: running', 'T3 thread observation', 'Limits unavailable', 'Accounts in Settings', 'Completed documentation; code deferred', 'T02', 'explicit stale Result contradiction', 'Owner attention', 'Next actor:', 'Follow-up: T02', 'No recorded owner question', 'Outcome and next handoff']:
             self.assertIn(text, output)
 
     def test_room_handoff_precedes_administration(self):

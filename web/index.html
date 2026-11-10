@@ -343,6 +343,7 @@ main.dashboard-mode{max-width:1440px}.dashboard-room{border-bottom:1px solid var
 .state-badge{display:inline-block;border-radius:4px;padding:3px 6px;font-size:12px;line-height:1.3;font-weight:600;background:var(--ux-unknown-bg);color:var(--ux-unknown)}.state-running{background:var(--ux-run-bg);color:var(--ux-run)}.state-attention{background:var(--ux-attention-bg);color:var(--ux-attention)}.state-waiting,.state-unclaimed{background:var(--ux-wait-bg);color:var(--ux-wait)}.state-closed{background:var(--ux-closed-bg);color:var(--ux-closed)}
 .dashboard-room{border-left:3px solid transparent;padding-left:10px}.dashboard-room.tone-attention{border-left-color:var(--ux-attention)}.dashboard-room.tone-unclaimed{border-left-color:var(--ux-wait)}.dashboard-room.tone-running{border-left-color:var(--ux-run)}.dashboard-room .owner-action{color:var(--ux-attention);background:var(--ux-attention-bg);border:1px solid currentColor;border-radius:4px}.room-handoff .unclaimed-action{color:var(--ux-wait);font-weight:600}
 
+.settings {overflow-wrap:anywhere;min-width:0}.settings header{position:sticky;top:0;background:var(--surface-1);z-index:1;display:flex;justify-content:space-between}.settings-sections{display:flex;flex-wrap:wrap;gap:8px;padding:12px}.settings button{white-space:normal;max-width:100%}
 </style>
 </head>
 <body>
@@ -369,6 +370,7 @@ for (const receipt of Object.values(sent)) { if (receipt && receipt.at) receipt.
 const drafts = storedObject("drafts");
 for (const k of Object.keys(drafts)) if (typeof drafts[k] !== "string") delete drafts[k];  // decision id -> unsent note
 const openWhy = new Set();                                     // "Why it matters" panels left open
+let settingsOpen = false, settingsSection = "accounts", sheetGeneration = 0;
 let sheetStack = [];                                           // record ids shown in the pop-out
 const tips = {};                                              // room -> last tapped chart cell
 let pauseArmed = false, pauseMsg = "";
@@ -493,10 +495,10 @@ function feedbackFirst(items, flags) {      // stable: blockers of an open item 
 // flags:end
 function flagEls(x) { return flagChips(x).map(f => el("span", { class: `flag ${f.cls}` }, f.text)); }
 
-function chip(item, extra, flags) {
+function chip(item, extra, flags, sourceRoom) {
   const s = item.state === "todo" && item.waits && item.waits.length ? "waits" : item.state;
   const [icon, label] = STATE[s] || ["?", s];
-  const b = el("button", { class: `chip s-${s}`, title: `${item.id} ${item.title} · ${label}`, onclick: () => openRecord(item.id) },
+  const b = el("button", { class: `chip s-${s}`, title: `${item.id} ${item.title} · ${label}`, onclick: () => { if (sourceRoom && sourceRoom !== current) { closeSheet(); showProcess(sourceRoom); } openRecord(item.id); } },
     el("span", { class: "i" }, `${icon} ${item.id}`), el("span", { class: "t" }, item.title),
     extra ? el("span", { class: "st" }, extra) : null, flags && flagChips(flags).length ? el("span", { class: "flags" }, ...flagEls(flags)) : null);
   // A link next to the button, not inside it: the worker's thread in T3 where its id and environment are known.
@@ -515,21 +517,47 @@ async function fetchRecord(rn, id) {
   } catch (e) { recErr[rn + "/" + id] = e.message || String(e); }
 }
 async function openRecord(id, push) {
+  settingsOpen = false;
+  const generation = ++sheetGeneration, recordRoom = current;
   roomsOpen = false;
   sheetStack = push && sheetStack.length ? [...sheetStack, id] : [id];
   drawSheet();
   if (!recs(current)[id]) {
-    await fetchRecord(current, id);
-    if (sheetStack[sheetStack.length - 1] === id) drawSheet();
+    await fetchRecord(recordRoom, id);
+    if (!settingsOpen && current === recordRoom && generation === sheetGeneration && sheetStack[sheetStack.length - 1] === id) drawSheet();
   }
 }
-function closeSheet() { sheetStack = []; roomsOpen = false; drawSheet(); }
+function settingsButton() { return el("button", {id:"settings-opener", onclick:()=>openSettings("accounts")}, "Settings"); }
+function openSettings(section = "accounts") {
+  ++sheetGeneration; settingsOpen = true; settingsSection = section;
+  sheetOpenerPending = document.activeElement; drawSheet();
+}
+function drawSettings(host) {
+  const content = el("div", {class:"body"});
+  if (settingsSection === "accounts") content.append(
+    el("h2", {}, "Accounts"),
+    el("p", {}, "Limits unavailable. Source: local records only. Observation time, units, quota window, pool and reset unknown."),
+    el("p", {}, "Configured models: unknown. Execution eligibility: unknown. Observed running work: unknown. Account consumption: unknown."),
+    el("p", {}, "Load balancing unavailable: no supported account telemetry or capacity-based recommendation. Configuration and machine resources do not establish account limits. Account connection, authentication and routing controls are unavailable."));
+  else {
+    const standing = state?.rooms.find(r=>r.standing);
+    content.append(el("h2", {}, "How we work"));
+    if (standing) {
+      content.append(el("button", {onclick:()=>{closeSheet();showProcess(standing.name);}}, "Open full maintenance context"));
+      processBlocks(standing).forEach(n=>content.append(n));
+    } else content.append(el("p", {}, "Standing maintenance information unavailable."));
+  }
+  const sections = el("div", {class:"settings-sections"}, ...[["accounts","Accounts"],["process","How we work"]].map(([key,label])=>el("button", {"aria-pressed":String(settingsSection===key),onclick:()=>{settingsSection=key;drawSheet();}}, label)));
+  host.append(el("div", {class:"sheet-bg",onclick:e=>{if(e.target===e.currentTarget)closeSheet();}}, el("section", {class:"sheet settings",role:"dialog","aria-modal":"true","aria-label":"Settings"}, el("header", {}, el("h1", {}, "Settings"), el("button", {class:"close","aria-label":"Close Settings",onclick:closeSheet}, "×")), sections, content)));
+}
+function closeSheet() { settingsOpen = false; ++sheetGeneration; sheetStack = []; roomsOpen = false; drawSheet(); }
 // Modal focus: while a sheet or the palette is up the page behind is inert, focus moves into the dialog,
 // Tab wraps inside it, and closing returns focus to whatever opened it.
 let sheetOpener = null;
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 function syncModal() {
   const sheetUp = !!$("sheet").firstChild, up = sheetUp || palOpen;
+  document.body.style.overflow = up ? "hidden" : "";
   const app = $("app");
   if (up) app.setAttribute("inert", ""); else app.removeAttribute("inert");
   $("sheet").toggleAttribute("inert", palOpen);
@@ -539,7 +567,7 @@ function syncModal() {
     if (dlg && !dlg.contains(document.activeElement)) { dlg.tabIndex = -1; (dlg.querySelector(".close") || dlg).focus(); }
   } else if (!sheetUp) {
     const o = sheetOpener; sheetOpener = null;
-    if (!palOpen && o && o.focus && document.contains(o)) o.focus();
+    if (!palOpen && o) { const target = document.contains(o) ? o : o.id ? $(o.id) : null; target?.focus(); }
   }
 }
 let sheetOpenerPending = null;
@@ -560,7 +588,8 @@ function drawSheet() {
 function drawSheetBody() {
   const host = $("sheet");
   host.replaceChildren();
-  document.body.style.overflow = roomsOpen || sheetStack.length ? "hidden" : "";
+  document.body.style.overflow = settingsOpen || palOpen || roomsOpen || sheetStack.length ? "hidden" : "";
+  if (settingsOpen) return drawSettings(host);
   if (roomsOpen) return drawRoomSheet(host);
   const id = sheetStack[sheetStack.length - 1];
   if (!id) return;
@@ -588,7 +617,7 @@ function drawSheetBody() {
   sheet.append(el("h4", {}, "File"), el("a", { class: "ref", href: docURL(r.file), target: "_blank", rel: "noopener" }, r.file.split("/").pop()));
   host.append(el("div", { class: "sheet-bg", onclick: e => { if (e.target === e.currentTarget) closeSheet(); } }, sheet));
 }
-document.addEventListener("keydown", e => { if (e.key === "Escape") closeSheet(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !palOpen) closeSheet(); });
 
 // ---------- palette: Ctrl-K / Cmd-K / "/" / the search button (rooms, items, decisions; all from data the page holds) ----------
 let palOpen = false, palQ = "", palSel = 0, palChip = "all", palAll = new Set(), palBack = null, palList = [];
@@ -681,7 +710,7 @@ function palVisible(hits) {
 function palOpenSheet() {
   if (!state || palOpen) return;
   palBack = document.activeElement; palOpen = true; palQ = ""; palSrv = { q: "", hits: [] }; palSel = 0; palChip = "all"; palAll = new Set();
-  roomsOpen = false; sheetStack = []; drawSheet();
+  if (!settingsOpen) { roomsOpen = false; sheetStack = []; ++sheetGeneration; } drawSheet();
   palDraw(); syncModal(); setTimeout(() => $("palq")?.focus(), 0);
 }
 function palClose(restore = true) {
@@ -1247,7 +1276,7 @@ function processBlocks(r) {
   const tooling = lanes.filter(i => live(i) && !fids.has(i.id));
   const pf = Object.fromEntries(((r.plan || {}).items || []).map(x => [x.id, x]));
   const list = (items, extra) => el("div", { class: "lanes" }, el("div", { class: "lane" }, el("div", { class: "chips" },
-    items.map(i => chip(i, extra(i), pf[i.id] && { blocks: pf[i.id].blocks, blocks_open: pf[i.id].blocks_open })))));
+    items.map(i => chip(i, extra(i), pf[i.id] && { blocks: pf[i.id].blocks, blocks_open: pf[i.id].blocks_open }, r.name)))));
   out.push(el("h2", {}, el("span", {}, `Feedback disposition and follow-through · ${feedback.length}`), el("span", {}, "newest first")));
   out.push(feedback.length ? list(feedbackSorted, i => fromRoom(i.id) || STATE[i.state][1]) : el("p", { class: "empty" }, "No active feedback records."));
   out.push(el("h2", {}, el("span", {}, `Open maintenance obligations · ${tooling.length}`), el("span", {}, "state · cap · age")));
@@ -1314,7 +1343,8 @@ function dashboardView(app, selectedRoom = null) {
     const owner = el("div", {}, el("span", {class:"cell-label"}, "Needs you"), r.owner_attention.length ? r.owner_attention.map(a=>el("button", {class:"owner-action",onclick:()=>{pick(r.room);openRecord(a.id);}}, a.question)) : el("p", {}, "No decision"));
     app.append(el("article", {class:`dashboard-room tone-${tone}`}, identity,status,handoff,actors,owner,card));
   }
-  app.append(el("section", {class:"card"}, el("h2", {}, "Account capacity"), el("p", {}, "Limits unavailable · source: local records only · observation time, units, window, pool and reset unknown"), el("p", {}, "Configured models: unknown · execution eligibility: unknown · observed running work: unknown · account consumption: unknown"), el("p", {}, "No capacity-based recommendation available. Configuration and machine resources do not establish account limits.")));
+  app.append(el("section", {class:"card"}, el("h2", {}, "Account capacity"), el("p", {}, "Limits unavailable · local records only"), el("button", {onclick:()=>openSettings("accounts")}, "Accounts in Settings")));
+
 }
 function draw(top) {
   const y = window.scrollY, anchor = top ? null : anchorPoint();
@@ -1323,6 +1353,7 @@ function draw(top) {
   app.replaceChildren();
   app.classList.toggle("dashboard-mode", overview);
   if (!state) { app.style.minHeight = ""; return; }
+  app.append(settingsButton());
   if (overview) { dashboardView(app); app.style.minHeight = ""; return; }
   app.append(el("button", {onclick:()=>{overview=true;history.replaceState(null,"",location.pathname);load(true);}}, "All rooms"));
   const rooms = state.rooms;
@@ -1335,16 +1366,7 @@ function draw(top) {
   const settledAsks = settled.reduce((n, x) => n + needN(x), 0);
   const ordered = orderedRooms();
   const inStd = processView && !!r?.standing, shell = inStd ? (reg.find(x => x.name === lastRoom) || open[0] || reg[0]) : r;
-  if (std) {
-    const fb = std.feedback || {}, need = needN(std);
-    app.append(el("button", { class: "pin" + (inStd ? " on" : ""), "aria-pressed": String(inStd), "aria-label": "How we work",
-        onclick: inStd ? leaveProcess : () => showProcess(std.name) },
-      el("span", { "aria-hidden": "true" }, "⚙"), el("b", {}, "How we work"),
-      inStd ? el("small", {}, "agent-rooms' own improvements")
-        : [need ? el("span", { class: "n", "aria-label": `${need} need you` }, need) : null,
-           el("span", { class: "pill" }, `${fb.open || 0} open`), el("span", { class: "pill g" }, `${fb.accepted || 0} accepted`)],
-      el("span", { "aria-hidden": "true" }, inStd ? "✕" : "›")));
-  }
+  if (std && !inStd) app.append(el("section", {class:"card"}, el("h2", {}, "Global maintenance"), el("p", {}, `${needN(std)} need you · ${std.feedback?.open || 0} open feedback · accepted feedback still requires follow-through`), el("button", {onclick:()=>showProcess(std.name)}, "Open maintenance and owner actions")));
   app.append(el("div", { class: "palkey" }, el("button", { onclick: palOpenSheet }, "Search · Ctrl-K")));
   if (!r) { app.append(el("p", { class: "empty" }, "No rooms yet. A room is one project with its own team of agents and a lead that runs it. Create the first one from the ",
     el("a", { href: docURL("docs/SETUP.md"), target: "_blank", rel: "noopener" }, "setup guide"),
@@ -1549,7 +1571,7 @@ window.addEventListener("resize", () => { const b = document.querySelector(".pla
 
 function busy() {
   const a = document.activeElement;
-  return palOpen || sheetStack.length || roomsOpen || Object.keys(armed).length || Object.keys(sending).length || inflight || pauseArmed
+  return settingsOpen || palOpen || sheetStack.length || roomsOpen || Object.keys(armed).length || Object.keys(sending).length || inflight || pauseArmed
     || Date.now() - lastTouch < 2000 || (a && a.tagName === "TEXTAREA") || document.visibilityState !== "visible";
 }
 for (const ev of ["touchstart", "touchmove", "touchend", "pointerdown", "wheel", "keydown"])

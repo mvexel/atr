@@ -10,3 +10,7 @@ class AsyncRecovery(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node unavailable')
     def test_search_races(self):
         subprocess.run(['node', 'tests/fixtures/search-races.cjs'], check=True, timeout=30)
+
+    @unittest.skipUnless(shutil.which("node"), "Node unavailable")
+    def test_settings_races(self):
+        subprocess.run(["node", "tests/fixtures/settings-races.cjs"], check=True, timeout=30)

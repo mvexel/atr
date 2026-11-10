@@ -15,7 +15,7 @@ class PageCopy(unittest.TestCase):
     def test_one_name_for_the_standing_room(self):
         self.assertNotIn("Process: how we work", HTML)
         self.assertNotIn('b", {}, "Process"', HTML)
-        self.assertIn('"aria-label": "How we work"', HTML)
+        self.assertIn('function drawSettings(host)', HTML)
         self.assertNotIn('"the atr itself"', HTML)
 
     def test_standing_room_explained(self):

@@ -8,7 +8,7 @@ HTML = (Path(__file__).resolve().parent.parent / "web" / "index.html").read_text
 
 class ProcessPin(unittest.TestCase):
     def test_pin_and_view_present(self):
-        for needle in ['class: "pin"', "How we work", "processBlocks", "leaveProcess", "r?.standing", "fbk[k]"]:
+        for needle in ['function settingsButton()', "How we work", "processBlocks", "leaveProcess", "r?.standing", "fbk[k]"]:
             self.assertIn(needle, HTML)
 
     def test_standing_room_is_separate_and_asks_count(self):
@@ -21,7 +21,7 @@ class ProcessPin(unittest.TestCase):
 
     def test_palette_present_and_guards_redraws(self):
         # Ctrl-K / Cmd-K / "/" palette; behaviour was driven with real keys in headless Chrome
-        for needle in ["palOpenSheet", "palChoose", "e.ctrlKey || e.metaKey", 'class: "palbtn"', "return palOpen ||", 'id="pal"', '"ArrowDown"']:
+        for needle in ["palOpenSheet", "palChoose", "e.ctrlKey || e.metaKey", 'class: "palbtn"', "return settingsOpen || palOpen ||", 'id="pal"', '"ArrowDown"']:
             self.assertIn(needle, HTML)
 
     def test_palette_server_hits_and_process_blocks(self):
