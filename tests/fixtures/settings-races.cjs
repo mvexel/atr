@@ -19,3 +19,13 @@ vm.createContext(m);vm.runInContext(src.slice(src.indexOf('function settingsButt
 m.openSettings();assert.equal(m.settingsOpen,true);assert.equal(m.current,'a');assert.equal(m.drafts.D01,'keep');assert.deepEqual(m.sheetStack,['D01']);
 const host=make('host');m.drawSettings(host);const dialog=host.children[0].children[0];assert.equal(dialog.attrs.role,'dialog');assert.equal(dialog.attrs['aria-label'],'Settings');
 const sections=dialog.children[1];sections.children[1].attrs.onclick();assert.equal(m.settingsSection,'process');assert.equal(m.lastRoom,'a');assert.equal(m.overview,false);
+
+(async()=>{
+ let resolveFetch;const standing={name:'process',standing:true};
+ const n={state:{rooms:[standing]},sheetGeneration:1,settingsOpen:true,settingsSection:'process',settingsMaintenanceReady:false,settingsMaintenanceError:'',base:'/',recCache:{},recs:()=>({}),drawSheet(){},fetch:()=>new Promise(r=>resolveFetch=r)};
+ vm.createContext(n);vm.runInContext(src.slice(src.indexOf('async function loadSettingsMaintenance('),src.indexOf('function drawSettings(')),n);
+ let pending=n.loadSettingsMaintenance();resolveFetch({ok:true,json:async()=>({rooms:[{name:'process',records:{T01:{title:'Actual feedback'}},lanes:[]}]})});await pending;assert(n.settingsMaintenanceReady);assert(n.recCache.process.T01);
+ n.settingsMaintenanceReady=false;n.recCache={};pending=n.loadSettingsMaintenance();n.sheetGeneration++;resolveFetch({ok:true,json:async()=>({rooms:[{name:'process',records:{T02:{}}}]})});await pending;assert(!n.settingsMaintenanceReady);assert(!n.recCache.process);
+ n.fetch=async()=>{throw Error('offline')};await n.loadSettingsMaintenance();assert(n.settingsMaintenanceError.includes('offline'));
+ console.log('Settings maintenance loading passed');
+})().catch(e=>{console.error(e);process.exitCode=1});

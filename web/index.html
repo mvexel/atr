@@ -370,7 +370,7 @@ for (const receipt of Object.values(sent)) { if (receipt && receipt.at) receipt.
 const drafts = storedObject("drafts");
 for (const k of Object.keys(drafts)) if (typeof drafts[k] !== "string") delete drafts[k];  // decision id -> unsent note
 const openWhy = new Set();                                     // "Why it matters" panels left open
-let settingsOpen = false, settingsSection = "accounts", sheetGeneration = 0;
+let settingsOpen = false, settingsSection = "accounts", sheetGeneration = 0, settingsMaintenanceReady = false, settingsMaintenanceError = "";
 let sheetStack = [];                                           // record ids shown in the pop-out
 const tips = {};                                              // room -> last tapped chart cell
 let pauseArmed = false, pauseMsg = "";
@@ -531,6 +531,22 @@ function settingsButton() { return el("button", {id:"settings-opener", onclick:(
 function openSettings(section = "accounts") {
   ++sheetGeneration; settingsOpen = true; settingsSection = section;
   sheetOpenerPending = document.activeElement; drawSheet();
+  if (section === "process") loadSettingsMaintenance();
+}
+async function loadSettingsMaintenance() {
+  const standing = state?.rooms.find(r=>r.standing), generation = sheetGeneration;
+  if (!standing) return;
+  settingsMaintenanceError = "";
+  try {
+    const response = await fetch(base + "api/state?room=" + encodeURIComponent(standing.name), {cache:"no-store"});
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const next = (await response.json()).rooms.find(r=>r.name === standing.name);
+    if (!next) throw new Error("Maintenance room unavailable");
+    if (generation !== sheetGeneration || !settingsOpen || settingsSection !== "process") return;
+    recCache[standing.name] = {...recs(standing.name), ...next.records};
+    Object.assign(standing, next); settingsMaintenanceReady = true;
+  } catch (error) { if (generation !== sheetGeneration || !settingsOpen) return; settingsMaintenanceError = String(error); }
+  if (generation === sheetGeneration && settingsOpen && settingsSection === "process") drawSheet();
 }
 function drawSettings(host) {
   const content = el("div", {class:"body"});
@@ -544,10 +560,12 @@ function drawSettings(host) {
     content.append(el("h2", {}, "How we work"));
     if (standing) {
       content.append(el("button", {onclick:()=>{closeSheet();showProcess(standing.name);}}, "Open full maintenance context"));
-      processBlocks(standing).forEach(n=>content.append(n));
+      if (settingsMaintenanceReady) processBlocks(standing).forEach(n=>content.append(n));
+      else content.append(el("p", {role:"status"}, settingsMaintenanceError ? "Maintenance refresh failed: " + settingsMaintenanceError : "Loading maintenance records…"));
+      if (settingsMaintenanceError) content.append(el("p", {role:"status"}, "Maintenance refresh failed; any shown records are last-known. " + settingsMaintenanceError), el("button", {onclick:loadSettingsMaintenance}, "Retry maintenance"));
     } else content.append(el("p", {}, "Standing maintenance information unavailable."));
   }
-  const sections = el("div", {class:"settings-sections"}, ...[["accounts","Accounts"],["process","How we work"]].map(([key,label])=>el("button", {"aria-pressed":String(settingsSection===key),onclick:()=>{settingsSection=key;drawSheet();}}, label)));
+  const sections = el("div", {class:"settings-sections"}, ...[["accounts","Accounts"],["process","How we work"]].map(([key,label])=>el("button", {"aria-pressed":String(settingsSection===key),onclick:()=>{settingsSection=key;drawSheet();if(key==="process")loadSettingsMaintenance();}}, label)));
   host.append(el("div", {class:"sheet-bg",onclick:e=>{if(e.target===e.currentTarget)closeSheet();}}, el("section", {class:"sheet settings",role:"dialog","aria-modal":"true","aria-label":"Settings"}, el("header", {}, el("h1", {}, "Settings"), el("button", {class:"close","aria-label":"Close Settings",onclick:closeSheet}, "×")), sections, content)));
 }
 function closeSheet() { settingsOpen = false; ++sheetGeneration; sheetStack = []; roomsOpen = false; drawSheet(); }
