@@ -734,7 +734,7 @@ document.addEventListener("keydown", e => {
   else if (e.key === "ArrowDown") { e.preventDefault(); palMove(1); }
   else if (e.key === "ArrowUp") { e.preventDefault(); palMove(-1); }
 
-  else if (e.key === "Enter") { e.preventDefault(); if (palList[palSel]) palChoose(palList[palSel]); }
+  else if (e.key === "Enter" && document.activeElement?.id === "palq") { e.preventDefault(); if (palList[palSel]) palChoose(palList[palSel]); }
 }, true);
 
 // ---------- rooms: one button and a sheet on a phone, pills on a wide screen ----------
