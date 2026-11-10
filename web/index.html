@@ -328,6 +328,15 @@
 .card button {min-height:44px;white-space:normal} :focus-visible {outline:3px solid #467edb;outline-offset:3px}
 @media(max-width:600px){.card{min-width:0;overflow-wrap:anywhere}.card button{max-width:100%} .card pre{white-space:pre-wrap}}
 .next-action {font-weight:600;overflow-wrap:anywhere}.room-support {margin:1.5rem 0}.room-support>summary {cursor:pointer;padding:1rem 0}summary:focus-visible {outline:2px solid var(--accent)}@media(max-width:600px){.card{min-width:0;overflow-wrap:anywhere}.card button{max-width:100%;white-space:normal}}
+
+/* Owner overview: desktop rows, expandable evidence, stacked narrow layout. */
+main.dashboard-mode{max-width:1440px}.dashboard-room{border-bottom:1px solid var(--line);padding:10px 0;margin:0;display:grid;grid-template-columns:minmax(180px,1.25fr) minmax(130px,.8fr) minmax(240px,1.8fr) minmax(110px,.7fr) minmax(110px,.7fr);gap:8px 18px;align-items:start;font-size:14px;line-height:1.35}
+.dashboard-room p,.dashboard-room h2{margin:0}.dashboard-room h2{font-size:16px}.dashboard-room .cell-label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:4px}.room-goal{display:block;color:var(--text-secondary);font-size:12px;margin-top:3px}.room-evidence{grid-column:1/-1;margin:0}.room-evidence>summary{font-size:12px;color:var(--text-secondary);cursor:pointer;padding:3px 0;min-height:24px}.room-evidence[open]{padding:8px 12px;background:var(--surface-1);border:1px solid var(--line);border-radius:6px}.dashboard-room button{font:inherit;min-height:32px;padding:3px 8px}.dashboard-room .room-title-button{text-align:left;border:0;background:none;color:var(--text-primary);padding:0;min-height:24px;font-size:16px;font-weight:650}.dashboard-room .summary-next{margin-bottom:4px}.dashboard-room .summary-next:last-child{margin-bottom:0}
+@media(min-width:1000px){.dashboard-mode>h1{font-size:24px;margin:8px 0}.dashboard-mode>.card{padding:10px 14px;margin:8px 0}.dashboard-mode>.card p{margin:4px 0}.dashboard-mode>.card h2{font-size:15px;margin:0 0 4px}}
+@media(max-width:999px){.dashboard-room{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;padding:14px 0}.dashboard-room .room-identity,.dashboard-room .room-handoff{grid-column:1/-1}.dashboard-room button{min-height:44px}.room-evidence>summary{min-height:44px}}
+
+@media(min-width:1000px){.dashboard-columns,.dashboard-room{grid-template-columns:minmax(180px,1.25fr) minmax(130px,.8fr) minmax(230px,1.8fr) minmax(100px,.7fr) minmax(100px,.7fr) 68px;gap:8px 16px}.dashboard-columns{display:grid;padding:8px 0 5px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);border-bottom:1px solid var(--line)}.dashboard-room{padding:8px 0}.dashboard-room .cell-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.dashboard-room .room-evidence:not([open]){grid-column:6;margin:0}.dashboard-room .room-evidence[open]{grid-column:1/-1}.dashboard-room .room-evidence>summary{padding:0;min-height:24px}.dashboard-room .room-title-button{min-height:24px}.dashboard-room .room-evidence p{margin:4px 0}}
+@media(max-width:999px){.dashboard-columns{display:none}}
 </style>
 </head>
 <body>
@@ -1263,8 +1272,9 @@ function dashboardView(app, selectedRoom = null) {
   }
   if (!attention.children.length || attention.children.length === 1) attention.append(el("p", {}, "No recorded owner question. Next responsibilities remain below."));
   app.append(attention);
+  app.append(el("div", {class:"dashboard-columns", "aria-hidden":"true"}, ["Room / outcome","State","Next action","Responsible","Needs you","Evidence"].map(t=>el("span",{},t))));
   for (const r of dashboard.rooms.filter(r => !selectedRoom || r.room === selectedRoom)) {
-    const card = el("article", {class:"card"}, el("h2", {}, r.title || (typeof state !== "undefined" ? state : null)?.rooms?.find(x => x.name === r.room)?.title || r.room.replace(/-/g, " ")), el("p", {}, r.goal || "Outcome not recorded"), el("p", {}, "Recorded state: " + (r.recorded_state || "unknown")), el("p", {}, `${r.activity?.state || "unknown"} · source: ${r.activity?.source || "unknown"} · ${r.activity?.observed_at || "time unknown"} ${r.activity?.actor || ""} ${r.activity?.event || ""}`));
+    const card = el("details", {class:"room-evidence"}, el("summary", {}, "Details"), el("h2", {}, r.title || (typeof state !== "undefined" ? state : null)?.rooms?.find(x => x.name === r.room)?.title || r.room.replace(/-/g, " ")), el("p", {}, r.goal || "Outcome not recorded"), el("p", {}, "Recorded state: " + (r.recorded_state || "unknown")), el("p", {}, `${r.activity?.state || "unknown"} · source: ${r.activity?.source || "unknown"} · ${r.activity?.observed_at || "time unknown"} ${r.activity?.actor || ""} ${r.activity?.event || ""}`));
     for (const o of r.current_work || []) card.append(el("p", {}, `Recorded activity: ${o.action} · Assigned actor: ${o.actor || "unknown"} · Execution: ${o.runtime.state} · ${o.runtime.source} · ${o.runtime.observed_at || "time unknown"} · ${o.runtime.freshness}`));
     const change = r.latest_evidenced_change;
     card.append(el("p", {}, change ? `Latest recorded evidence: ${change.scope} / ${change.stage}: ${change.state} · ${change.source} · ${change.observed_at} · reference not independently verified` : "Latest evidenced change: unknown"));
@@ -1285,7 +1295,15 @@ function dashboardView(app, selectedRoom = null) {
     card.append(el("button", {onclick:()=>pick(r.room)}, "Open room · decisions and evidence"));
     const history = el("details", {}, el("summary", {}, "Complete evidence history"));
     for (const o of r.obligations) { history.append(el("p", {}, `${o.id} · ${o.recorded_state} · ${o.action}`), el("pre", {style:"white-space:pre-wrap;overflow-wrap:anywhere"}, (o.result || "No Result recorded") + "\nReconciliation: " + (o.reconciliation || []).join("; "))); for (const c of o.assertions || []) history.append(el("p", {}, `${c.scope} / ${c.stage}: ${c.state} · ${c.source} · ${c.ref} · ${c.observed_at} · reference not independently verified`)); history.append(el("p", {}, "Successors: " + (o.successors || []).map(x => typeof x === "string" ? x : x.target).join("; "))); }
-    card.append(history); app.append(card);
+    card.append(history);
+    const pending = r.obligations.filter(o => o.open), upcoming = pending.slice(0, 2);
+    const identity = el("div", {class:"room-identity"}, el("button", {class:"room-title-button",onclick:()=>pick(r.room)}, r.title || (typeof state !== "undefined" ? state : null)?.rooms?.find(x=>x.name===r.room)?.title || r.room.replace(/-/g," ")), el("span", {class:"room-goal"}, r.goal || "Outcome not recorded"));
+    const activity = (r.current_work || []).map(o=>o.runtime?.state === "running" ? "Running (observed)" : o.runtime?.state === "idle" ? "Idle (observed)" : "Execution unverified");
+    const status = el("div", {}, el("span", {class:"cell-label"}, "State"), el("p", {}, r.activity?.state === "external wait" ? `Waiting: ${r.activity.actor} · ${r.activity.event}` : r.activity?.state === "paused by owner" ? "Paused by owner" : activity.length ? [...new Set(activity)].join("; ") : pending.length ? "Next work queued" : "No open obligations"), el("span", {class:"room-goal"}, r.recorded_state || "State not recorded"));
+    const handoff = el("div", {class:"room-handoff"}, el("span", {class:"cell-label"}, "Next action"), upcoming.map(o=>el("p", {class:"summary-next"}, (o.unclaimed_ready ? "Unclaimed · " : "") + (o.action || o.id))), !pending.length ? el("p", {}, "None recorded · completion evidence in details") : null, pending.length>2 ? el("span", {class:"room-goal"}, `+${pending.length-2} more in details`) : null);
+    const actors = el("div", {}, el("span", {class:"cell-label"}, "Responsible"), upcoming.map(o=>el("p", {class:"summary-next"}, o.actor || "Missing — lead to assign")));
+    const owner = el("div", {}, el("span", {class:"cell-label"}, "Needs you"), r.owner_attention.length ? r.owner_attention.map(a=>el("button", {onclick:()=>{pick(r.room);openRecord(a.id);}}, a.question)) : el("p", {}, "No decision"));
+    app.append(el("article", {class:"dashboard-room"}, identity,status,handoff,actors,owner,card));
   }
   app.append(el("section", {class:"card"}, el("h2", {}, "Account capacity"), el("p", {}, "Limits unavailable · source: local records only · observation time, units, window, pool and reset unknown"), el("p", {}, "Configured models: unknown · execution eligibility: unknown · observed running work: unknown · account consumption: unknown"), el("p", {}, "No capacity-based recommendation available. Configuration and machine resources do not establish account limits.")));
 }
@@ -1294,6 +1312,7 @@ function draw(top) {
   const app = $("app");
   app.style.minHeight = app.offsetHeight + "px";     // keep the page height while redrawing
   app.replaceChildren();
+  app.classList.toggle("dashboard-mode", overview);
   if (!state) { app.style.minHeight = ""; return; }
   if (overview) { dashboardView(app); app.style.minHeight = ""; return; }
   app.append(el("button", {onclick:()=>{overview=true;history.replaceState(null,"",location.pathname);load(true);}}, "All rooms"));
