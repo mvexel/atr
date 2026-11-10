@@ -335,6 +335,7 @@
 const base = location.pathname.endsWith("/") ? location.pathname : location.pathname + "/";
 const params = new URLSearchParams(location.search);
 let lastRoom = params.get("room") || localStorage.getItem("room") || null;   // the last selected tracker room
+let overview = !params.get("room"), dashboard = null, dashboardError = null;
 let state = null, current = params.get("room") || lastRoom;
 let processView = params.get("room") === "process"; // Only an explicit process link opens How we work.
 let filter = localStorage.getItem("filter") || "all";
@@ -779,11 +780,12 @@ function drawRoomSheet(host) {
   host.append(el("div", { class: "sheet-bg", onclick: e => { if (e.target === e.currentTarget) closeSheet(); } }, sheet));
 }
 function pick(name) {
+  const wasOverview = overview; overview = false;
   if (state?.rooms.find(x => x.name === name)?.standing) return showProcess(name);
   const wasProcess = processView;
   processView = false;
-  if (name !== current || wasProcess) {
-    for (const k of Object.keys(sent)) if (k.startsWith(current + "/")) delete sent[k];   // receipts end when you leave the room
+  if (name !== current || wasProcess || wasOverview) {
+    overview = false; // Keep saved receipts across room navigation.
     lastRoom = name; localStorage.setItem("room", name); localStorage.removeItem("view");
     current = name;
     pending = false; $("newpill").hidden = true;
@@ -983,6 +985,7 @@ function receiptCard(key, s) {
     el("p", { class: "title" }, el("span", { class: "tick", "aria-hidden": "true" }, "✓"), el("span", { class: "id" }, s.id), s.title),
     el("p", { class: "pick" }, `${s.opt.key}) ${s.opt.text}`),
     el("div", { class: "meta", role: "status" },
+      el("span", {}, "Saved locally"), el("span", {}, "receipt and execution unverified"),
       el("span", {}, s.already ? `Already saved: ${s.opt.key})`
         : `Your answer was saved at ${s.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${deliveryText(s.delivery)}`),
       el("button", { class: "openrec", onclick: () => openRecord(s.id) }, "Open record")));
@@ -1193,12 +1196,40 @@ function processBlocks(r) {
   return out;
 }
 
+function dashboardView(app) {
+  app.append(el("h1", {}, "Your rooms"), el("p", {}, "Outcomes, owner attention and the next handoff · local records"));
+  if (dashboardError) app.append(el("p", {role:"status"}, dashboardError), el("button", {onclick:()=>load(true)}, "Retry dashboard"));
+  if (!dashboard) { app.append(el("p", {}, "Dashboard observations unavailable.")); return; }
+  for (const r of dashboard.rooms) {
+    const card = el("article", {class:"card"}, el("h2", {}, r.room), el("p", {}, r.goal || "Outcome not recorded"), el("p", {}, "Recorded state: " + (r.recorded_state || "unknown")), el("p", {}, "Current execution: unknown · assignment and curation do not establish a running agent"));
+    const change = r.latest_evidenced_change;
+    card.append(el("p", {}, change ? `Latest curated assertion: ${change.scope} / ${change.stage}: ${change.state} · ${change.source} · ${change.observed_at} · reference not independently verified` : "Latest evidenced change: unknown"));
+    card.append(el("h3", {}, "Owner attention"));
+    for (const a of r.owner_attention) card.append(el("p", {}, a.question), el("button", {onclick:()=>{pick(r.room);openRecord(a.id);}}, "Read decision context · " + a.id));
+    if (!r.owner_attention.length) card.append(el("p", {}, "No recorded owner question. See obligations and resume condition below."));
+    card.append(el("h3", {}, "Next obligations"), el("p", {}, "Resume condition: " + (r.resume_trigger || "unknown — lead must record the trigger")));
+    for (const o of r.obligations.filter(o=>o.open || o.successors.length || o.reconciliation.length)) {
+      const detail = el("details", {}, el("summary", {}, `${o.id}: ${o.action || 'Action unknown'} · ${o.actor || 'Actor missing'} · recorded ${o.recorded_state}`));
+      detail.append(el("p", {}, "Disposition: " + (o.disposition || "unknown") + " · implementation, review, integration and fulfillment are scoped below; missing stages unknown."));
+      for (const c of o.assertions) detail.append(el("p", {}, `${c.scope} / ${c.stage}: ${c.state} · ${c.action || ''} ${c.actor || ''} · ${c.source} ${c.ref} · ${c.observed_at} · curated, unverified reference`));
+      detail.append(el("pre", {style:"white-space:pre-wrap;overflow-wrap:anywhere"}, o.result || "Result not recorded"), el("p", {}, "Successors: " + JSON.stringify(o.successors)), el("p", {}, "Reconciliation: " + (o.reconciliation.join('; ') || "No explicit contradiction detected; prose still requires human review")));
+      card.append(detail);
+    }
+    card.append(el("button", {onclick:()=>pick(r.room)}, "Open room · decisions and evidence"));
+    const history = el("details", {}, el("summary", {}, "Complete evidence history"));
+    for (const o of r.obligations) history.append(el("p", {}, `${o.id} · ${o.recorded_state} · ${o.action}`), el("pre", {style:"white-space:pre-wrap;overflow-wrap:anywhere"}, o.result || "No Result recorded"));
+    card.append(history); app.append(card);
+  }
+  app.append(el("section", {class:"card"}, el("h2", {}, "Account capacity"), el("p", {}, "Limits unavailable · source: local records only · observation time, units, window, pool and reset unknown"), el("p", {}, "Configured models: unknown · execution eligibility: unknown · observed running work: unknown · account consumption: unknown"), el("p", {}, "No capacity-based recommendation available. Configuration and machine resources do not establish account limits.")));
+}
 function draw(top) {
   const y = window.scrollY, anchor = top ? null : anchorPoint();
   const app = $("app");
   app.style.minHeight = app.offsetHeight + "px";     // keep the page height while redrawing
   app.replaceChildren();
   if (!state) { app.style.minHeight = ""; return; }
+  if (overview) { dashboardView(app); app.style.minHeight = ""; return; }
+  app.append(el("button", {onclick:()=>{overview=true;history.replaceState(null,"",location.pathname);load(true);}}, "All rooms"));
   const rooms = state.rooms;
   // Rooms whose lead thread is settled in T3 leave the tabs for the "Settled" dropdown.
   const reg = rooms.filter(x => !x.standing), std = rooms.find(x => x.standing);
@@ -1491,6 +1522,10 @@ async function load(force) {
   }
   const rn = current;
   try {
+    if (overview) {
+      try { const response = await fetch(base + "api/dashboard", {cache:"no-store"}); if (!response.ok) throw new Error(`HTTP ${response.status}`); dashboard = await response.json(); dashboardError = null; }
+      catch (error) { dashboardError = `Dashboard refresh failed; retained observations may be stale: ${error}`; }
+    }
     const cached = bodies[rn || ""], headers = cached && cached.tag ? { "If-None-Match": cached.tag } : {};
     const res = await fetch(base + "api/state" + (rn ? `?room=${encodeURIComponent(rn)}` : ""), { cache: "no-store", headers });
     let ns;
