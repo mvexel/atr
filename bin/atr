@@ -3014,6 +3014,75 @@ def web_pause(room, pause, note, push, by="", until="", expected_revision=None):
                             room=room.name, source=room.brief, allow_paused=True)
     return {"ok": True, "told_lead": False, "action": action["id"]}
 
+def dashboard_data(rooms):
+    """Conservative local-record projection. No execution or fulfillment inferred from prose.
+
+    Original sections and revisions are retained for human reconciliation. This endpoint
+    deliberately does not query providers or treat a saved record as live execution.
+    """
+    def evidence(r):
+        return {"file": str(r.path), "revision": r._version,
+                "observed_at": r["updated"] or None, "freshness": "unknown"}
+
+    inventory = {f"{room.name}/{r['id']}": r for room in rooms for r in room.items}
+    edges = {}
+    for key, r in inventory.items():
+        lines = re.findall(r"^Next:(.*)$", r.section("Result"), re.M)
+        targets = re.findall(r"(?:(?:[a-z0-9-]+)/)?T\d+\b", lines[-1] if lines else "")
+        edges[key] = list(dict.fromkeys(t if "/" in t else key.split("/")[0] + "/" + t for t in targets))
+
+    def cyclic(start, target, seen):
+        if target == start:
+            return True
+        if target in seen:
+            return False
+        return any(cyclic(start, x, seen | {target}) for x in edges.get(target, []))
+
+    result = []
+    for room in rooms:
+        obligations = []
+        for r in room.items:
+            key = f"{room.name}/{r['id']}"
+            diagnostics = []
+            links = []
+            for target in edges[key]:
+                status = "missing" if target not in inventory else "cycle" if cyclic(key, target, set()) else "linked"
+                links.append({"target": target, "status": status})
+                if status != "linked":
+                    diagnostics.append(status + " successor: " + target)
+            if not r["owner"]:
+                diagnostics.append("responsible actor unknown")
+            feedback = bool(r.section("Feedback"))
+            if feedback:
+                diagnostics.append("fulfillment and integration require evidence reconciliation")
+            obligations.append({"id": key, "action": r["title"] or None,
+                "actor": r["owner"] or None, "recorded_state": r["state"] or None,
+                "open": r["state"] not in ("done", "dropped"),
+                "execution": "unknown", "fulfillment": "unknown", "review": "unknown",
+                "integration": "unknown", "disposition": r["outcome"] or None,
+                "dependencies": r["depends_on"] or [], "successors": links,
+                "result": r.section("Result"), "feedback": r.section("Feedback"),
+                "evidence": evidence(r), "reconciliation": diagnostics})
+        head = room.head
+        result.append({"room": room.name,
+            "goal": room.brief.section("Goal") if room.brief else None,
+            "recorded_state": head["phase"] if head else None,
+            "current_action": None, "current_actor": None,
+            "next_actions": [o for o in obligations if o["open"]],
+            "resume_trigger": head["resume"] or None if head else None,
+            "latest_evidenced_change": None,
+            "recorded_context": {"text": head.body, "evidence": evidence(head)} if head else None,
+            "owner_attention": [{"id": d["id"], "question": d["title"],
+                "context": d.body, "evidence": evidence(d)} for d in needs_you(room)],
+            "obligations": obligations,
+            "unknowns": ["current execution", "latest verified change", "fulfillment", "integration"],
+            "capacity": {"limits": "unavailable", "configuration": "unknown",
+                "execution_eligibility": "unknown", "scoped_running_work": "unknown",
+                "account_consumption": "unknown", "source": "local records only",
+                "observed_at": None}})
+    return {"schema_version": 1, "scope": "all local rooms including maintenance and closed rooms",
+            "rooms": result}
+
 def cmd_serve(a):
     import http.server, json, threading
     import gzip, hashlib, urllib.parse
@@ -3086,6 +3155,8 @@ def cmd_serve(a):
                 return self.send(200, body.encode(), "text/html; charset=utf-8")
             if r in ("/", "/index.html"):
                 return self.send(200, page, "text/html; charset=utf-8", "no-cache", True)
+            if r == "/api/dashboard":
+                return self.send(200, json.dumps(dashboard_data(rooms_from([]))).encode())
             if r == "/api/state":
                 want = self.query().get("room", "")
                 rooms = rooms_from([])
