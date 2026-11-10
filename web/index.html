@@ -1272,7 +1272,7 @@ function dashboardView(app, selectedRoom = null) {
     if (!r.owner_attention.length) card.append(el("p", {}, "No recorded owner question. See obligations and resume condition below."));
     card.append(el("h3", {}, "Next obligations"), el("p", {}, "Resume condition: " + (r.resume_trigger || "unknown — lead must record the trigger")));
     for (const o of r.obligations.filter(o=>o.open || o.successors.length || o.reconciliation.length)) {
-      if (o.open || o.successors.length) card.append(el("p", {class:"next-action"}, `${o.action || o.id} · Next actor: ${o.actor || "unknown — lead must assign"} · Follow-up: ${o.successors.map(x => typeof x === "string" ? x : (x.action || x.id || "Linked obligation; see evidence")).join("; ") || "not recorded"}`));
+      if (o.open || o.successors.length) card.append(el("p", {class:"next-action"}, `${o.action || o.id} · Next actor: ${o.actor || "unknown — lead must assign"} · Follow-up: ${o.successors.map(x => typeof x === "string" ? x : (x.action || x.target || x.id || "Linked obligation; see evidence")).join("; ") || "not recorded"}`));
       const detail = el("details", {}, el("summary", {}, `${o.id}: ${o.action || 'Action unknown'} · ${o.actor || 'Actor missing'} · recorded ${o.recorded_state}`));
       detail.append(el("p", {}, "Disposition: " + (o.disposition || "unknown") + " · implementation, review, integration and fulfillment are scoped below; missing stages unknown."));
       for (const c of o.assertions) detail.append(el("p", {}, `${c.scope} / ${c.stage}: ${c.state} · ${c.action || ''} ${c.actor || ''} · ${c.source} ${c.ref} · ${c.observed_at} · reference not independently verified`));
@@ -1593,8 +1593,8 @@ async function load(force) {
   const rn = current;
   const requestId = ++loadSequence;
   try {
-    if (overview) {
-      try { const response = await fetch(base + "api/dashboard", {cache:"no-store"}); if (!response.ok) throw new Error(`HTTP ${response.status}`); dashboard = await response.json(); dashboardError = null; }
+    {
+      try { const response = await fetch(base + "api/dashboard", {cache:"no-store"}); if (!response.ok) throw new Error(`HTTP ${response.status}`); const nextDashboard = await response.json(); if (requestId !== loadSequence || rn !== current) return; dashboard = nextDashboard; dashboardError = null; }
       catch (error) { dashboardError = `Dashboard refresh failed; retained observations may be stale: ${error}`; }
     }
     const cached = bodies[rn || ""], headers = cached && cached.tag ? { "If-None-Match": cached.tag } : {};
@@ -1611,7 +1611,7 @@ async function load(force) {
     if (requestId !== loadSequence || rn !== current) return;
     lastOk = new Date(); setStale(false);
     for (const x of ns.rooms) if (x.records && Object.keys(x.records).length) recCache[x.name] = { ...(recCache[x.name] || {}), ...x.records };
-    const { now, ...rest } = ns, sig = rn + JSON.stringify(rest);
+    const { now, ...rest } = ns, sig = rn + JSON.stringify(rest) + JSON.stringify(dashboard) + (dashboardError || "");
     const same = drawn && sig === lastSig && rn === current;
     state = ns; stateRoom = rn; showT3Note(ns);
     if (same) return;                           // nothing changed: no redraw, nothing moves
