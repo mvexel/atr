@@ -339,15 +339,18 @@
 <script>
 const base = location.pathname.endsWith("/") ? location.pathname : location.pathname + "/";
 const params = new URLSearchParams(location.search);
-let lastRoom = params.get("room") || localStorage.getItem("room") || null;   // the last selected tracker room
+const browserStore = { getItem(k) { try { return window.localStorage.getItem(k); } catch (_) { return null; } }, setItem(k,v) { try { window.localStorage.setItem(k,v); } catch (_) {} }, removeItem(k) { try { window.localStorage.removeItem(k); } catch (_) {} } };
+function storedObject(k) { try { const v = JSON.parse(browserStore.getItem(k) || "{}"); return v && typeof v === "object" && !Array.isArray(v) ? v : {}; } catch (_) { return {}; } }
+let lastRoom = params.get("room") || browserStore.getItem("room") || null;   // the last selected tracker room
 let overview = !params.get("room"), dashboard = null, dashboardError = null;
 let state = null, current = params.get("room") || lastRoom;
 let processView = params.get("room") === "process"; // Only an explicit process link opens How we work.
-let filter = localStorage.getItem("filter") || "all";
+let filter = browserStore.getItem("filter") || "all";
 const armed = {};                                              // one-way door waiting for a confirming tap
 const dkey = d => `${current}/${d.id}/${d.revision || d.updated || "unknown"}`;                        // ids repeat across rooms (every room has a D07)
-const sent = JSON.parse(localStorage.getItem("answerReceipts") || "{}");                                               // decision id -> result after answering
-const drafts = JSON.parse(localStorage.getItem("drafts") || "{}");  // decision id -> unsent note
+const sent = storedObject("answerReceipts");                                               // decision id -> result after answering
+for (const receipt of Object.values(sent)) { if (receipt.at) receipt.at = new Date(receipt.at); }
+const drafts = storedObject("drafts");  // decision id -> unsent note
 const openWhy = new Set();                                     // "Why it matters" panels left open
 let sheetStack = [];                                           // record ids shown in the pop-out
 const tips = {};                                              // room -> last tapped chart cell
@@ -357,7 +360,7 @@ const armedAt = {}, cardFns = {}, cardMeta = {}, noteOpen = new Set();
 let inflight = 0, lastTouch = 0, retryTimer = null;
 const recCache = {}, recErr = {}, bodies = {};                 // room -> {id: record}; room -> {tag, text}
 let stateRoom = null, lastSig = "", drawn = false, shownStruct = null, pending = false, slotOpen = false, leadOpen = false, leadThread = "";
-let roomsOpen = false, roomSort = localStorage.getItem("roomSort") === "recent" ? "recent" : "needs", roomOrder = [];
+let roomsOpen = false, roomSort = browserStore.getItem("roomSort") === "recent" ? "recent" : "needs", roomOrder = [];
 const recs = n => recCache[n] || {};
 const STATE = {
   doing: ["●", "doing"], review: ["◐", "review"], blocked: ["■", "blocked"], todo: ["○", "to do"],
@@ -419,7 +422,7 @@ function deliveryText(delivery) {
   return "T3 delivery pending";
 }
 const $ = id => document.getElementById(id);
-const saveDrafts = () => localStorage.setItem("drafts", JSON.stringify(drafts));
+const saveDrafts = () => browserStore.setItem("drafts", JSON.stringify(drafts));
 
 // Light, safe markdown: **bold**, `code`, - [x] checkboxes, and T12 / D05 / A01 / P03 as tappable record links.
 function safeDocumentLink(href) {
@@ -599,7 +602,7 @@ function palFetch() {
     } catch (_) { /* offline or an older server: local hits only */ }
   }, 150);
 }
-const palRecent = () => { try { return JSON.parse(localStorage.getItem("palRecent") || "[]"); } catch (_) { return []; } };
+const palRecent = () => { try { return JSON.parse(browserStore.getItem("palRecent") || "[]"); } catch (_) { return []; } };
 function palCorpus() {
   const out = [], strip = (id, t) => t.startsWith(id + " ") ? t.slice(id.length + 1) : t, std = state.rooms.find(x => x.standing);
   for (const x of state.rooms) {
@@ -668,7 +671,7 @@ function palClose(restore = true) {
 }
 function palChoose(h) {
   const k = h.room + "/" + h.id;
-  if (h.id && !h.file) localStorage.setItem("palRecent", JSON.stringify([k, ...palRecent().filter(x => x !== k)].slice(0, 8)));
+  if (h.id && !h.file) browserStore.setItem("palRecent", JSON.stringify([k, ...palRecent().filter(x => x !== k)].slice(0, 8)));
   palClose(false);
   if (h.file) {
     window.open(docURL(h.file, h.anchor), "_blank", "noopener");
@@ -686,7 +689,7 @@ function palDraw(keepInput) {
   for (const g of groups) {
     const more = !q ? 0 : g.hits.length - g.shown.length;
     res.append(el("h4", {}, el("span", {}, `${g.name}${q ? " · " + g.hits.length : ""}`),
-      more > 0 ? el("button", { tabindex: "-1", onclick: () => { palAll.add(g.name); palDraw(true); $("palq").focus(); } }, `show all ${g.hits.length}`) : null));
+      more > 0 ? el("button", { tabindex: "0", onclick: () => { palAll.add(g.name); palDraw(true); $("palq").focus(); } }, `show all ${g.hits.length}`) : null));
     for (const h of g.shown) {
       const idx = n++;
       res.append(el("button", { class: "hit" + (idx === palSel ? " sel" : ""), role: "option", id: "palh" + idx, "aria-selected": String(idx === palSel), tabindex: "-1", "data-i": idx,
@@ -696,7 +699,7 @@ function palDraw(keepInput) {
   if (!flat.length) res.append(el("p", { class: "empty" }, q ? `Nothing matches “${q}”.` : "Type to search rooms, items, decisions, notes and rules."));
   const chips = el("div", { class: "chips", role: "group", "aria-label": "Filter" },
     [["all", "All"], ["room", "Rooms"], ["item", "Items"], ["decision", "Decisions"], ["note", "Notes"], ["rule", "Rules"], ["changelog", "Changelog"]].map(([k, l]) =>
-      el("button", { tabindex: "-1", "aria-pressed": String(palChip === k), onclick: () => { palChip = k; palSel = 0; palDraw(); $("palq").focus(); } }, l)));
+      el("button", { tabindex: "0", "aria-pressed": String(palChip === k), onclick: () => { palChip = k; palSel = 0; palDraw(); $("palq").focus(); } }, l)));
   const input = keepInput && $("palq") ? $("palq") : el("input", { id: "palq", type: "text", autocomplete: "off", autocapitalize: "off", spellcheck: "false", placeholder: "Search rooms, items, notes, rules", "aria-label": "Search", role: "combobox", "aria-controls": "palres", value: palQ,
     oninput: e => { palQ = e.target.value; palSel = 0; palAll = new Set(); palDraw(true); palFetch(); } });
   host.replaceChildren(el("div", { class: "pal-bg", onclick: e => { if (e.target === e.currentTarget) palClose(); } },
@@ -773,7 +776,7 @@ function drawRoomSheet(host) {
     el("span", { class: "nm" }, el("b", {}, x.title),
       el("small", { class: isStalled(x) && !x.paused ? "stalled" : "" }, roomWord(x), lastActive(x) != null ? ` · active ${age(lastActive(x))} ago` : "")),
     needN(x) ? el("span", { class: "n" + (x.paused ? " paused" : ""), "aria-label": `${needN(x)} need you` }, needN(x)) : null);
-  const setSort = m => { roomSort = m; localStorage.setItem("roomSort", m); openRoomSheet(); };
+  const setSort = m => { roomSort = m; browserStore.setItem("roomSort", m); openRoomSheet(); };
   const sheet = el("div", { class: "sheet", role: "dialog", "aria-modal": "true", "aria-label": "Rooms" },
     el("div", { class: "top" }, el("div", {}, el("h3", {}, "Rooms"), el("div", { class: "sub" }, `${rooms.length} rooms · ${need} need you`)),
       el("button", { class: "close", "aria-label": "Close", onclick: closeSheet }, "×")),
@@ -791,7 +794,7 @@ function pick(name) {
   processView = false;
   if (name !== current || wasProcess || wasOverview) {
     overview = false; // Keep saved receipts across room navigation.
-    lastRoom = name; localStorage.setItem("room", name); localStorage.removeItem("view");
+    lastRoom = name; browserStore.setItem("room", name); browserStore.removeItem("view");
     current = name;
     pending = false; $("newpill").hidden = true;
     draw(true);
@@ -803,7 +806,7 @@ function leaveProcess() {
   processView = false;
   const reg = (state?.rooms || []).filter(x => !x.standing);
   current = (reg.find(x => x.name === lastRoom) || reg.find(x => !isClosed(x)) || reg[0])?.name || null;
-  localStorage.removeItem("view");
+  browserStore.removeItem("view");
   draw(true);
   load(true);
 }
@@ -945,12 +948,12 @@ async function post(payload) {
     const result = await r.json();
     if (r.status === 409) result.conflict = true;
     return result;
-  } catch (e) { return { ok: false, error: String(e) }; }
+  } catch (e) { return { ok: false, uncertain: true, error: String(e) }; }
   finally { inflight--; }
 }
 async function answer(roomName, d, opt) {
   const key = dkey(d), note = drafts[key] || "";
-  if (sending[key]) return;
+  if (sending[key] || sent[key]?.uncertain) return;
   delete armed[key]; delete sent[key]; sending[key] = opt.key;
   if (navigator.vibrate) navigator.vibrate(10);
   swapCard(key);
@@ -962,23 +965,23 @@ async function answer(roomName, d, opt) {
                   delivery: res.delivery, told: !!res.told_lead,
                   group: (cardMeta[key] || {}).group, idx: (cardMeta[key] || {}).idx };
     delete drafts[key]; saveDrafts();
-  } else sent[key] = { ok: false, kind: "answer", opt, text: res.conflict ? "Not saved: this record changed. Refresh and review your draft before trying again." : `Not saved: ${res.error}` };
-  localStorage.setItem("answerReceipts", JSON.stringify(sent));
+  } else sent[key] = { ok: false, uncertain: !!res.uncertain, kind: "answer", opt, text: res.uncertain ? "Save uncertain. Reconcile the server record before another send." : res.conflict ? "Not saved: this record changed. Refresh and review your draft before trying again." : `Not saved: ${res.error}` };
+  browserStore.setItem("answerReceipts", JSON.stringify(sent));
   swapCard(key);
   if (res.ok || res.conflict) load(true);
 }
 async function askQuestion(roomName, d) {
   const key = dkey(d), note = drafts[key] || "";
   if (!note.trim()) { noteOpen.add(key); swapCard(key); const t = document.querySelector(`[data-a="card:${key}"] textarea`); if (t) t.focus(); return; }
-  if (sending[key]) return;
+  if (sending[key] || sent[key]?.uncertain) return;
   delete sent[key]; sending[key] = "question";
   swapCard(key);
   const res = await post({ room: roomName, id: d.id, choice: "question", note: note.trim(), revision: d.revision });
   delete sending[key];
-  sent[key] = res.ok ? { ok: true, kind: "question", text: "✓ Question saved locally. The card stays open. " + deliveryText(res.delivery) }
-                     : { ok: false, kind: "question", text: res.conflict ? "Not saved: this record changed. Refresh and review your draft before trying again." : `Not saved: ${res.error}` };
+  sent[key] = res.ok ? { ok: true, kind: "question", text: "✓ Question saved in the tracker. The card stays open. " + deliveryText(res.delivery) }
+                     : { ok: false, uncertain: !!res.uncertain, kind: "question", text: res.uncertain ? "Save uncertain. Reconcile the server record before another send." : res.conflict ? "Not saved: this record changed. Refresh and review your draft before trying again." : `Not saved: ${res.error}` };
   if (res.ok) { delete drafts[key]; noteOpen.delete(key); saveDrafts(); }
-  localStorage.setItem("answerReceipts", JSON.stringify(sent));
+  browserStore.setItem("answerReceipts", JSON.stringify(sent));
   swapCard(key);
   if (res.ok || res.conflict) load(true);
 }
@@ -1329,7 +1332,7 @@ function draw(top) {
   app.append(el("h2", {}, el("span", {}, `Needs you · ${needN(r)}`), el("span", {}, "most blocking first")));
   app.append(el("div", { class: "filters" }, present.size > 1 ? Object.entries(kinds)
     .filter(([k]) => k === "all" || present.has(k))
-    .map(([k, label]) => el("button", { "aria-pressed": String(filter === k), onclick: () => { filter = k; localStorage.setItem("filter", k); draw(); } },
+    .map(([k, label]) => el("button", { "aria-pressed": String(filter === k), onclick: () => { filter = k; browserStore.setItem("filter", k); draw(); } },
       k === "all" ? `${label} · ${r.asks.length}` : `${label} · ${r.asks.filter(d => d.type === k).length}`)) : null));
 
   const score = d => d.impact.agents.length * 100 + d.impact.items.length * 10 + d.impact.hours;
@@ -1365,7 +1368,7 @@ function draw(top) {
     app.append(el("div", { class: "planbar" },
       el("div", { class: "filters", style: "margin:0;min-height:0" },
         [["Agents", false], ["Plan", true]].map(([label, on]) =>
-          el("button", { "aria-pressed": String(planView === on), onclick: () => { planView = on; localStorage.setItem("planview", on ? "1" : "0"); draw(); } }, label))),
+          el("button", { "aria-pressed": String(planView === on), onclick: () => { planView = on; browserStore.setItem("planview", on ? "1" : "0"); draw(); } }, label))),
       planView && pl.items.length ? el("span", { class: "sub2" },
         `${pl.items.length} open · ${pl.waves} wave${pl.waves === 1 ? "" : "s"} · critical path ${pl.critical.join(" → ")} (${+pl.critical_h.toFixed(1)}h)`) : null));
   }
@@ -1412,7 +1415,7 @@ function draw(top) {
 }
 
 // ---------- plan view: waves of items, arrows for depends_on, critical path outlined ----------
-let planView = localStorage.getItem("planview") === "1";
+let planView = browserStore.getItem("planview") === "1";
 function planBox(x) {
   const st = x.state === "todo" ? (x.ready ? "ready" : "waits") : x.state;
   const [icon, label] = STATE[x.state === "todo" && !x.ready ? "waits" : x.state] || ["?", x.state];
@@ -1551,7 +1554,7 @@ async function load(force) {
     const res = await fetch(base + "api/state" + (rn ? `?room=${encodeURIComponent(rn)}` : ""), { cache: "no-store", headers });
     let ns;
     if (res.status === 304 && cached) ns = stateRoom === rn && state ? state : JSON.parse(cached.text);
-    else if (res.status === 404 && rn) { current = null; try { localStorage.removeItem("room"); localStorage.removeItem("view"); } catch (_) {} history.replaceState(null, "", location.pathname); return load(true); }   // unknown or renamed room: start over
+    else if (res.status === 404 && rn) { current = null; try { browserStore.removeItem("room"); browserStore.removeItem("view"); } catch (_) {} history.replaceState(null, "", location.pathname); return load(true); }   // unknown or renamed room: start over
     else if (!res.ok) throw new Error(`HTTP ${res.status}`);
     else {
       const text = await res.text();
