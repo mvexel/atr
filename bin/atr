@@ -3054,16 +3054,15 @@ def dashboard_data(rooms):
             return [], ["invalid evidence_assertions: expected list"]
         for entry in raw:
             try:
-                assert isinstance(entry, dict)
-                assert all(isinstance(entry.get(k), str) and entry[k].strip()
-                           for k in ("scope", "stage", "state", "source", "ref", "observed_at"))
-                assert entry["stage"] in ("implementation", "review", "integration", "fulfillment", "action")
-                assert entry["state"] in ("pending", "complete", "deferred", "open")
+                if not (isinstance(entry, dict)): raise ValueError("invalid assertion")
+                if not (all(isinstance(entry.get(k), str) and entry[k].strip() for k in ("scope", "stage", "state", "source", "ref", "observed_at"))): raise ValueError("invalid assertion")
+                if not (entry["stage"] in ("implementation", "review", "integration", "fulfillment", "action")): raise ValueError("invalid assertion")
+                if not (entry["state"] in ("pending", "complete", "deferred", "open")): raise ValueError("invalid assertion")
                 stamp = dt.datetime.fromisoformat(entry["observed_at"].replace("Z", "+00:00"))
-                assert stamp.tzinfo and stamp <= dt.datetime.now(dt.timezone.utc)
-                assert not any(c.isspace() for c in entry["ref"])
+                if not (stamp.tzinfo and stamp <= dt.datetime.now(dt.timezone.utc)): raise ValueError("invalid assertion")
+                if not (not any(c.isspace() for c in entry["ref"])): raise ValueError("invalid assertion")
                 if entry["stage"] == "action":
-                    assert all(isinstance(entry.get(k), str) and entry[k].strip() for k in ("action", "actor"))
+                    if not (all(isinstance(entry.get(k), str) and entry[k].strip() for k in ("action", "actor"))): raise ValueError("invalid assertion")
                 valid.append(dict(entry, trust="curated assertion; reference not independently verified"))
             except (AssertionError, ValueError, TypeError):
                 errors.append("invalid evidence assertion")
@@ -3113,7 +3112,7 @@ def dashboard_data(rooms):
         claims = [c for o in obligations for c in o["assertions"]]
         latest = max(claims, key=lambda c: dt.datetime.fromisoformat(c["observed_at"].replace("Z", "+00:00")), default=None)
         actions = [c for c in claims if c["stage"] == "action"]
-        action = actions[0] if len(actions) == 1 else None
+        action = None  # Curated obligations do not establish a current execution run.
         head = room.head
         result.append({"room": room.name,
             "goal": room.brief.section("Goal") if room.brief else None,

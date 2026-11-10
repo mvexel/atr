@@ -41,11 +41,15 @@ later, valid, differently stated assertion of the same scope AND stage. Prose is
 never parsed for this comparison. Other stale-looking prose requires human
 reconciliation. No canonical Result or state is changed.
 
-Action assertions additionally require action and actor strings. A unique valid
-action populates room action/actor; multiple actions remain inspectable in claims
-and the summary stays unknown. Latest evidenced change is the latest valid
+Action assertions additionally require action and actor strings. Actions remain inspectable in claims; current execution summaries stay unknown. Latest evidenced change is the latest valid
 assertion, carrying the same conservative trust label. Record update time is not
 an evidence observation. Existing top-level stage fields remain unknown because
 scope-specific assertions cannot establish whole-item fulfillment.
 
 The Result hash is independent of the surrounding record and evidence section, so appending evidence does not invalidate its reference. Real Markdown parsing is covered by a round-trip fixture.
+
+Curated action assertions describe obligations, including pending, deferred and
+completed actions. They never establish current execution: current_action and
+current_actor remain unknown until a separately correlated execution contract
+exists. Source and observed_at belong to the curator; references are not
+independently verified. Validation remains active under optimized Python.

@@ -72,7 +72,7 @@ class Assertions(Dashboard):
         self.assertEqual(o['fulfillment'], 'unknown')
         self.assertTrue(any('stale Result' in x for x in o['reconciliation']))
         self.assertIn('invalid evidence assertion', o['reconciliation'])
-        self.assertEqual(data['current_actor'], 'lead')
+        self.assertIsNone(data['current_actor'])
         self.assertEqual(len(o['scopes']['doc']['integration']), 2)
 
     def test_real_markdown_evidence_roundtrip(self):
@@ -94,3 +94,11 @@ class Assertions(Dashboard):
 
 if __name__ == '__main__':
     unittest.main()
+
+class InvalidEvidence(Dashboard):
+    def test_non_mapping_rejected(self):
+        r = Record('T01')
+        r.parts['Evidence assertions'] = '[null, 3, {}, {"stage":"bogus"}]'
+        item = self.project([r])['obligations'][0]
+        self.assertEqual(item['assertions'], [])
+        self.assertEqual(len(item['reconciliation']), 4)
