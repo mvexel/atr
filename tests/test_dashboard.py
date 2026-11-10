@@ -133,3 +133,11 @@ class RuntimeEvidence(Dashboard):
         import datetime
         room.paused = datetime.datetime.now(datetime.timezone.utc)
         self.assertEqual(project()['activity']['state'], 'paused by owner')
+
+class MalformedRuntime(Dashboard):
+    def test_scalar_observation_is_unknown(self):
+        cache = api['dashboard_execution'].__globals__['_thread_cache']
+        for value in (42, True, 'xx', {}, [0, None]):
+            cache['malformed-fixture'] = value
+            self.assertEqual(api['dashboard_execution']('malformed-fixture')['state'], 'unknown')
+        cache.pop('malformed-fixture')

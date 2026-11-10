@@ -3021,12 +3021,13 @@ def dashboard_execution(agent):
     hit = _thread_cache.get(agent)
     if not hit and agent:
         try:
-            hit = json.loads((ROOT / ".atr/t3-observations.json").read_text()).get(agent)
+            observations = json.loads((ROOT / ".atr/t3-observations.json").read_text())
+            hit = observations.get(agent) if isinstance(observations, dict) else None
         except (OSError, ValueError):
             pass
     result = {"state": "unknown", "source": "T3 thread observation", "observed_at": None,
               "thread": agent or None, "freshness": "absent"}
-    if not hit or len(hit) != 2 or not isinstance(hit[1], dict):
+    if not isinstance(hit, (list, tuple)) or len(hit) != 2 or not isinstance(hit[1], dict):
         return result
     stamp, facts = hit
     try:

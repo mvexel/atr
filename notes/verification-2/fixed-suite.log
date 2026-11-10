@@ -1,0 +1,32 @@
+.......................async send recovery fixtures passed
+.search races passed
+.../home/mvexel/.local/share/mise/installs/python/3.14.9/lib/python3.14/tempfile.py:538: ResourceWarning: Implicitly cleaning up <HTTPError 404: 'Not Found'>
+  _warnings.warn(self.warn_message, ResourceWarning)
+/home/mvexel/.local/share/mise/installs/python/3.14.9/lib/python3.14/tempfile.py:538: ResourceWarning: Implicitly cleaning up <HTTPError 403: 'Forbidden'>
+  _warnings.warn(self.warn_message, ResourceWarning)
+.../home/mvexel/.local/share/mise/installs/python/3.14.9/lib/python3.14/tempfile.py:538: ResourceWarning: Implicitly cleaning up <HTTPError 409: 'Conflict'>
+  _warnings.warn(self.warn_message, ResourceWarning)
+.......................................................................................................................................................................................................................................................................................warn: T02 goes to done with no 'set state=doing' line in its Log: an item never claimed counts as zero working time (bin/atr set process T02 state=doing owner=<role> next time)
+warn: T02 goes to done with no 'set state=doing' line in its Log: an item never claimed counts as zero working time (bin/atr set process T02 state=doing owner=<role> next time)
+.warn: T02 goes to done with no 'set state=doing' line in its Log: an item never claimed counts as zero working time (bin/atr set process T02 state=doing owner=<role> next time)
+.warn: T02 goes to done with no 'set state=doing' line in its Log: an item never claimed counts as zero working time (bin/atr set process T02 state=doing owner=<role> next time)
+...warn: T02 goes to done with no 'set state=doing' line in its Log: an item never claimed counts as zero working time (bin/atr set process T02 state=doing owner=<role> next time)
+.warn: T02 goes to done with no 'set state=doing' line in its Log: an item never claimed counts as zero working time (bin/atr set process T02 state=doing owner=<role> next time)
+warn: T02 goes to done with no 'set state=doing' line in its Log: an item never claimed counts as zero working time (bin/atr set process T02 state=doing owner=<role> next time)
+warn: T03 goes to done with no 'set state=doing' line in its Log: an item never claimed counts as zero working time (bin/atr set process T03 state=doing owner=<role> next time)
+.warn: T02 goes to done with no 'set state=doing' line in its Log: an item never claimed counts as zero working time (bin/atr set process T02 state=doing owner=<role> next time)
+.........../home/mvexel/.local/share/mise/installs/python/3.14.9/lib/python3.14/contextlib.py:479: ResourceWarning: unclosed file <_io.FileIO name='/tmp/tmprute9szq/store/.atr/serve.log' mode='ab' closefd=True>
+  @staticmethod
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.................................................................................................
+----------------------------------------------------------------------
+Ran 424 tests in 24.397s
+
+OK
+T01 blocked; lead told
+T01 blocked; lead told
+T01 blocked; lead told
+T01 blocked; lead told
+r1: lead_thread lead-thread-0001 -> new-lead-thread-3; threads: lead-thread-0001; new lead told
+r1: lead_thread lead-thread-0001 -> new-lead-thread-3; threads: (none); new lead told
+r1: lead_thread lead-thread-0001 -> new-lead-thread-3; threads: lead-thread-0001; new lead told
