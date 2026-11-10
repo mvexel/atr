@@ -3032,11 +3032,37 @@ def dashboard_data(rooms):
         edges[key] = list(dict.fromkeys(t if "/" in t else key.split("/")[0] + "/" + t for t in targets))
 
     def cyclic(start, target, seen):
-        if target == start:
-            return True
-        if target in seen:
-            return False
-        return any(cyclic(start, x, seen | {target}) for x in edges.get(target, []))
+        pending = [target]
+        while pending:
+            node = pending.pop()
+            if node == start:
+                return True
+            if node not in seen:
+                seen.add(node)
+                pending.extend(edges.get(node, []))
+        return False
+
+    def assertions(r):
+        raw = r["evidence_assertions"] or []
+        valid, errors = [], []
+        if not isinstance(raw, list):
+            return [], ["invalid evidence_assertions: expected list"]
+        for entry in raw:
+            try:
+                assert isinstance(entry, dict)
+                assert all(isinstance(entry.get(k), str) and entry[k].strip()
+                           for k in ("scope", "stage", "state", "source", "ref", "observed_at"))
+                assert entry["stage"] in ("implementation", "review", "integration", "fulfillment", "action")
+                assert entry["state"] in ("pending", "complete", "deferred", "open")
+                stamp = dt.datetime.fromisoformat(entry["observed_at"].replace("Z", "+00:00"))
+                assert stamp.tzinfo and stamp <= dt.datetime.now(dt.timezone.utc)
+                assert not any(c.isspace() for c in entry["ref"])
+                if entry["stage"] == "action":
+                    assert all(isinstance(entry.get(k), str) and entry[k].strip() for k in ("action", "actor"))
+                valid.append(dict(entry, trust="curated assertion; reference not independently verified"))
+            except (AssertionError, ValueError, TypeError):
+                errors.append("invalid evidence assertion")
+        return valid, errors
 
     result = []
     for room in rooms:
@@ -3055,7 +3081,23 @@ def dashboard_data(rooms):
             feedback = bool(r.section("Feedback"))
             if feedback:
                 diagnostics.append("fulfillment and integration require evidence reconciliation")
-            obligations.append({"id": key, "action": r["title"] or None,
+            claims, errors = assertions(r)
+            diagnostics.extend(errors)
+            scopes = {}
+            for claim in claims:
+                scope = scopes.setdefault(claim["scope"], {})
+                stage = claim["stage"]
+                scope.setdefault(stage, []).append(claim)
+            for stages in scopes.values():
+                for stage_claims in stages.values():
+                    stage_claims.sort(key=lambda c: dt.datetime.fromisoformat(c["observed_at"].replace("Z", "+00:00")))
+                    for old in stage_claims:
+                        for new in stage_claims:
+                            if (old.get("describes_result_revision") == r._version
+                                    and old["state"] != new["state"]
+                                    and dt.datetime.fromisoformat(old["observed_at"].replace("Z", "+00:00")) < dt.datetime.fromisoformat(new["observed_at"].replace("Z", "+00:00"))):
+                                diagnostics.append("explicit stale Result contradiction: " + old["scope"] + "/" + old["stage"])
+            obligations.append({"id": key, "scopes": scopes, "assertions": claims, "action": r["title"] or None,
                 "actor": r["owner"] or None, "recorded_state": r["state"] or None,
                 "open": r["state"] not in ("done", "dropped"),
                 "execution": "unknown", "fulfillment": "unknown", "review": "unknown",
@@ -3063,14 +3105,18 @@ def dashboard_data(rooms):
                 "dependencies": r["depends_on"] or [], "successors": links,
                 "result": r.section("Result"), "feedback": r.section("Feedback"),
                 "evidence": evidence(r), "reconciliation": diagnostics})
+        claims = [c for o in obligations for c in o["assertions"]]
+        latest = max(claims, key=lambda c: dt.datetime.fromisoformat(c["observed_at"].replace("Z", "+00:00")), default=None)
+        actions = [c for c in claims if c["stage"] == "action"]
+        action = actions[0] if len(actions) == 1 else None
         head = room.head
         result.append({"room": room.name,
             "goal": room.brief.section("Goal") if room.brief else None,
             "recorded_state": head["phase"] if head else None,
-            "current_action": None, "current_actor": None,
+            "current_action": action["action"] if action else None, "current_actor": action["actor"] if action else None,
             "next_actions": [o for o in obligations if o["open"]],
             "resume_trigger": head["resume"] or None if head else None,
-            "latest_evidenced_change": None,
+            "latest_evidenced_change": latest,
             "recorded_context": {"text": head.body, "evidence": evidence(head)} if head else None,
             "owner_attention": [{"id": d["id"], "question": d["title"],
                 "context": d.body, "evidence": evidence(d)} for d in needs_you(room)],

@@ -50,5 +50,33 @@ class Dashboard(unittest.TestCase):
         self.assertEqual(data['capacity']['limits'], 'unavailable')
         self.assertEqual(data['capacity']['account_consumption'], 'unknown')
 
+class Assertions(Dashboard):
+    def test_scoped_stages_and_stale_result(self):
+        r = Record('T03', result='pending original', feedback='request')
+        def claim(scope, stage, state, day=1, **extra):
+            return dict(scope=scope, stage=stage, state=state, source='manual review',
+                        ref='artifact:123', observed_at=f'2026-01-{day:02}T00:00:00Z', **extra)
+        r.data['evidence_assertions'] = [
+            claim('doc', 'integration', 'pending', describes_result_revision=r._version),
+            claim('doc', 'integration', 'complete', 2),
+            claim('code', 'implementation', 'deferred'),
+            claim('T08', 'review', 'complete'),
+            claim('T08', 'integration', 'pending'),
+            claim('T09', 'fulfillment', 'open'),
+            claim('code', 'action', 'open', action='Integrate T08', actor='lead'),
+            dict(scope='invalid')]
+        data = self.project([r, Record('T08'), Record('T09', result='Next: T08')])
+        o = data['obligations'][0]
+        self.assertEqual(o['result'], 'pending original')
+        self.assertEqual(o['fulfillment'], 'unknown')
+        self.assertTrue(any('stale Result' in x for x in o['reconciliation']))
+        self.assertIn('invalid evidence assertion', o['reconciliation'])
+        self.assertEqual(data['current_actor'], 'lead')
+        self.assertEqual(len(o['scopes']['doc']['integration']), 2)
+
+    def test_long_cycle_is_bounded(self):
+        records = [Record(f'T{i:04}', result=f'Next: T{(i+1)%1100:04}') for i in range(1100)]
+        self.assertEqual(self.project(records)['obligations'][0]['successors'][0]['status'], 'cycle')
+
 if __name__ == '__main__':
     unittest.main()
