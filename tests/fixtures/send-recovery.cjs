@@ -1,0 +1,20 @@
+const fs = require('fs'), vm = require('vm'), assert = require('assert');
+const source = fs.readFileSync('web/index.html','utf8');
+const code = source.slice(source.indexOf('async function post('), source.indexOf('function noteBox('));
+const c = {base:'/', inflight:0, current:'original', drafts:{}, sent:{}, sending:{}, armed:{}, cardMeta:{}, cardFns:{}, navigator:{}, Date, noteOpen:new Set(), browserStore:{setItem(){}}, saveDrafts(){}, swapCard(){}, load(){}, dkey:d=>`original/${d.id}/${d.revision}`, window:{confirm:()=>false}};
+vm.createContext(c);vm.runInContext(code,c);
+(async()=>{
+ const d={id:'D01',revision:'old',options:[{key:'A',text:'old'}]}, opt=d.options[0];
+ let resolve, calls=0;
+ c.fetch=()=>{calls++;return new Promise(r=>resolve=r)};
+ const pending=c.answer('original',d,opt);await c.answer('original',d,opt);assert.equal(calls,1);
+ c.current='elsewhere';resolve({json:async()=>{throw Error('lost response')}});await pending;
+ const key='original/D01/old';assert(c.sent[key].uncertain);assert.equal(c.sent[key].room,'original');
+ c.fetch=async url=>{assert(url.includes('room=original'));return {ok:true,json:async()=>({decision:{status:'answered',answer:'B) actual saved choice'}})}};
+ await c.reconcile(key);assert(c.sent[key].text.includes('B) actual'));await c.answer('original',d,opt);assert.equal(calls,1);
+ c.fetch=async()=>{throw Error('offline')};await c.reconcile(key);assert(c.sent[key].uncertain);
+ delete c.sent[key];c.fetch=async()=>({status:409,ok:false,json:async()=>({ok:false})});await c.answer('original',d,opt);assert(c.sent[key].uncertain);
+ c.fetch=async()=>({ok:true,json:async()=>({decision:{status:'open',revision:'new',options:[{key:'B',text:'changed'}]}})});await c.reconcile(key);assert.equal(c.sent[key].latest.revision,'new');c.reviewRecovery(key);assert(c.sent[key].uncertain);
+ delete c.sent[key];c.drafts[key]='question';c.fetch=async()=>{throw Error('lost')};await c.askQuestion('original',d);assert.equal(c.sent[key].kind,'question');assert.equal(c.sent[key].revision,'old');
+ console.log('async send recovery fixtures passed');
+})().catch(e=>{console.error(e);process.exitCode=1});

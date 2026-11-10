@@ -1989,7 +1989,7 @@ def decision_json(room, d):
 def record_json(room, r):
     sections = re.findall(r"^## (.+?)\n(.*?)(?=^## |\Z)", r.body, re.S | re.M)
     return {"id": r["id"], "title": r["title"], "state": r["state"] or r["status"], "owner": r["owner"] or r["decider"],
-            "revision": r._version,
+            "revision": r._version, "decision": decision_json(room, r) if r in room.decisions + room.refinements + ([room.prd] if room.prd else []) else None,
             "name": room.who(r["owner"] or r["decider"]), "updated": r["updated"],
             "depends_on": r["depends_on"] or [], "blocks": r["blocks"] or [],
             "sections": [{"h": h.strip(), "text": t.strip()} for h, t in sections if t.strip()],

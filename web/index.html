@@ -951,9 +951,40 @@ async function post(payload) {
   } catch (e) { return { ok: false, uncertain: true, error: String(e) }; }
   finally { inflight--; }
 }
+async function reconcile(key) {
+  const s = sent[key];
+  if (!s || sending[key]) return;
+  sending[key] = "checking";
+  delete s.latest;
+  try {
+    const r = await fetch(`${base}api/record?room=${encodeURIComponent(s.room)}&id=${encodeURIComponent(s.id)}`, {cache:"no-store"});
+    const rec = await r.json();
+    if (!r.ok || !rec.decision) throw new Error("Latest decision unavailable");
+    s.latest = rec.decision;
+    s.text = rec.decision.status !== "open"
+      ? `Saved record: ${rec.decision.answer}. Delivery and execution remain unverified.`
+      : "Record currently open. This read does not prove the earlier send was not saved. Review latest context before recovery; duplicate questions or delivery are possible.";
+  } catch(e) { s.text = "Reconciliation failed; outcome remains unknown. " + e; }
+  finally { delete sending[key]; browserStore.setItem("answerReceipts", JSON.stringify(sent)); swapCard(key); }
+}
+function reviewRecovery(key) {
+  const s = sent[key], d = s?.latest;
+  if (!d || d.status !== "open") return;
+  if (!window.confirm("Review latest context and explicitly confirm a new response. Duplicate save/delivery risk remains.\n" + d.title + "\n" + JSON.stringify(d.options) + "\n" + d.why)) return;
+  const next = `${s.room}/${d.id}/${d.revision}`;
+  drafts[next] = drafts[key] || ""; saveDrafts();
+  s.uncertain = false; s.recovered = true;
+  browserStore.setItem("answerReceipts", JSON.stringify(sent));
+  delete armed[key];
+  // Only current revision options rendered by askCard may create a new answer.
+  if (current === s.room) {
+    cardFns[key] = () => askCard(s.room, d, 100);
+    swapCard(key);
+  }
+}
 async function answer(roomName, d, opt) {
-  const key = dkey(d), note = drafts[key] || "";
-  if (sending[key] || sent[key]?.uncertain) return;
+  const key = `${roomName}/${d.id}/${d.revision || d.updated || "unknown"}`, note = drafts[key] || "";
+  if (sending[key] || Object.values(sent).some(s => s.uncertain && s.room === roomName && s.id === d.id)) return;
   delete armed[key]; delete sent[key]; sending[key] = opt.key;
   if (navigator.vibrate) navigator.vibrate(10);
   swapCard(key);
@@ -965,25 +996,27 @@ async function answer(roomName, d, opt) {
                   delivery: res.delivery, told: !!res.told_lead,
                   group: (cardMeta[key] || {}).group, idx: (cardMeta[key] || {}).idx };
     delete drafts[key]; saveDrafts();
-  } else sent[key] = { ok: false, uncertain: !!res.uncertain, kind: "answer", opt, text: res.uncertain ? "Save uncertain. Reconcile the server record before another send." : res.conflict ? "Not saved: this record changed. Refresh and review your draft before trying again." : `Not saved: ${res.error}` };
+  } else sent[key] = { ok: false, room: roomName, id: d.id, revision: d.revision, uncertain: !!(res.uncertain || res.conflict), kind: "answer", opt, text: res.uncertain ? "Save uncertain. Reconcile the server record before another send." : res.conflict ? "Not saved: this record changed. Refresh and review your draft before trying again." : `Not saved: ${res.error}` };
   browserStore.setItem("answerReceipts", JSON.stringify(sent));
   swapCard(key);
-  if (res.ok || res.conflict) load(true);
+  if (res.conflict) await reconcile(key);
+  if (res.ok) load(true);
 }
 async function askQuestion(roomName, d) {
-  const key = dkey(d), note = drafts[key] || "";
+  const key = `${roomName}/${d.id}/${d.revision || d.updated || "unknown"}`, note = drafts[key] || "";
   if (!note.trim()) { noteOpen.add(key); swapCard(key); const t = document.querySelector(`[data-a="card:${key}"] textarea`); if (t) t.focus(); return; }
-  if (sending[key] || sent[key]?.uncertain) return;
+  if (sending[key] || Object.values(sent).some(s => s.uncertain && s.room === roomName && s.id === d.id)) return;
   delete sent[key]; sending[key] = "question";
   swapCard(key);
   const res = await post({ room: roomName, id: d.id, choice: "question", note: note.trim(), revision: d.revision });
   delete sending[key];
   sent[key] = res.ok ? { ok: true, kind: "question", text: "✓ Question saved in the tracker. The card stays open. " + deliveryText(res.delivery) }
-                     : { ok: false, uncertain: !!res.uncertain, kind: "question", text: res.uncertain ? "Save uncertain. Reconcile the server record before another send." : res.conflict ? "Not saved: this record changed. Refresh and review your draft before trying again." : `Not saved: ${res.error}` };
+                     : { ok: false, room: roomName, id: d.id, revision: d.revision, uncertain: !!(res.uncertain || res.conflict), kind: "question", text: res.uncertain ? "Save uncertain. Reconcile the server record before another send." : res.conflict ? "Not saved: this record changed. Refresh and review your draft before trying again." : `Not saved: ${res.error}` };
   if (res.ok) { delete drafts[key]; noteOpen.delete(key); saveDrafts(); }
   browserStore.setItem("answerReceipts", JSON.stringify(sent));
   swapCard(key);
-  if (res.ok || res.conflict) load(true);
+  if (res.conflict) await reconcile(key);
+  if (res.ok) load(true);
 }
 
 function noteBox(d, locked) {
@@ -1077,7 +1110,7 @@ function askCard(roomName, d, maxImpact) {
   card.append(el("button", { class: "addnote", disabled: !!busyNow, onclick: () => askQuestion(roomName, d) }, drafts[key] ? "Send as a question instead" : "Ask a question instead"));
   if (busyNow) card.append(el("div", { class: "result", role: "status" }, busyNow === "question" ? "Sending your question…" : "Sending to the lead…"));
   else if (s) card.append(el("div", { class: "result" + (s.ok ? "" : " err"), role: "status" }, s.text,
-    s.ok ? null : [" · ", el("button", { class: "openrec", onclick: () => s.kind === "question" ? askQuestion(roomName, d) : answer(roomName, d, s.opt) }, "Try again")]));
+    s.ok ? null : s.uncertain ? [el("button", {onclick: () => reconcile(key)}, "Check saved result"), s.latest?.status === "open" ? el("button", {onclick: () => reviewRecovery(key)}, "Review recovery (duplicate risk)") : null] : [" · ", el("button", { class: "openrec", onclick: () => s.kind === "question" ? askQuestion(roomName, d) : answer(roomName, d, s.opt) }, "Try again")]));
   card.append(el("div", { class: "meta" }, el("span", {}, `Waiting ${age(d.waiting_min)}`),
     el("button", { class: "openrec", onclick: () => openRecord(d.id) }, "Open record")));
   return card;
