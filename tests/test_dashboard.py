@@ -56,8 +56,8 @@ class Assertions(Dashboard):
         def claim(scope, stage, state, day=1, **extra):
             return dict(scope=scope, stage=stage, state=state, source='manual review',
                         ref='artifact:123', observed_at=f'2026-01-{day:02}T00:00:00Z', **extra)
-        r.data['evidence_assertions'] = [
-            claim('doc', 'integration', 'pending', describes_result_revision=r._version),
+        claims = [
+            claim('doc', 'integration', 'pending', describes_result_sha256=__import__("hashlib").sha256(r.section("Result").encode()).hexdigest()),
             claim('doc', 'integration', 'complete', 2),
             claim('code', 'implementation', 'deferred'),
             claim('T08', 'review', 'complete'),
@@ -65,6 +65,7 @@ class Assertions(Dashboard):
             claim('T09', 'fulfillment', 'open'),
             claim('code', 'action', 'open', action='Integrate T08', actor='lead'),
             dict(scope='invalid')]
+        r.parts['Evidence assertions'] = __import__('json').dumps(claims)
         data = self.project([r, Record('T08'), Record('T09', result='Next: T08')])
         o = data['obligations'][0]
         self.assertEqual(o['result'], 'pending original')
@@ -73,6 +74,19 @@ class Assertions(Dashboard):
         self.assertIn('invalid evidence assertion', o['reconciliation'])
         self.assertEqual(data['current_actor'], 'lead')
         self.assertEqual(len(o['scopes']['doc']['integration']), 2)
+
+    def test_real_markdown_evidence_roundtrip(self):
+        import tempfile, json, hashlib
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'T01.md'
+            result = 'Done: doc pending'
+            claim = dict(scope='doc', stage='integration', state='pending', source='curator', ref='commit:abc', observed_at='2026-01-01T00:00:00Z', describes_result_sha256=hashlib.sha256(result.encode()).hexdigest())
+            newer = dict(claim, state='complete', observed_at='2026-01-02T00:00:00Z')
+            path.write_text('---\nid: T01\ntitle: Doc\nstate: review\nowner: maintainer\n---\n## Result\n'+result+'\n\n## Evidence assertions\n'+json.dumps([claim,newer])+'\n')
+            record = api['Record'](path)
+            item = self.project([record])['obligations'][0]
+            self.assertEqual(len(item['assertions']), 2)
+            self.assertTrue(any('stale Result' in x for x in item['reconciliation']))
 
     def test_long_cycle_is_bounded(self):
         records = [Record(f'T{i:04}', result=f'Next: T{(i+1)%1100:04}') for i in range(1100)]

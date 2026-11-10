@@ -3043,7 +3043,12 @@ def dashboard_data(rooms):
         return False
 
     def assertions(r):
-        raw = r["evidence_assertions"] or []
+        import json, hashlib
+        block = r.section("Evidence assertions")
+        try:
+            raw = json.loads(block) if block else []
+        except (ValueError, TypeError):
+            return [], ["invalid Evidence assertions JSON"]
         valid, errors = [], []
         if not isinstance(raw, list):
             return [], ["invalid evidence_assertions: expected list"]
@@ -3093,7 +3098,7 @@ def dashboard_data(rooms):
                     stage_claims.sort(key=lambda c: dt.datetime.fromisoformat(c["observed_at"].replace("Z", "+00:00")))
                     for old in stage_claims:
                         for new in stage_claims:
-                            if (old.get("describes_result_revision") == r._version
+                            if (old.get("describes_result_sha256") == __import__("hashlib").sha256(r.section("Result").encode()).hexdigest()
                                     and old["state"] != new["state"]
                                     and dt.datetime.fromisoformat(old["observed_at"].replace("Z", "+00:00")) < dt.datetime.fromisoformat(new["observed_at"].replace("Z", "+00:00"))):
                                 diagnostics.append("explicit stale Result contradiction: " + old["scope"] + "/" + old["stage"])

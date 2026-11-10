@@ -24,7 +24,7 @@ unknowns and detect specific stale-result contradictions. It must retain origina
 prose and provenance. UI implementation and owner walkthroughs remain separate.
 
 ### Curated evidence contract
-Item frontmatter may contain `evidence_assertions`, a list of mappings. Every
+Item body may contain an `Evidence assertions` section with a JSON array of mappings (not frontmatter). Every
 mapping requires nonempty string scope, stage, state, source, ref, observed_at.
 Stages: implementation, review, integration, fulfillment, action. States: pending,
 complete, deferred, open. Time must be timezone-aware ISO8601 and not future;
@@ -36,7 +36,7 @@ manual curation is the supported input. No git/network inspection occurs.
 Claims are exposed by scope and stage without reducing them to global completion.
 Missing stages remain unknown. Each claim retains its source/reference/time;
 conflicting claims remain visible. An explicit assertion describing the current
-Result revision (`describes_result_revision`) is contradicted only by a strictly
+Result section UTF-8 SHA256 (`describes_result_sha256`) is contradicted only by a strictly
 later, valid, differently stated assertion of the same scope AND stage. Prose is
 never parsed for this comparison. Other stale-looking prose requires human
 reconciliation. No canonical Result or state is changed.
@@ -47,3 +47,5 @@ and the summary stays unknown. Latest evidenced change is the latest valid
 assertion, carrying the same conservative trust label. Record update time is not
 an evidence observation. Existing top-level stage fields remain unknown because
 scope-specific assertions cannot establish whole-item fulfillment.
+
+The Result hash is independent of the surrounding record and evidence section, so appending evidence does not invalidate its reference. Real Markdown parsing is covered by a round-trip fixture.
