@@ -1284,7 +1284,7 @@ function dashboardView(app, selectedRoom = null) {
     }
     card.append(el("button", {onclick:()=>pick(r.room)}, "Open room · decisions and evidence"));
     const history = el("details", {}, el("summary", {}, "Complete evidence history"));
-    for (const o of r.obligations) history.append(el("p", {}, `${o.id} · ${o.recorded_state} · ${o.action}`), el("pre", {style:"white-space:pre-wrap;overflow-wrap:anywhere"}, (o.result || "No Result recorded") + "\nReconciliation: " + (o.reconciliation || []).join("; ")));
+    for (const o of r.obligations) { history.append(el("p", {}, `${o.id} · ${o.recorded_state} · ${o.action}`), el("pre", {style:"white-space:pre-wrap;overflow-wrap:anywhere"}, (o.result || "No Result recorded") + "\nReconciliation: " + (o.reconciliation || []).join("; "))); for (const c of o.assertions || []) history.append(el("p", {}, `${c.scope} / ${c.stage}: ${c.state} · ${c.source} · ${c.ref} · ${c.observed_at} · reference not independently verified`)); history.append(el("p", {}, "Successors: " + (o.successors || []).map(x => typeof x === "string" ? x : x.target).join("; "))); }
     card.append(history); app.append(card);
   }
   app.append(el("section", {class:"card"}, el("h2", {}, "Account capacity"), el("p", {}, "Limits unavailable · source: local records only · observation time, units, window, pool and reset unknown"), el("p", {}, "Configured models: unknown · execution eligibility: unknown · observed running work: unknown · account consumption: unknown"), el("p", {}, "No capacity-based recommendation available. Configuration and machine resources do not establish account limits.")));

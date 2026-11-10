@@ -141,3 +141,10 @@ class MalformedRuntime(Dashboard):
             cache['malformed-fixture'] = value
             self.assertEqual(api['dashboard_execution']('malformed-fixture')['state'], 'unknown')
         cache.pop('malformed-fixture')
+
+class DeferredReadiness(Dashboard):
+    def test_deferred_scope_is_not_ready_unclaimed(self):
+        import json
+        r = Record('T03')
+        r.parts['Evidence assertions'] = json.dumps([dict(scope='code',stage='implementation',state='deferred',source='review',ref='artifact:1',observed_at='2026-01-01T00:00:00Z')])
+        self.assertFalse(self.project([r])['obligations'][0]['unclaimed_ready'])
