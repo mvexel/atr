@@ -327,6 +327,7 @@
 .card details {margin:.75rem 0}.card summary {cursor:pointer;padding:.5rem 0}
 .card button {min-height:44px;white-space:normal} :focus-visible {outline:3px solid #467edb;outline-offset:3px}
 @media(max-width:600px){.card{min-width:0;overflow-wrap:anywhere}.card button{max-width:100%} .card pre{white-space:pre-wrap}}
+.next-action {font-weight:600;overflow-wrap:anywhere}.room-support {margin:1.5rem 0}.room-support>summary {cursor:pointer;padding:1rem 0}summary:focus-visible {outline:2px solid var(--accent)}@media(max-width:600px){.card{min-width:0;overflow-wrap:anywhere}.card button{max-width:100%;white-space:normal}}
 </style>
 </head>
 <body>
@@ -1083,7 +1084,7 @@ function askCard(roomName, d, maxImpact) {
   if (sourceHref) card.append(el("p", {}, el("a", { class: "ref", href: sourceHref, target: "_blank", rel: "noopener" },
     /proposal/i.test(d.source) ? "Read proposal" : /github\.com\/.+\/pull\//.test(d.source) ? "Review pull request" : "Read source document")));
   if (d.why || (d.source && !sourceHref)) {
-    const det = el("details", { class: "why", ontoggle: e => e.target.open ? openWhy.add(dkey(d)) : openWhy.delete(dkey(d)) },
+    const det = el("details", { class: "why", open: true, ontoggle: e => e.target.open ? openWhy.add(dkey(d)) : openWhy.delete(dkey(d)) },
       el("summary", {}, "Why it matters"), d.why ? el("div", {}, linked(d.why)) : null,
       d.source && !sourceHref ? el("div", {}, "Source: ", linked(d.source)) : null);
     det.open = true;
@@ -1251,18 +1252,19 @@ function processBlocks(r) {
   return out;
 }
 
-function dashboardView(app) {
-  app.append(el("h1", {}, "Your rooms"), el("p", {}, "Outcomes, owner attention and the next handoff · local records"));
+function dashboardView(app, selectedRoom = null) {
+  app.append(el(selectedRoom ? "h2" : "h1", {}, selectedRoom ? "Outcome and next handoff" : "Your rooms"), el("p", {}, "Outcomes, owner attention and the next handoff · local records"));
   if (dashboardError) app.append(el("p", {role:"status"}, dashboardError), el("button", {onclick:()=>load(true)}, "Retry dashboard"));
   if (!dashboard) { app.append(el("p", {}, "Dashboard observations unavailable.")); return; }
   const attention = el("section", {class:"card"}, el("h2", {}, "Owner attention"));
-  for (const r of dashboard.rooms) {
-    for (const a of r.owner_attention) attention.append(el("p", {}, a.question), el("button", {onclick:()=>{pick(r.room);openRecord(a.id);}}, `Review ${r.room} · ${a.id}`));
-    for (const o of r.obligations.filter(o=>o.open && !o.actor)) attention.append(el("p", {}, `${r.room} · ${o.action || o.id}: Actor missing — lead must assign the next action.`));
+  for (const r of dashboard.rooms.filter(r => !selectedRoom || r.room === selectedRoom)) {
+    for (const a of r.owner_attention) attention.append(el("p", {}, a.question), el("button", {onclick:()=>{pick(r.room);openRecord(a.id);}}, `Review ${r.title || r.room.replace(/-/g, " ")} · ${a.id}`));
+    for (const o of r.obligations.filter(o=>o.open && !o.actor)) attention.append(el("p", {}, `${r.title || r.room.replace(/-/g, " ")} · ${o.action || o.id}: Actor missing — lead must assign the next action.`));
   }
+  if (!attention.children.length || attention.children.length === 1) attention.append(el("p", {}, "No recorded owner question. Next responsibilities remain below."));
   app.append(attention);
-  for (const r of dashboard.rooms) {
-    const card = el("article", {class:"card"}, el("h2", {}, r.title || r.room.replace(/-/g, " ")), el("p", {}, r.goal || "Outcome not recorded"), el("p", {}, "Recorded state: " + (r.recorded_state || "unknown")), el("p", {}, "Current execution: unknown · assignment and curation do not establish a running agent"));
+  for (const r of dashboard.rooms.filter(r => !selectedRoom || r.room === selectedRoom)) {
+    const card = el("article", {class:"card"}, el("h2", {}, r.title || (typeof state !== "undefined" ? state : null)?.rooms?.find(x => x.name === r.room)?.title || r.room.replace(/-/g, " ")), el("p", {}, r.goal || "Outcome not recorded"), el("p", {}, "Recorded state: " + (r.recorded_state || "unknown")), el("p", {}, "Current execution: unknown · assignment and curation do not establish a running agent"));
     const change = r.latest_evidenced_change;
     card.append(el("p", {}, change ? `Latest recorded evidence: ${change.scope} / ${change.stage}: ${change.state} · ${change.source} · ${change.observed_at} · reference not independently verified` : "Latest evidenced change: unknown"));
     card.append(el("h3", {}, "Owner attention"));
@@ -1270,6 +1272,7 @@ function dashboardView(app) {
     if (!r.owner_attention.length) card.append(el("p", {}, "No recorded owner question. See obligations and resume condition below."));
     card.append(el("h3", {}, "Next obligations"), el("p", {}, "Resume condition: " + (r.resume_trigger || "unknown — lead must record the trigger")));
     for (const o of r.obligations.filter(o=>o.open || o.successors.length || o.reconciliation.length)) {
+      if (o.open || o.successors.length) card.append(el("p", {class:"next-action"}, `${o.action || o.id} · Next actor: ${o.actor || "unknown — lead must assign"} · Follow-up: ${o.successors.map(x => typeof x === "string" ? x : (x.action || x.id || "Linked obligation; see evidence")).join("; ") || "not recorded"}`));
       const detail = el("details", {}, el("summary", {}, `${o.id}: ${o.action || 'Action unknown'} · ${o.actor || 'Actor missing'} · recorded ${o.recorded_state}`));
       detail.append(el("p", {}, "Disposition: " + (o.disposition || "unknown") + " · implementation, review, integration and fulfillment are scoped below; missing stages unknown."));
       for (const c of o.assertions) detail.append(el("p", {}, `${c.scope} / ${c.stage}: ${c.state} · ${c.action || ''} ${c.actor || ''} · ${c.source} ${c.ref} · ${c.observed_at} · reference not independently verified`));
@@ -1339,9 +1342,11 @@ function draw(top) {
           x.title + (needN(x) ? ` · ${needN(x)} need you` : "")))) : null));
   }
 
+  dashboardView(app, r.name);
+  const supporting = el("details", {class:"room-support"}, el("summary", {}, "Room administration and recorded totals"));
   const c = r.counts;
   const fbk = r.feedback || {}, maint = (r.members || []).find(m => m.role === "maintainer"), lastMin = lastActive(r);
-  app.append(el("header", {}, el("div", { class: "titlebar" }, el("h1", {}, inStd ? "How we work" : r.title), pauseButton(r)),
+  supporting.append(el("header", {}, el("div", { class: "titlebar" }, el("h1", {}, inStd ? "How we work" : r.title), pauseButton(r)),
     r.code && (r.code.branch || r.code.warn.length) ? el("div", { class: "codeline" },
       r.code.branch ? el("span", { class: "codetag", title: r.code.path || "no worktree path" }, `⎇ ${r.code.branch}`) : null,
       r.code.warn.length ? el("span", { class: "codewarn", title: r.code.warn.join("\n") }, "⚠ repo") : null) : null,
@@ -1369,7 +1374,7 @@ function draw(top) {
   const present = new Set(r.asks.map(d => d.type));
   if (filter !== "all" && !present.has(filter)) filter = "all";
   const shown = r.asks.filter(d => filter === "all" || d.type === filter);
-  if (!inStd) app.append(firstUse());
+  supporting.append(firstUse());
   app.append(el("h2", {}, el("span", {}, `Needs you · ${needN(r)}`), el("span", {}, "most blocking first")));
   app.append(el("div", { class: "filters" }, present.size > 1 ? Object.entries(kinds)
     .filter(([k]) => k === "all" || present.has(k))
@@ -1422,8 +1427,9 @@ function draw(top) {
       return chip(it, it.waits.length ? `waits ${it.waits.join(", ")}` : `${STATE[s][1]}${it.updated_min != null ? " · " + age(it.updated_min) : ""}`);
     })))));
 
+  app.append(supporting);
   const chart = activityChart(r);
-  if (chart) app.append(el("h2", {}, el("span", {}, "Team activity in this room"),
+  if (chart) supporting.append(el("h2", {}, el("span", {}, "Team activity in this room"),
     el("span", {}, r.activity_min >= 720 ? "last 12 h" : `since the room opened`)), chart);
 
   if (r.team_open.length) {
