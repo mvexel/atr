@@ -349,8 +349,9 @@ let filter = browserStore.getItem("filter") || "all";
 const armed = {};                                              // one-way door waiting for a confirming tap
 const dkey = d => `${current}/${d.id}/${d.revision || d.updated || "unknown"}`;                        // ids repeat across rooms (every room has a D07)
 const sent = storedObject("answerReceipts");                                               // decision id -> result after answering
-for (const receipt of Object.values(sent)) { if (receipt.at) receipt.at = new Date(receipt.at); }
-const drafts = storedObject("drafts");  // decision id -> unsent note
+for (const receipt of Object.values(sent)) { if (receipt && receipt.at) receipt.at = new Date(receipt.at); }
+const drafts = storedObject("drafts");
+for (const k of Object.keys(drafts)) if (typeof drafts[k] !== "string") delete drafts[k];  // decision id -> unsent note
 const openWhy = new Set();                                     // "Why it matters" panels left open
 let sheetStack = [];                                           // record ids shown in the pop-out
 const tips = {};                                              // room -> last tapped chart cell
@@ -579,16 +580,18 @@ const PAL_KINDS = [["room", "Rooms"], ["item", "Items"], ["decision", "Decisions
 const PAL_ORDER = ["Recent", "Rooms that need you", ...PAL_KINDS.map(k => k[1])];
 // Server hits (GET /api/search): item and decision bodies of every room, notes, PROTOCOL and skills, the changelog.
 // They arrive 150 ms after the last key and are appended under the local ones; a failed or old server just shows none.
-let palSrv = { q: "", hits: [] }, palTimer = null;
+let palSrv = { q: "", hits: [] }, palTimer = null, palSequence = 0;
 const PAL_SRV_KIND = { Items: "item", Decisions: "decision", Notes: "note", Rules: "rule", Changelog: "changelog" };
 function palFetch() {
   clearTimeout(palTimer);
   const q = palQ.trim().toLowerCase();
-  if (q.length < 2 || palSrv.q === q) return;
+  const sequence = ++palSequence;
+  if (q.length < 2) { palSrv = {q:"", hits:[], status:"idle"}; return; }
+  palSrv = {q, hits:[], status:"loading"};
   palTimer = setTimeout(async () => {
     try {
       const res = await fetch(`${base}api/search?q=${encodeURIComponent(q)}`, { cache: "no-store" });
-      if (!res.ok) return;
+      if (!res.ok) throw Error("Search unavailable");
       const j = await res.json(), hits = [];
       for (const [g, list] of Object.entries(j.groups || {})) for (const h of list) {
         const rm = state.rooms.find(x => x.name === h.room), kind = PAL_SRV_KIND[g];
@@ -597,9 +600,10 @@ function palFetch() {
           ? { kind, id: h.id, title: h.title, room: h.room, sub: (rm ? h.room + " · " : "") + h.snippet, src: true }
           : { kind, id: "", title: kind === "changelog" ? h.snippet : (h.heading || h.title), room: "", sub: kind === "changelog" ? "docs/CHANGELOG.md" : h.snippet, file: h.file, anchor: h.anchor, src: true });
       }
-      palSrv = { q, hits };
+      if (sequence !== palSequence) return;
+      palSrv = { q, hits, status:"complete" };
       if (palOpen && palQ.trim().toLowerCase() === q) palDraw(true);
-    } catch (_) { /* offline or an older server: local hits only */ }
+    } catch (_) { if (sequence !== palSequence) return; palSrv = {q, hits:[], status:"offline"}; if (palOpen) palDraw(true); }
   }, 150);
 }
 const palRecent = () => { try { return JSON.parse(browserStore.getItem("palRecent") || "[]"); } catch (_) { return []; } };
@@ -696,7 +700,8 @@ function palDraw(keepInput) {
         onclick: () => palChoose(h) }, h.id ? el("span", { class: "id" }, h.id) : null, el("span", { class: "t" }, palMark(h.title, q)), el("small", {}, h.sub)));
     }
   }
-  if (!flat.length) res.append(el("p", { class: "empty" }, q ? `Nothing matches “${q}”.` : "Type to search rooms, items, decisions, notes and rules."));
+  if (q.length >= 2) res.append(el("p", {role:"status"}, palSrv.status === "complete" && palSrv.q === q.toLowerCase() ? "Search complete: loaded rooms and server records." : palSrv.status === "offline" ? "Partial results: loaded rooms only. Server search unavailable." : "Searching server records; loaded room results shown."), palSrv.status === "offline" ? el("button", {onclick:palFetch}, "Retry search") : null);
+  if (!flat.length) res.append(el("p", { class: "empty" }, q ? `No matches in the currently available scope for “${q}”.` : "Type to search rooms, items, decisions, notes and rules."));
   const chips = el("div", { class: "chips", role: "group", "aria-label": "Filter" },
     [["all", "All"], ["room", "Rooms"], ["item", "Items"], ["decision", "Decisions"], ["note", "Notes"], ["rule", "Rules"], ["changelog", "Changelog"]].map(([k, l]) =>
       el("button", { tabindex: "0", "aria-pressed": String(palChip === k), onclick: () => { palChip = k; palSel = 0; palDraw(); $("palq").focus(); } }, l)));
@@ -727,7 +732,7 @@ document.addEventListener("keydown", e => {
   else if ((e.key === "k" || e.key === "K") && (e.ctrlKey || e.metaKey)) { e.preventDefault(); palClose(); }
   else if (e.key === "ArrowDown") { e.preventDefault(); palMove(1); }
   else if (e.key === "ArrowUp") { e.preventDefault(); palMove(-1); }
-  else if (e.key === "Tab") { e.preventDefault(); palGroup(e.shiftKey ? -1 : 1); }
+
   else if (e.key === "Enter") { e.preventDefault(); if (palList[palSel]) palChoose(palList[palSel]); }
 }, true);
 
@@ -1050,7 +1055,7 @@ function firstUse() {
     el("ul", {}, KIND_DEFS.map(([k, t]) => el("li", {}, el("b", {}, k), ": " + t))));
 }
 function askCard(roomName, d, maxImpact) {
-  const key = dkey(d), s = sent[key], busyNow = sending[key];
+  const key = `${roomName}/${d.id}/${d.revision || d.updated || "unknown"}`, s = sent[key], busyNow = sending[key];
   if (s && s.ok && s.kind === "answer" && s.upd === d.updated) return receiptCard(key, s);   // re-opened since: answerable again
   const imp = d.impact, n = imp.items.length;
   const card = el("article", { class: "card" + (d.urgent ? " urgent" : "") + (s && !s.ok ? " failed" : ""), "data-a": "card:" + key });
@@ -1058,6 +1063,9 @@ function askCard(roomName, d, maxImpact) {
     d.urgent ? el("span", { class: "badge urgent" }, icon("warn"), "Urgent") : null,
     el("span", { class: "badge" + (d.door === "one" ? " oneway" : "") }, d.door === "one" ? [icon("lock"), "Hard to undo"] : [icon("undo"), "Easy to undo"]),
     el("span", { class: "badge" }, { ask: "Ask", premise: "Premise", decision: "Decision", prd: "PRD", todo: "Your task" }[d.type] || d.type)));
+  for (const old of Object.keys(drafts).filter(k => k.startsWith(`${roomName}/${d.id}/`) && k !== key)) {
+    card.append(el("details", {}, el("summary", {}, "Stored draft from " + old), el("pre", {}, drafts[old]), el("p", {}, "Review against latest context: " + d.title + " · revision " + d.revision), el("button", {onclick: () => { drafts[key] = drafts[old]; delete drafts[old]; saveDrafts(); swapCard(key); }}, "Copy reviewed draft to latest revision"), el("button", {onclick: () => { delete drafts[old]; saveDrafts(); swapCard(key); }}, "Discard original draft")));
+  }
   card.append(el("p", { class: "title" }, el("span", { class: "id" }, d.id), d.title));
   if (d.type === "todo" && d.steps) card.append(el("pre", { class: "note", style: "margin:6px 0 10px; white-space:pre-wrap; user-select:all" }, d.steps));
   if (d.urgent) card.append(el("div", { class: "why" }, linked(d.urgent)));
