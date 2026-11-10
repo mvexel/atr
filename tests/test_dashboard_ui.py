@@ -1,12 +1,14 @@
 """Exercise owner overview rendering without a browser or canonical-store writes."""
 import json
+import shutil
 import subprocess
 import unittest
 from pathlib import Path
 
-NODE = '/home/mvexel/.local/share/mise/installs/node/24/bin/node'
+NODE = shutil.which('node')
 HTML = (Path(__file__).resolve().parent.parent / 'web/index.html').read_text()
 
+@unittest.skipUnless(NODE, "Node unavailable")
 class OverviewRendering(unittest.TestCase):
     def test_scoped_history_successors_and_unknown_capacity(self):
         fn = HTML.split('function dashboardView(app, selectedRoom = null) {', 1)[1].split('\nfunction draw(top)', 1)[0]
