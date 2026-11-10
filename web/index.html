@@ -1057,7 +1057,7 @@ function firstUse() {
 function askCard(roomName, d, maxImpact) {
   const key = `${roomName}/${d.id}/${d.revision || d.updated || "unknown"}`, s = sent[key], busyNow = sending[key];
   if (s && s.ok && s.kind === "answer" && s.upd === d.updated) return receiptCard(key, s);   // re-opened since: answerable again
-  const imp = d.impact, n = imp.items.length;
+  const imp = d.impact || {items: [], agents: [], hours: 0}, n = imp.items.length;
   const card = el("article", { class: "card" + (d.urgent ? " urgent" : "") + (s && !s.ok ? " failed" : ""), "data-a": "card:" + key });
   card.append(el("div", { class: "badges" },
     d.urgent ? el("span", { class: "badge urgent" }, icon("warn"), "Urgent") : null,
