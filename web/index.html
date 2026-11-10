@@ -322,6 +322,11 @@
   .tip { font-size: 13px; color: var(--text-secondary); min-height: 18px; margin: 4px 4px 0; }
 .chipwrap{display:inline-flex;align-items:center;gap:.3em}
 .t3link{font-size:.85em}
+.card {max-width:76rem; padding:clamp(1rem,3vw,2rem); margin:1rem 0; line-height:1.6}
+.card h2 {font-size:1.4rem;line-height:1.3}.card h3 {margin-top:1.5rem}
+.card details {margin:.75rem 0}.card summary {cursor:pointer;padding:.5rem 0}
+.card button {min-height:44px;white-space:normal} :focus-visible {outline:3px solid #467edb;outline-offset:3px}
+@media(max-width:600px){.card{min-width:0;overflow-wrap:anywhere}.card button{max-width:100%} .card pre{white-space:pre-wrap}}
 </style>
 </head>
 <body>
@@ -340,8 +345,8 @@ let state = null, current = params.get("room") || lastRoom;
 let processView = params.get("room") === "process"; // Only an explicit process link opens How we work.
 let filter = localStorage.getItem("filter") || "all";
 const armed = {};                                              // one-way door waiting for a confirming tap
-const dkey = d => `${current}/${d.id}`;                        // ids repeat across rooms (every room has a D07)
-const sent = {};                                               // decision id -> result after answering
+const dkey = d => `${current}/${d.id}/${d.revision || d.updated || "unknown"}`;                        // ids repeat across rooms (every room has a D07)
+const sent = JSON.parse(localStorage.getItem("answerReceipts") || "{}");                                               // decision id -> result after answering
 const drafts = JSON.parse(localStorage.getItem("drafts") || "{}");  // decision id -> unsent note
 const openWhy = new Set();                                     // "Why it matters" panels left open
 let sheetStack = [];                                           // record ids shown in the pop-out
@@ -937,12 +942,15 @@ async function post(payload) {
   inflight++;
   try {
     const r = await fetch(base + "api/answer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-    return await r.json();
+    const result = await r.json();
+    if (r.status === 409) result.conflict = true;
+    return result;
   } catch (e) { return { ok: false, error: String(e) }; }
   finally { inflight--; }
 }
 async function answer(roomName, d, opt) {
   const key = dkey(d), note = drafts[key] || "";
+  if (sending[key]) return;
   delete armed[key]; delete sent[key]; sending[key] = opt.key;
   if (navigator.vibrate) navigator.vibrate(10);
   swapCard(key);
@@ -955,12 +963,14 @@ async function answer(roomName, d, opt) {
                   group: (cardMeta[key] || {}).group, idx: (cardMeta[key] || {}).idx };
     delete drafts[key]; saveDrafts();
   } else sent[key] = { ok: false, kind: "answer", opt, text: res.conflict ? "Not saved: this record changed. Refresh and review your draft before trying again." : `Not saved: ${res.error}` };
+  localStorage.setItem("answerReceipts", JSON.stringify(sent));
   swapCard(key);
-  if (res.ok) load();
+  if (res.ok || res.conflict) load(true);
 }
 async function askQuestion(roomName, d) {
   const key = dkey(d), note = drafts[key] || "";
   if (!note.trim()) { noteOpen.add(key); swapCard(key); const t = document.querySelector(`[data-a="card:${key}"] textarea`); if (t) t.focus(); return; }
+  if (sending[key]) return;
   delete sent[key]; sending[key] = "question";
   swapCard(key);
   const res = await post({ room: roomName, id: d.id, choice: "question", note: note.trim(), revision: d.revision });
@@ -968,8 +978,9 @@ async function askQuestion(roomName, d) {
   sent[key] = res.ok ? { ok: true, kind: "question", text: "✓ Question saved locally. The card stays open. " + deliveryText(res.delivery) }
                      : { ok: false, kind: "question", text: res.conflict ? "Not saved: this record changed. Refresh and review your draft before trying again." : `Not saved: ${res.error}` };
   if (res.ok) { delete drafts[key]; noteOpen.delete(key); saveDrafts(); }
+  localStorage.setItem("answerReceipts", JSON.stringify(sent));
   swapCard(key);
-  if (res.ok) load();
+  if (res.ok || res.conflict) load(true);
 }
 
 function noteBox(d, locked) {
@@ -1031,7 +1042,7 @@ function askCard(roomName, d, maxImpact) {
     const det = el("details", { class: "why", ontoggle: e => e.target.open ? openWhy.add(dkey(d)) : openWhy.delete(dkey(d)) },
       el("summary", {}, "Why it matters"), d.why ? el("div", {}, linked(d.why)) : null,
       d.source && !sourceHref ? el("div", {}, "Source: ", linked(d.source)) : null);
-    if (openWhy.has(dkey(d))) det.open = true;
+    det.open = true;
     card.append(det);
   }
   const opts = el("div", { class: "opts" });
@@ -1173,13 +1184,13 @@ function processBlocks(r) {
     .sort((a, b) => upd(b).localeCompare(upd(a)));
   const feedbackSorted = feedbackFirst(feedback, Object.fromEntries(((r.plan || {}).items || []).map(x => [x.id, x])));
   const fids = new Set(feedback.map(i => i.id));
-  const tooling = lanes.filter(i => live(i) && i.owner === "Tooling" && !fids.has(i.id));
+  const tooling = lanes.filter(i => live(i) && !fids.has(i.id));
   const pf = Object.fromEntries(((r.plan || {}).items || []).map(x => [x.id, x]));
   const list = (items, extra) => el("div", { class: "lanes" }, el("div", { class: "lane" }, el("div", { class: "chips" },
     items.map(i => chip(i, extra(i), pf[i.id] && { blocks: pf[i.id].blocks, blocks_open: pf[i.id].blocks_open })))));
-  out.push(el("h2", {}, el("span", {}, `Feedback waiting · ${feedback.length}`), el("span", {}, "newest first")));
-  out.push(feedback.length ? list(feedbackSorted, i => fromRoom(i.id) || STATE[i.state][1]) : el("p", { class: "empty" }, "No feedback waiting."));
-  out.push(el("h2", {}, el("span", {}, `Tooling being built · ${tooling.length}`), el("span", {}, "state · cap · age")));
+  out.push(el("h2", {}, el("span", {}, `Feedback disposition and follow-through · ${feedback.length}`), el("span", {}, "newest first")));
+  out.push(feedback.length ? list(feedbackSorted, i => fromRoom(i.id) || STATE[i.state][1]) : el("p", { class: "empty" }, "No active feedback records."));
+  out.push(el("h2", {}, el("span", {}, `Open maintenance obligations · ${tooling.length}`), el("span", {}, "state · cap · age")));
   out.push(tooling.length ? list(tooling, i => `${STATE[i.state][1]}${i.cap_h ? " · cap " + i.cap_h + "h" : ""}${i.agent ? " · agent" : ""}${i.updated_min != null ? " · " + age(i.updated_min) : ""}`)
     : el("p", { class: "empty" }, "Nothing queued."));
   const lines = (title, sub, arr) => { if (!arr || !arr.length) return;
@@ -1200,10 +1211,16 @@ function dashboardView(app) {
   app.append(el("h1", {}, "Your rooms"), el("p", {}, "Outcomes, owner attention and the next handoff · local records"));
   if (dashboardError) app.append(el("p", {role:"status"}, dashboardError), el("button", {onclick:()=>load(true)}, "Retry dashboard"));
   if (!dashboard) { app.append(el("p", {}, "Dashboard observations unavailable.")); return; }
+  const attention = el("section", {class:"card"}, el("h2", {}, "Owner attention"));
   for (const r of dashboard.rooms) {
-    const card = el("article", {class:"card"}, el("h2", {}, r.room), el("p", {}, r.goal || "Outcome not recorded"), el("p", {}, "Recorded state: " + (r.recorded_state || "unknown")), el("p", {}, "Current execution: unknown · assignment and curation do not establish a running agent"));
+    for (const a of r.owner_attention) attention.append(el("p", {}, a.question), el("button", {onclick:()=>{pick(r.room);openRecord(a.id);}}, `Review ${r.room} · ${a.id}`));
+    for (const o of r.obligations.filter(o=>o.open && !o.actor)) attention.append(el("p", {}, `${r.room} · ${o.action || o.id}: Actor missing — lead must assign the next action.`));
+  }
+  app.append(attention);
+  for (const r of dashboard.rooms) {
+    const card = el("article", {class:"card"}, el("h2", {}, r.title || r.room.replace(/-/g, " ")), el("p", {}, r.goal || "Outcome not recorded"), el("p", {}, "Recorded state: " + (r.recorded_state || "unknown")), el("p", {}, "Current execution: unknown · assignment and curation do not establish a running agent"));
     const change = r.latest_evidenced_change;
-    card.append(el("p", {}, change ? `Latest curated assertion: ${change.scope} / ${change.stage}: ${change.state} · ${change.source} · ${change.observed_at} · reference not independently verified` : "Latest evidenced change: unknown"));
+    card.append(el("p", {}, change ? `Latest recorded evidence: ${change.scope} / ${change.stage}: ${change.state} · ${change.source} · ${change.observed_at} · reference not independently verified` : "Latest evidenced change: unknown"));
     card.append(el("h3", {}, "Owner attention"));
     for (const a of r.owner_attention) card.append(el("p", {}, a.question), el("button", {onclick:()=>{pick(r.room);openRecord(a.id);}}, "Read decision context · " + a.id));
     if (!r.owner_attention.length) card.append(el("p", {}, "No recorded owner question. See obligations and resume condition below."));
@@ -1211,9 +1228,11 @@ function dashboardView(app) {
     for (const o of r.obligations.filter(o=>o.open || o.successors.length || o.reconciliation.length)) {
       const detail = el("details", {}, el("summary", {}, `${o.id}: ${o.action || 'Action unknown'} · ${o.actor || 'Actor missing'} · recorded ${o.recorded_state}`));
       detail.append(el("p", {}, "Disposition: " + (o.disposition || "unknown") + " · implementation, review, integration and fulfillment are scoped below; missing stages unknown."));
-      for (const c of o.assertions) detail.append(el("p", {}, `${c.scope} / ${c.stage}: ${c.state} · ${c.action || ''} ${c.actor || ''} · ${c.source} ${c.ref} · ${c.observed_at} · curated, unverified reference`));
-      detail.append(el("pre", {style:"white-space:pre-wrap;overflow-wrap:anywhere"}, o.result || "Result not recorded"), el("p", {}, "Successors: " + JSON.stringify(o.successors)), el("p", {}, "Reconciliation: " + (o.reconciliation.join('; ') || "No explicit contradiction detected; prose still requires human review")));
-      card.append(detail);
+      for (const c of o.assertions) detail.append(el("p", {}, `${c.scope} / ${c.stage}: ${c.state} · ${c.action || ''} ${c.actor || ''} · ${c.source} ${c.ref} · ${c.observed_at} · reference not independently verified`));
+      detail.append(el("pre", {style:"white-space:pre-wrap;overflow-wrap:anywhere"}, o.result || "Result not recorded"), el("p", {}, "Next linked obligations: " + o.successors.map(x => typeof x === "string" ? x : Object.entries(x).map(([k,v]) => `${k}: ${v}`).join(" · ")).join("; ")), el("p", {}, "Reconciliation: " + (o.reconciliation.join('; ') || "No explicit contradiction detected; prose still requires human review")));
+      const more = card._obligations || (card._obligations = el("details", {}, el("summary", {}, "More obligations and evidence")));
+      if (!more.parentAdded) { card.append(more); more.parentAdded = true; }
+      more.append(detail);
     }
     card.append(el("button", {onclick:()=>pick(r.room)}, "Open room · decisions and evidence"));
     const history = el("details", {}, el("summary", {}, "Complete evidence history"));
@@ -1515,12 +1534,14 @@ function setStale(failed) {
 }
 // stale:end
 
+let loadSequence = 0;
 async function load(force) {
   if (!force && busy()) {
     if (!retryTimer) retryTimer = setTimeout(() => { retryTimer = null; load(); }, 2500);
     return;
   }
   const rn = current;
+  const requestId = ++loadSequence;
   try {
     if (overview) {
       try { const response = await fetch(base + "api/dashboard", {cache:"no-store"}); if (!response.ok) throw new Error(`HTTP ${response.status}`); dashboard = await response.json(); dashboardError = null; }
@@ -1537,6 +1558,7 @@ async function load(force) {
       bodies[rn || ""] = { tag: res.headers.get("ETag"), text };
       ns = JSON.parse(text);
     }
+    if (requestId !== loadSequence || rn !== current) return;
     lastOk = new Date(); setStale(false);
     for (const x of ns.rooms) if (x.records && Object.keys(x.records).length) recCache[x.name] = { ...(recCache[x.name] || {}), ...x.records };
     const { now, ...rest } = ns, sig = rn + JSON.stringify(rest);
