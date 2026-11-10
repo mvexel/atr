@@ -1271,7 +1271,7 @@ function dashboardView(app, selectedRoom = null) {
     for (const a of r.owner_attention) card.append(el("p", {}, a.question), el("button", {onclick:()=>{pick(r.room);openRecord(a.id);}}, "Read decision context · " + a.id));
     if (!r.owner_attention.length) card.append(el("p", {}, "No recorded owner question. See obligations and resume condition below."));
     card.append(el("h3", {}, "Next obligations"), el("p", {}, "Resume condition: " + (r.resume_trigger || "unknown — lead must record the trigger")));
-    for (const o of r.obligations.filter(o=>o.open || o.successors.length || o.reconciliation.length)) {
+    for (const o of r.obligations.filter(o=>o.open)) {
       if (o.open || o.successors.length) card.append(el("p", {class:"next-action"}, `${o.action || o.id} · Next actor: ${o.actor || "unknown — lead must assign"} · Follow-up: ${o.successors.map(x => typeof x === "string" ? x : (x.action || x.target || x.id || "Linked obligation; see evidence")).join("; ") || "not recorded"}`));
       const detail = el("details", {}, el("summary", {}, `${o.id}: ${o.action || 'Action unknown'} · ${o.actor || 'Actor missing'} · recorded ${o.recorded_state}`));
       detail.append(el("p", {}, "Disposition: " + (o.disposition || "unknown") + " · implementation, review, integration and fulfillment are scoped below; missing stages unknown."));
@@ -1283,7 +1283,7 @@ function dashboardView(app, selectedRoom = null) {
     }
     card.append(el("button", {onclick:()=>pick(r.room)}, "Open room · decisions and evidence"));
     const history = el("details", {}, el("summary", {}, "Complete evidence history"));
-    for (const o of r.obligations) history.append(el("p", {}, `${o.id} · ${o.recorded_state} · ${o.action}`), el("pre", {style:"white-space:pre-wrap;overflow-wrap:anywhere"}, o.result || "No Result recorded"));
+    for (const o of r.obligations) history.append(el("p", {}, `${o.id} · ${o.recorded_state} · ${o.action}`), el("pre", {style:"white-space:pre-wrap;overflow-wrap:anywhere"}, (o.result || "No Result recorded") + "\nReconciliation: " + (o.reconciliation || []).join("; ")));
     card.append(history); app.append(card);
   }
   app.append(el("section", {class:"card"}, el("h2", {}, "Account capacity"), el("p", {}, "Limits unavailable · source: local records only · observation time, units, window, pool and reset unknown"), el("p", {}, "Configured models: unknown · execution eligibility: unknown · observed running work: unknown · account consumption: unknown"), el("p", {}, "No capacity-based recommendation available. Configuration and machine resources do not establish account limits.")));
