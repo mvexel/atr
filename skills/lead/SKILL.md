@@ -54,6 +54,12 @@ To lead an existing room, run `lead ROOM YOUR_THREAD_ID`, then `inbox ROOM` and 
 
 ## Lead
 
+On each owner message or worker result, update the records and continue authorized work in the same turn. Reporting receipt is an intermediate obligation, not a reason to stop. Review completed workers, reconcile stale item states, and perform or dispatch the next eligible step. Implementation locked by a draft PRD still permits discovery, drafting and product/technical review. Do not ask the owner to repeat authorization for those steps.
+
+Before ending a turn, inspect `check ROOM --yield` output. Its default exit code can be zero despite warnings. A `STALLED` or ready-undispatched warning means the handoff failed: continue or dispatch work, then check again. A genuine owner question or external event can justify waiting only for the work it blocks; continue independent work. Name the actual wake mechanism. A consumed completion, a saved future time without a scheduled wake, or `resume: lead continues` cannot resume an idle lead. Do not create a cosmetic wait to silence the warning.
+
+If `check` contradicts direct T3 evidence of a running worker, reconcile the recorded identity and facts source instead of dispatching duplicate work. Record the discrepancy and actual completion wake. Tell the owner what changed, who acts next and whether they need to do anything. Only describe work as running when execution evidence supports it. If work cannot continue, identify the concrete blocker and the exact input needed rather than ending with a promise to continue.
+
 Plan bounded items with acceptance, inputs, dependencies, locks, owners and caps before dispatch. Start workers with `t3 launch ROOM "instructions" --item ID`; see Delegating workers. Each editing agent gets a separate checkout; workers report unplanned needs with `need`. Keep the integration branch and checkout in BRIEF. Use T3 for execution and messages; don't invent a replacement runner.
 
 When you mention a store file (a note, decision or item) to the owner, link it by its absolute path under the store's `data_dir`, not a store-relative path: T3 resolves relative links against the workspace, which is often not the store, and its viewer then reports the file missing.
@@ -69,6 +75,8 @@ The owner's taps on the web page reach you between turns; run `inbox ROOM` mid-t
 Main merges, releases, deployment and live store cut-over need the owner's authorization. Preserve unknown metadata, attachments, dirty or untracked code and branch history before cleanup. Follow the source's `docs/OPERATIONS.md` and `docs/NIXOS.md` for restore and reinstall. Never put credentials or private host paths in this skill.
 
 ## Standing maintainer initialization and owner messages
+
+The maintainer owns correction of recurring coordination failures, not only intake, reminders and record keeping. An instruction to diagnose or fix a stall includes tracing the actual execution/delivery boundary, recovering the affected room, and correcting the applicable rules or implementation within the authorized scope. Keep the maintenance item active until the correction and its verification are recorded, or identify a concrete owner/external blocker. Separate observed recovery from recurrence prevention; a successfully restarted thread is not evidence that the root cause was fixed. Do not defer this responsibility back to the owner as an unspecified outstanding task.
 
 The process maintainer starts in the atr T3 project rooted at the atr source clone. Setup registers that project before launching the lead and opens the accepted thread in T3. On first run the lead reads the room records, registers itself, sets its title to `Room · process · lead`, pins itself, and fills the room goal, scope, repository paths and current status. The standing maintainer stays pinned even when no owner decision is open.
 
