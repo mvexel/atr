@@ -53,3 +53,16 @@ completed actions. They never establish current execution: current_action and
 current_actor remain unknown until a separately correlated execution contract
 exists. Source and observed_at belong to the curator; references are not
 independently verified. Validation remains active under optimized Python.
+
+Current-work evidence: `current_work` lists every open doing item with recorded
+title and assigned actor; a single item also populates current_action/actor.
+These fields establish recorded activity only. Each runtime observation is keyed
+by the item's assigned T3 thread in the existing read-only observation cache.
+Only running/idle/interrupted observations aged 0–60 seconds are displayed as
+known. Missing, future, stale or explicitly mismatched thread facts remain unknown;
+source and original observation timestamp remain visible. Thread content updatedAt
+is not an execution observation timestamp. Dashboard reads never renew cache age.
+Owner pause comes from canonical BRIEF paused; structured now-head wait_actor and
+wait_event together establish an external wait (free-text resume does not).
+Todo obligations without an agent whose dependencies are all done are explicitly
+unclaimed ready; missing actors remain unknown. Stage assertions never prove execution.

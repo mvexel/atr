@@ -102,3 +102,34 @@ class InvalidEvidence(Dashboard):
         item = self.project([r])['obligations'][0]
         self.assertEqual(item['assertions'], [])
         self.assertEqual(len(item['reconciliation']), 4)
+
+class RuntimeEvidence(Dashboard):
+    def test_s1_fresh_stale_absent_and_mismatch(self):
+        import time
+        cache = api['dashboard_execution'].__globals__['_thread_cache']
+        for status in ('running', 'idle', 'interrupted'):
+            cache['fixture-thread'] = (time.time(), {'status': status})
+            item = Record('T01', 'doing'); item.data['agent'] = 'fixture-thread'
+            data = self.project([item])
+            self.assertEqual(data['current_actor'], 'Maintainer')
+            self.assertEqual(data['current_work'][0]['runtime']['state'], status)
+        cache['fixture-thread'] = (time.time()-61, {'status': 'running'})
+        self.assertEqual(self.project([item])['obligations'][0]['execution'], 'unknown')
+        cache['fixture-thread'] = (time.time(), {'status': 'running', 'thread': 'other'})
+        self.assertEqual(self.project([item])['obligations'][0]['execution'], 'unknown')
+        cache.pop('fixture-thread')
+        self.assertEqual(self.project([item])['obligations'][0]['execution'], 'unknown')
+
+    def test_s3_multiple_and_s4_structured_wait_pause(self):
+        room = self.room([Record('T01', 'doing'), Record('T02', 'doing')])
+        project = lambda: api['dashboard_data']([room])['rooms'][0]
+        self.assertIsNone(project()['current_action'])
+        self.assertEqual(len(project()['current_work']), 2)
+        head = Record('head'); head.data.update(wait_actor='vendor', wait_event='shipment')
+        room.head = head
+        self.assertEqual(project()['activity']['state'], 'external wait')
+        head.data['wait_actor'] = ''
+        self.assertNotEqual(project()['activity']['state'], 'external wait')
+        import datetime
+        room.paused = datetime.datetime.now(datetime.timezone.utc)
+        self.assertEqual(project()['activity']['state'], 'paused by owner')

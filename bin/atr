@@ -3014,6 +3014,35 @@ def web_pause(room, pause, note, push, by="", until="", expected_revision=None):
                             room=room.name, source=room.brief, allow_paused=True)
     return {"ok": True, "told_lead": False, "action": action["id"]}
 
+def dashboard_execution(agent):
+    """Read existing observations without fetching or renewing their observation age."""
+    import time
+    agent = (agent or "").strip()
+    hit = _thread_cache.get(agent)
+    if not hit and agent:
+        try:
+            hit = json.loads((ROOT / ".atr/t3-observations.json").read_text()).get(agent)
+        except (OSError, ValueError):
+            pass
+    result = {"state": "unknown", "source": "T3 thread observation", "observed_at": None,
+              "thread": agent or None, "freshness": "absent"}
+    if not hit or len(hit) != 2 or not isinstance(hit[1], dict):
+        return result
+    stamp, facts = hit
+    try:
+        age = time.time() - float(stamp)
+        result["observed_at"] = dt.datetime.fromtimestamp(float(stamp), dt.timezone.utc).isoformat()
+    except (ValueError, TypeError, OverflowError):
+        return result
+    result["freshness"] = "fresh" if 0 <= age <= 60 else "stale"
+    # The cache key correlates this observation to the assigned thread. Never use
+    # thread updatedAt (a content mutation), fetch time or record logs as run age.
+    if facts.get("thread") not in (None, agent):
+        result["freshness"] = "mismatched"
+    if result["freshness"] == "fresh" and facts.get("status") in ("running", "idle", "interrupted"):
+        result["state"] = facts["status"]
+    return result
+
 def dashboard_data(rooms):
     """Conservative local-record projection. No execution or fulfillment inferred from prose.
 
@@ -3104,7 +3133,8 @@ def dashboard_data(rooms):
             obligations.append({"id": key, "scopes": scopes, "assertions": claims, "action": r["title"] or None,
                 "actor": r["owner"] or None, "recorded_state": r["state"] or None,
                 "open": r["state"] not in ("done", "dropped"),
-                "execution": "unknown", "fulfillment": "unknown", "review": "unknown",
+                "unclaimed_ready": r["state"] == "todo" and not r["agent"] and all(inventory.get(room.name + "/" + dep) and inventory[room.name + "/" + dep]["state"] == "done" for dep in (r["depends_on"] or [])),
+                "execution": dashboard_execution(r["agent"])["state"], "runtime": dashboard_execution(r["agent"]), "fulfillment": "unknown", "review": "unknown",
                 "integration": "unknown", "disposition": r["outcome"] or None,
                 "dependencies": r["depends_on"] or [], "successors": links,
                 "result": r.section("Result"), "feedback": r.section("Feedback"),
@@ -3112,11 +3142,22 @@ def dashboard_data(rooms):
         claims = [c for o in obligations for c in o["assertions"]]
         latest = max(claims, key=lambda c: dt.datetime.fromisoformat(c["observed_at"].replace("Z", "+00:00")), default=None)
         actions = [c for c in claims if c["stage"] == "action"]
-        action = None  # Curated obligations do not establish a current execution run.
+        active = [o for o in obligations if o["open"] and o["recorded_state"] == "doing"]
+        action = active[0] if len(active) == 1 else None
+        activity = {"state": "recorded activity" if active else "next step unknown",
+                    "source": "local item records", "observed_at": None}
+        if getattr(room, "paused", None):
+            activity = {"state": "paused by owner", "source": "BRIEF.md paused",
+                        "observed_at": room.paused.isoformat()}
+        head = room.head
+        if not getattr(room, "paused", None) and head and head["wait_actor"] and head["wait_event"]:
+            activity = {"state": "external wait", "actor": head["wait_actor"],
+                        "event": head["wait_event"], "source": "now-head structured wait", "observed_at": head["updated"] or None}
         head = room.head
         result.append({"room": room.name,
             "goal": room.brief.section("Goal") if room.brief else None,
             "recorded_state": head["phase"] if head else None,
+            "activity": activity, "current_work": active,
             "current_action": action["action"] if action else None, "current_actor": action["actor"] if action else None,
             "next_actions": [o for o in obligations if o["open"]],
             "resume_trigger": head["resume"] or None if head else None,
