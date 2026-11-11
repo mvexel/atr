@@ -1,5 +1,6 @@
 """Without a T3 program the page says so, in words, and the state API reports it.
 The page's real helper runs in node when installed; wiring is checked statically."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
 import json, os, re, shutil, subprocess, tempfile, unittest
 from pathlib import Path
 

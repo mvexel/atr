@@ -1,4 +1,5 @@
 """Copyable take-the-lead text: `atr lead ROOM` without a thread prints it; the state API carries it; the page can copy it."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
 import contextlib, importlib.machinery, importlib.util, io, json, os, re, shlex, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 

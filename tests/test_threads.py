@@ -1,6 +1,7 @@
 """Rooms with several threads: fake threads, fake sender, temp atr root. No real T3 call or message.
 Run: python3 -m unittest tests.test_threads
 """
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
 import importlib.machinery, importlib.util, sys, tempfile, unittest, datetime as dt
 from pathlib import Path
 

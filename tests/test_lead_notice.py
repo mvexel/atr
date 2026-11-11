@@ -1,4 +1,5 @@
 """Telling the lead: save first, one send, a marker on failure, one retry after 60 s, then the flag stays."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
 import argparse, contextlib, importlib.machinery, importlib.util, io, tempfile, unittest
 from pathlib import Path
 from unittest.mock import patch

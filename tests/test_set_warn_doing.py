@@ -1,6 +1,7 @@
 """`atr set ... state=review|done` warns when the Log has no `set state=doing` line.
 Run: python3 -I -m unittest tests.test_set_warn_doing
 """
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
 import goal_fixture

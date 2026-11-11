@@ -3,6 +3,7 @@ search_data is exercised against a scratch root (tr.ROOT/ROOMS patched); the HTT
 with a copy of bin/atr on a free port. No real room is read.
 Run: python3 -I -m unittest tests.test_search
 """
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
 import importlib.machinery, importlib.util, json, os, shutil, socket, subprocess, sys, tempfile, time, unittest
 import urllib.parse, urllib.request
 from pathlib import Path

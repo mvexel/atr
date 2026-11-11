@@ -1,4 +1,5 @@
 """Local stores select deterministically, serialize updates and recover interrupted transitions."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
 import concurrent.futures
 import contextlib
 import importlib.machinery

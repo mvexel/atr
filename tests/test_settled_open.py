@@ -1,6 +1,7 @@
 """Warn when a lead thread is settled with open items. Fake thread_info, temp rooms; no real T3 call, no message.
 Run: python3 -m unittest tests.test_settled_open
 """
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
 import importlib.machinery, importlib.util, sys, tempfile, unittest
 from pathlib import Path
 

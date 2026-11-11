@@ -1,4 +1,5 @@
 """The goal gate: three fields, owner approval, no work before it."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
 import contextlib, importlib.machinery, importlib.util, io, tempfile, types, unittest
 from pathlib import Path
 

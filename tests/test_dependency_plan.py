@@ -1,6 +1,7 @@
 """`atr need`, plan checks, waves and critical path, the blocked-need attention line. No real message is sent.
 Run: python3 -I -m unittest tests.test_dependency_plan
 """
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
 import contextlib, importlib.machinery, importlib.util, io, tempfile, types, unittest
 from pathlib import Path
 
