@@ -81,7 +81,7 @@ A worker moving its item to `review` or `done` does not wake an idle lead. After
 
 Always report back when the owner's answer or message reaches you, whether it was a decision tap, a clarifying question, a plan or a code change: say what you did or what you decided, or why you did nothing, even if the answer needs no action. Silence after an answer leaves the owner unable to tell whether it arrived. A turn that ends without that report is unfinished.
 
-Save records before communicating. Use `delivery list` to tell local saves from pending, uncertain or confirmed T3 acceptance. Reconcile uncertainty with actual evidence before retrying. A confirmed message is not proof that the agent received it or resumed work.
+Save records before communicating. A message to you or to a worker is one send plus one automatic retry. If neither is accepted the room page shows "Lead not notified", and `inbox ROOM` prints the unsent message, so run `inbox ROOM` mid-turn. A message T3 accepted is not proof that the agent received it or resumed work.
 
 The owner's taps on the web page reach you between turns; run `inbox ROOM` mid-turn to pick them up sooner. Review results, run appropriate checks, update now-head and advance the next eligible item while your turn lasts. Before yielding, run `status ROOM` and `check ROOM --yield`, and leave a concrete event, time or owner question that will resume the room.
 

@@ -1,6 +1,6 @@
 # Core page vocabulary
 
-The page uses the same words as the local records. Delivery status reports evidence, not assumed execution.
+The page uses the same words as the local records. The page reports a saved answer separately from whether the lead was told, and never assumes execution.
 
 ## 1. Vocabulary
 

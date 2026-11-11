@@ -15,12 +15,12 @@ class GoalGate(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.saved = (tr.ROOMS, tr.ROOT, tr.TEMPLATES, tr.queue_t3_action)
+        self.saved = (tr.ROOMS, tr.ROOT, tr.TEMPLATES, tr.notify_lead)
         self.addCleanup(lambda: (setattr(tr, "ROOMS", self.saved[0]), setattr(tr, "ROOT", self.saved[1]),
-                                 setattr(tr, "TEMPLATES", self.saved[2]), setattr(tr, "queue_t3_action", self.saved[3])))
+                                 setattr(tr, "TEMPLATES", self.saved[2]), setattr(tr, "notify_lead", self.saved[3])))
         tr.ROOT = Path(self.tmp.name)
         tr.ROOMS, tr.TEMPLATES = tr.ROOT / "rooms", REPO / "template"
-        tr.queue_t3_action = lambda *a, **k: {"id": "x"}
+        tr.notify_lead = lambda *a, **k: None
         d = tr.ROOMS / "r1"
         (d / "items").mkdir(parents=True)
         (d / "decisions").mkdir()

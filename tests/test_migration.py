@@ -164,42 +164,6 @@ class Migration(unittest.TestCase):
         self.assertEqual(self.tool.rollback(self.source, self.destination)["outcome"], "already-rolled-back")
         self.assertEqual(result["source"], str(self.source))
 
-    def test_local_answer_is_saved_while_fenced_and_prevents_rollback(self):
-        self.copy()
-        api = runtime.api_for(root=self.destination)
-        with patch.object(api, "t3_execute", side_effect=AssertionError("fenced action executed")):
-            saved = api.web_answer(api.Room("demo"), "D01", "a", "saved on destination", False)
-        self.assertTrue(saved["saved"])
-        self.assertFalse(saved["told_lead"])
-        self.assertIn("fenced", saved["delivery"]["blocked"])
-        self.assertIn("saved on destination", (self.destination / "rooms/demo/decisions/D01-choice.md").read_text())
-        with self.assertRaisesRegex(migration.MigrationConflict, "new writes|changed"):
-            self.tool.rollback(self.source, self.destination)
-        self.assertIn("saved on destination", (self.destination / "rooms/demo/decisions/D01-choice.md").read_text())
-
-    def test_imported_actions_require_individual_reconciliation_after_store_review(self):
-        self.actions()
-        self.copy()
-        api = runtime.api_for(root=self.destination)
-        with patch.object(api, "t3_execute", side_effect=AssertionError("imported action replayed")):
-            self.assertEqual(api.delivery_actions()["attempting"]["state"], "attempting")
-            self.assertEqual(api.attempt_delivery("pending")["state"], "pending")
-            reviewed = self.tool.review(self.source, self.destination, "operator reviewed isolated copy and routing")
-            self.assertEqual(reviewed["state"], "reviewed")
-            self.assertEqual(api.attempt_delivery("pending")["state"], "pending")
-            api.reconcile_delivery("attempting", "accepted", "synthetic acceptance receipt checked")
-            self.assertEqual(api.attempt_delivery("attempting")["state"], "confirmed")
-            with self.assertRaises(api.StoreConflict):
-                api.reconcile_delivery("confirmed", "not-accepted", "cannot undo a historical receipt")
-        api.reconcile_delivery("pending", "not-accepted", "synthetic history proves no acceptance")
-        with patch.object(api, "t3_execute", return_value={"state": "confirmed", "evidence": "synthetic acceptance"}) as send:
-            api.attempt_delivery("pending")
-            api.attempt_delivery("pending")
-        send.assert_called_once()
-        self.assertEqual(api.delivery_actions()["pending"]["unknown_receipt"], {"keep": [1, 2]})
-        with self.assertRaisesRegex(migration.MigrationConflict, "review|reconcil"):
-            self.tool.rollback(self.source, self.destination)
-
     def test_unsafe_overlapping_symlink_and_conflicting_destinations_are_rejected(self):
         alias = self.base / "alias"
         alias.symlink_to(self.source, target_is_directory=True)
@@ -240,17 +204,6 @@ class Migration(unittest.TestCase):
         self.assertFalse((self.destination / ".atr/migration.json").exists())
         self.assertFalse((self.destination / "rooms/demo/BRIEF.md").exists())
 
-    def test_fence_holds_direct_execution_and_thread_observations(self):
-        self.copy()
-        api = runtime.api_for(root=self.destination)
-        with patch.object(api, "_external_run", side_effect=AssertionError("fenced external call")):
-            with patch.object(api.subprocess, "run", side_effect=AssertionError("fenced thread probe")):
-                self.assertIsNone(api.fetch_thread("synthetic-thread"))
-                api.refresh_thread("synthetic-thread")
-            outcome = api.t3_execute({"id": "new-action"})
-            self.assertEqual(outcome["state"], "pending")
-
-
     def test_interrupted_copy_can_be_recovered_by_an_explicit_repeat_without_source_changes(self):
         before = tree(self.source)
         script = """import os,sys
@@ -276,20 +229,6 @@ atr_migrate.Migration().copy(sys.argv[2], sys.argv[3])
         self.assertEqual(self.copy()["state"], "copied")
         self.assertTrue(self.tool.verify(self.source, self.destination)["verified"])
         self.assertEqual(tree(self.source), before)
-
-    def test_corrupt_fence_is_fail_closed_but_local_decision_save_survives(self):
-        self.actions()
-        self.copy()
-        path = self.destination / ".atr/migration.json"
-        manifest = json.loads(path.read_text())
-        manifest["imported_actions"] = []
-        path.write_text(json.dumps(manifest))
-        api = runtime.api_for(root=self.destination)
-        with patch.object(api, "t3_execute", side_effect=AssertionError("corrupt migration fence bypassed")):
-            self.assertIn("invalid", api.attempt_delivery("pending")["blocked"])
-            saved = api.web_answer(api.Room("demo"), "D01", "a", "local despite invalid fence", False)
-        self.assertTrue(saved["saved"])
-        self.assertFalse(saved["told_lead"])
 
     def test_touching_identical_bytes_counts_as_a_destination_write(self):
         self.copy()

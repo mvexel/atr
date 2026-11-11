@@ -24,7 +24,7 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         shutil.copytree(REPO / "template", root / "template")
-        self.saved = (tr.ROOMS, tr.TEMPLATES, tr.ROOT, tr.fetch_thread, tr.tell_thread,
+        self.saved = (tr.ROOMS, tr.TEMPLATES, tr.ROOT, tr.fetch_thread, tr.notify_lead,
                       os.environ.get("HOME"), os.environ.pop("ATR_MAINTAINER_THREAD", None))
         tr.ROOMS, tr.TEMPLATES, tr.ROOT = root / "rooms", root / "template", root
         tr.ROOMS.mkdir()
@@ -41,10 +41,10 @@ class Base(unittest.TestCase):
                                              if d and not os.path.exists(os.path.join(d, "t3")))
         self.sent, self.alive = [], {TID}
         tr.fetch_thread = lambda t: {"status": "idle"} if t in self.alive else None
-        tr.tell_thread = lambda t, text: self.sent.append((t, text)) or True
+        tr.notify_lead = lambda room, text, thread=None, allow_paused=False: self.sent.append((thread, text)) or True
 
     def tearDown(self):
-        (tr.ROOMS, tr.TEMPLATES, tr.ROOT, tr.fetch_thread, tr.tell_thread, home, env) = self.saved
+        (tr.ROOMS, tr.TEMPLATES, tr.ROOT, tr.fetch_thread, tr.notify_lead, home, env) = self.saved
         os.environ["HOME"] = home
         if env is not None:
             os.environ["ATR_MAINTAINER_THREAD"] = env
@@ -170,13 +170,13 @@ class BlocksTests(Base):
         (d / "items" / "T07-ship.md").write_text("---\nid: T07\ntitle: Ship\nstate: doing\nowner: lead\ndepends_on: []\n"
                                                 "locks: []\nupdated: 2026-01-01T00:00Z\n---\n## Log\n- 00:00Z x: set state=doing\n")
         self.deferred = []
-        self.saved_t = tr.tell_lead_or_defer
-        tr.tell_lead_or_defer = lambda room, text, thread=None: (self.deferred.append((room.name, text)) if " reached " not in text else None) or True
+        self.saved_t = tr.notify_lead
+        tr.notify_lead = lambda room, text, thread=None, allow_paused=False: (self.sent.append((thread, text)) if thread else self.deferred.append((room.name, text)) if " reached " not in text else None) or True
         self.run_cmd(tr.cmd_feedback, fb("plain one"))
         self.sent.clear()
 
     def tearDown(self):
-        tr.tell_lead_or_defer = self.saved_t
+        tr.notify_lead = self.saved_t
         super().tearDown()
 
     def test_records_blocks_and_pings(self):

@@ -22,16 +22,16 @@ def item(iid, state="todo", deps="", locks="", cap="1", body=GOOD, extra=""):
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.saved = (tr.ROOMS, tr.tell_lead_or_defer)
+        self.saved = (tr.ROOMS, tr.notify_lead)
         tr.ROOMS = Path(self.tmp.name) / "rooms"
         self._canonical_root_before = tr.ROOT
         tr.ROOT = tr.ROOMS.parent
         self.addCleanup(setattr, tr, "ROOT", self._canonical_root_before)
         self.told = []
-        tr.tell_lead_or_defer = lambda room, text, thread=None: (self.told.append((room.name, text)), True)[1]
+        tr.notify_lead = lambda room, text, thread=None: (self.told.append((room.name, text)), True)[1]
 
     def tearDown(self):
-        tr.ROOMS, tr.tell_lead_or_defer = self.saved
+        tr.ROOMS, tr.notify_lead = self.saved
         self.tmp.cleanup()
 
     def room(self, items, brief="---\ntitle: t\n---\n", name="r1"):

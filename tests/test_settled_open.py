@@ -24,12 +24,9 @@ class SettledOpen(unittest.TestCase):
         self.th = {}
         tr.thread_info = lambda t: self.th.get((t or "").strip())
         self.sent = []
-        self.saved_tell = tr.tell_lead
-        tr.tell_lead = lambda room, text: self.sent.append(text) or True
 
     def tearDown(self):
         tr.ROOMS, tr.thread_info = self.saved
-        tr.tell_lead = self.saved_tell
         self.tmp.cleanup()
 
     def room(self, states=("doing", "todo"), extra="", settled=True):

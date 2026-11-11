@@ -406,12 +406,14 @@ function localTime(z) {
 }
 const room = () => state?.rooms.find(r => r.name === current);
 const docURL = (file, anchor = "") => base + "doc?file=" + encodeURIComponent(file) + (anchor ? "#" + anchor : "");
-function deliveryText(delivery) {
-  if (delivery?.state === "confirmed") return "T3 accepted · receipt and execution unverified";
-  if (delivery?.state === "uncertain") return "T3 acceptance uncertain · reconcile before retrying";
-  if (delivery?.state === "superseded") return "acknowledged locally · no T3 delivery attempted";
-  if (delivery?.state === "failed") return "T3 unavailable · delivery pending";
-  return "T3 delivery pending";
+const SENT_NOTE = "the lead is told; a flag shows here if T3 does not accept it";
+function leadFlagLine(r) {
+  const f = r.lead_flag;
+  if (!f) return null;
+  return el("div", { class: "banner", role: "alert" },
+    el("b", {}, icon("warn"), "Lead not notified"),
+    el("span", {}, `${f.reason}. ${f.retryable && !f.retried ? "atr will try once more within a minute. " : ""}`
+      + `The lead sees it with atr inbox ${r.name}. Message: ${f.text}`));
 }
 const $ = id => document.getElementById(id);
 const saveDrafts = () => localStorage.setItem("drafts", JSON.stringify(drafts));
@@ -877,7 +879,7 @@ async function setPaused(roomName, paused, revision) {
       body: JSON.stringify({ room: roomName, paused, revision }) })).json();
     pauseMsg = !res.ok ? `Not saved: ${res.error}`
       : res.already ? (paused ? "Already paused." : "Already running.")
-      : (paused ? "Paused locally" : "Resumed locally") + " · " + deliveryText(res.delivery);
+      : (paused ? "Paused locally" : "Resumed locally") + " · " + SENT_NOTE;
   } catch (e) { pauseMsg = `Not saved: ${e}`; }
   await load(true);
   refreshMsg();
@@ -898,7 +900,7 @@ async function nudge(roomName) {
   try {
     const res = await (await fetch(base + "api/nudge", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ room: roomName }) })).json();
-    nudgeMsg[roomName] = !res.ok ? `Not sent: ${res.error}` : "Notice saved locally · " + deliveryText(res.delivery);
+    nudgeMsg[roomName] = !res.ok ? `Not sent: ${res.error}` : "Notice saved locally · " + SENT_NOTE;
   } catch (e) { nudgeMsg[roomName] = `Not sent: ${e}`; }
   refreshSlot();
 }
@@ -909,10 +911,10 @@ function statusSlot(r) {
   if (r.paused) {
     kind = "paused";
     label = [icon("pause"), `Team paused by you at ${localTime(r.paused_at) || r.paused}`];
-    body = el("div", {}, "Pause saved locally. Stop instructions may still be pending with T3; agent receipt and execution are unverified. New atr dispatch is blocked until you resume.");
+    body = el("div", {}, "Pause saved locally. The stop message goes to the lead once; agent receipt and execution are unverified. New atr dispatch is blocked until you resume.");
   } else if (c.state === "unavailable") {
     kind = "unavailable"; label = [icon("pause"), "T3 execution state unavailable"];
-    body = el("div", {}, c.detail, ". Saved decisions and pending delivery remain local; acceptance, receipt and resumed execution are separate.");
+    body = el("div", {}, c.detail, ". Saved decisions remain local; a flag shows if the lead was not told, and receipt and resumed execution are separate.");
   } else if (c.state === "stalled") {
     kind = "stalled"; label = [icon("warn"), "Stalled: nothing will move by itself"];
     body = el("div", {}, c.detail.charAt(0).toUpperCase() + c.detail.slice(1) + ".",
@@ -959,7 +961,6 @@ async function answer(roomName, d, opt) {
   if (res.ok) {
     const rec = res.already ? (d.options.find(o => o.key === res.choice) || { key: res.choice, text: "" }) : opt;
     sent[key] = { ok: true, kind: "answer", room: roomName, id: d.id, title: d.title, opt: rec, at: new Date(), upd: d.updated, already: !!res.already,
-                  delivery: res.delivery, told: !!res.told_lead,
                   group: (cardMeta[key] || {}).group, idx: (cardMeta[key] || {}).idx };
     delete drafts[key]; saveDrafts();
   } else sent[key] = { ok: false, kind: "answer", opt, text: res.conflict ? "Not saved: this record changed. Refresh and review your draft before trying again." : `Not saved: ${res.error}` };
@@ -973,7 +974,7 @@ async function askQuestion(roomName, d) {
   swapCard(key);
   const res = await post({ room: roomName, id: d.id, choice: "question", note: note.trim(), revision: d.revision });
   delete sending[key];
-  sent[key] = res.ok ? { ok: true, kind: "question", text: "✓ Question saved locally. The card stays open. " + deliveryText(res.delivery) }
+  sent[key] = res.ok ? { ok: true, kind: "question", text: "✓ Question saved locally. The card stays open. " + SENT_NOTE }
                      : { ok: false, kind: "question", text: res.conflict ? "Not saved: this record changed. Refresh and review your draft before trying again." : `Not saved: ${res.error}` };
   if (res.ok) { delete drafts[key]; noteOpen.delete(key); saveDrafts(); }
   swapCard(key);
@@ -994,7 +995,7 @@ function receiptCard(key, s) {
     el("p", { class: "pick" }, `${s.opt.key}) ${s.opt.text}`),
     el("div", { class: "meta", role: "status" },
       el("span", {}, s.already ? `Already saved: ${s.opt.key})`
-        : `Your answer was saved at ${s.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${deliveryText(s.delivery)}`),
+        : `Your answer was saved at ${s.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${SENT_NOTE}`),
       el("button", { class: "openrec", onclick: () => openRecord(s.id) }, "Open record")));
 }
 
@@ -1259,7 +1260,7 @@ function draw(top) {
     r.code && (r.code.branch || r.code.warn.length) ? el("div", { class: "codeline" },
       r.code.branch ? el("span", { class: "codetag", title: r.code.path || "no worktree path" }, `⎇ ${r.code.branch}`) : null,
       r.code.warn.length ? el("span", { class: "codewarn", title: r.code.warn.join("\n") }, "⚠ repo") : null) : null,
-    statusSlot(r), othersLine(r), attnLine(r), leadCmdBox(r),
+    statusSlot(r), othersLine(r), attnLine(r), leadFlagLine(r), leadCmdBox(r),
     inStd ? el("p", { class: "sub2" }, "Where agent-rooms tracks its own improvements: feedback in, rules and tooling out." + (maint && maint.name !== "Maintainer" ? ` Maintainer: ${maint.name}` : "") + (lastMin != null ? ` · last change ${age(lastMin)}${lastMin < 1 ? "" : " ago"}` : "")) : null,
     inStd ? el("div", { class: "counts four" },
       [["open", "open"], ["accepted", "accepted"], ["rejected", "rejected"], ["deferred", "deferred"]].map(([k, l]) =>

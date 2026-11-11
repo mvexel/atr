@@ -34,7 +34,7 @@ One room is one project or feature, led by one T3 thread.
 
 - **Your files, your folder.** Plans and decisions are plain Markdown in a folder you pick, separate from the code. Read them, grep them, put them in git.
 - **Keeps recording when T3 is down.** T3 is required, but if it is down or missing you can still read, search, and record decisions. They go out when it’s back.
-- **No wishful thinking about delivery.** atr won’t claim an agent got your message just because T3 accepted it. It shows saved, pending, uncertain, and accepted as separate states.
+- **No wishful thinking about delivery.** atr won’t claim an agent got your message just because T3 accepted it. It saves your answer first, sends the lead one message (with one retry), and flags the room “Lead not notified” if T3 never accepted it.
 - **Review before building.** No worker starts until you’ve approved the room’s goal.
 
 ## Run from a checkout
@@ -88,15 +88,15 @@ The `atr` command is mainly for the lead and its workers. The ones you might use
 
 ## Documentation
 
-- [Operations](docs/OPERATIONS.md): delivery states, reconciliation, backup, restore
-- [Migration](docs/MIGRATION.md): copy, verify, roll back, apply delivery fences
+- [Operations](docs/OPERATIONS.md): telling the lead, backup, restore
+- [Migration](docs/MIGRATION.md): copy, verify, roll back, migration fences
 - [Dependencies](docs/DEPENDENCIES.md): runtime requirements and licensing notes
 - [Workflow](PROTOCOL.md) and [lead skill](skills/lead/SKILL.md): how agent work gets coordinated
 
 ## Good to know
 
 - **Existing stores aren’t migrated automatically.** Choosing a path or updating the source never copies or moves existing data.
-- **What it does:** local records, rooms, items and decisions, dependency tracking, review gates, the CLI and web view, the T3 bridge, delivery tracking, and explicit migration tools.
+- **What it does:** local records, rooms, items and decisions, dependency tracking, review gates, the CLI and web view, the T3 bridge, and explicit migration tools.
 - **What it doesn’t, for now:** Git/PR tracking, third-party relay, usage and budget collection, scheduled runs, external notifications.
 - **Licensing:** project licensing and any public release are separate decisions; see [Dependencies](docs/DEPENDENCIES.md).
 
