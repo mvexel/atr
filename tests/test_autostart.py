@@ -86,9 +86,9 @@ class Autostart(Base):
 
     def test_goal_approval_triggers_offer(self):
         room = self.room([("T01", {})])
-        (room.dir / "GOAL.md").write_text(goal_fixture.APPROVED.replace("approved", "draft", 1))
+        (room.dir / "GOAL.md").write_text(goal_fixture.APPROVED.replace("approved", "draft", 1).replace("status:", "card: D01\nstatus:", 1))
         room = tr.Room("r1")
-        tr.after_answer(room, {"type": "goal"}, "a")
+        tr.after_answer(room, {"type": "goal", "id": "D01"}, "a")
         self.assertEqual(len(self.told), 1)
         self.assertIn("T01", self.told[0][1])
 

@@ -33,8 +33,8 @@ One room is one project or feature, led by one T3 thread.
 ## Why it’s useful
 
 - **Your files, your folder.** Plans and decisions are plain Markdown in a folder you pick, separate from the code. Read them, grep them, put them in git.
-- **Keeps recording when T3 is down.** T3 is required, but if it is down or missing you can still read, search, and record decisions. They go out when it’s back.
-- **No wishful thinking about delivery.** atr won’t claim an agent got your message just because T3 accepted it. It saves your answer first, sends the lead one message (with one retry), and flags the room “Lead not notified” if T3 never accepted it.
+- **Keeps recording when T3 is down.** T3 is required, but if it is down or missing you can still read, search, and record decisions. Nothing is queued: the lead is flagged as not notified and reads what it missed with `atr inbox`.
+- **No wishful thinking about messages.** atr won’t claim an agent got your message just because T3 accepted it. It saves your answer first, sends the lead one message, retries once after a minute, and flags the room “Lead not notified” if T3 never accepted it.
 - **Review before building.** No worker starts until you’ve approved the room’s goal.
 
 ## Run from a checkout

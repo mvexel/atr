@@ -16,7 +16,7 @@ Usage (ROOM is a folder name under rooms/):
   atr start "what you want" [--project DIR]   start a T3 thread that creates a room and leads it
   atr lead ROOM [THREAD]          hand the lead to a T3 thread; without THREAD, print text to copy and paste to take it
   atr room list                  every room: state, open items, open decisions, title
-  atr room new ROOM "Feature title" --lead-thread ID [--no-ux]  start a feature (one room per thread)
+  atr room new ROOM "Feature title" --lead-thread ID start a feature (one room per thread)
   atr goal ROOM new --architecture TEXT --result TEXT --done TEXT   write the room's goal (draft)
   atr goal ROOM approve          ask the owner to approve the goal (opens a D card); no worker starts before
   atr brief ROOM                  print the room's goal (every worker brief carries it)
@@ -604,7 +604,7 @@ def cmd_new(a):
             a.option = a.option or ["Done, I did this", "Can't do this yet (say why in the note)"]
         if a.type == "premise":
             a.option = a.option or ["Yes, that's right", "No, change it (say how in a note)"]
-        if a.type in ("decision", "goal") and len(a.option or []) < 2:
+        if a.type == "decision" and len(a.option or []) < 2:
             sys.exit(f"a {a.type} card needs at least two --option values: without them the owner's page shows no buttons")
         text = (TEMPLATES / "decision.md").read_text().format(
             id=rid, title=a.title, type=a.type, door=a.door, decider=a.decider,
@@ -627,7 +627,9 @@ def cmd_set(a):
     if room.paused and "state=doing" in a.pairs and not a.force:
         sys.exit(f"{room.name} is paused by the owner since {room.local(room.paused)}: don't start new work "
                  "(finish your current step, write the Result, then stop)")
-    if room.build_locked and "state=doing" in a.pairs and r["type"] == "" and not a.force:
+    if room.closed and "state=doing" in a.pairs:
+        sys.exit(f"refused: {room.name} is closed ({room.brief['closed']}); nothing starts in a closed room")
+    if room.build_locked and "state=doing" in a.pairs and r["type"] == "":
         sys.exit(f"{room.name}: {goal_state(room)}. No item can start until the owner approves the goal "
                  "(atr goal ROOM new ..., then atr goal ROOM approve)")
     if ({"state=review", "state=done"} & set(a.pairs)
@@ -694,13 +696,15 @@ def latest_need(i):
     return re.sub(r"^-\s*(?:\d\d:\d\dZ\s+)?[^:]*:\s*", "", lines[-1]).strip() if lines else ""
 
 def plan(room):
-    """Waves and critical path of the room's open items. Wave 0: no unmet dependency (every dependency done,
-    dropped or unknown); n: one more than the highest wave among its unmet dependencies. The critical path is the
+    """Waves and critical path of the room's open items. Wave 0: no unmet dependency (every dependency done
+    or dropped; an item in a cycle or with an unknown dependency is wave 0 but never ready); n: one more than the highest wave among its unmet dependencies. The critical path is the
     chain of unmet dependencies with the most cap_h (1 h where no cap is set). Edges inside a cycle are ignored."""
     items = {i["id"]: i for i in open_items(room)}
     cyc = {v for c in dependency_cycles(room) for v in c}
     deps = {v: [d for d in (i["depends_on"] or []) if d in items and d != v and not (v in cyc and d in cyc)]
             for v, i in items.items()}
+    allids = {i["id"] for i in room.items}
+    unknown = {v: [d for d in (i["depends_on"] or []) if d not in allids] for v, i in items.items()}
     wave, best = {}, {}
     def walk(v):
         if v in wave:
@@ -719,7 +723,8 @@ def plan(room):
     for v, i in items.items():
         out.append({"id": v, "title": i["title"], "state": i["state"], "owner": i["owner"].split(" ")[0] if i["owner"] else "",
                     "wave": wave[v], "deps": deps[v], "locks": i["locks"] or [], "cap_h": str(i["cap_h"] or ""),
-                    "ready": i["state"] == "todo" and wave[v] == 0,
+                    "ready": i["state"] == "todo" and wave[v] == 0 and v not in cyc and not unknown[v],
+                    "why_not": "dependency cycle" if v in cyc else f"unknown dependency {', '.join(unknown[v])}" if unknown[v] else "",
                     "need": latest_need(i) if i["state"] == "blocked" else "",
                     "critical": v in top[1]})
     out.sort(key=lambda x: (x["wave"], idkey(x["id"])))
@@ -748,13 +753,17 @@ def read_offer(name):
     except (OSError, ValueError):
         return None
 
+def _record_offer(name, offer):
+    durable_write(_offer_path(name), json.dumps({**offer, "at": stamp()}, sort_keys=True) + "\n")
+
 def autostart(room):
     """{state, ready, offer, running, cap, reason}. state: ok | capped | paused-failure | paused | locked | closed.
     ready lists every ready item; offer is the ids that would be named to the lead now (empty unless ok)."""
     p = plan(room)
     running = sum(1 for i in room.items if i["state"] == "doing")
     ready = sorted((x for x in p["items"] if x["ready"]), key=lambda x: not x["critical"])  # stable: plan order within
-    out = {"state": "ok", "ready": [{"id": x["id"], "title": x["title"], "critical": x["critical"],
+    out = {"unready": [{"id": x["id"], "why": x["why_not"]} for x in p["items"] if x["state"] == "todo" and x["why_not"]],
+           "state": "ok", "ready": [{"id": x["id"], "title": x["title"], "critical": x["critical"],
                                      "done_deps": x["done_deps"]} for x in ready],
            "offer": [], "running": running, "cap": AUTOSTART_CAP, "reason": ""}
     blocked = [i["id"] for i in room.items if i["state"] == "blocked"]
@@ -793,7 +802,12 @@ def offer_ready(name, dry=False):
         room = Room(name)
         a = autostart(room)
         last = read_offer(name)
-        a["new"] = bool(a["offer"]) and not (last and last.get("offered") == a["offer"] and last.get("running") == a["running"])
+        offer = {"offered": a["offer"], "running": a["running"]}
+        flag = read_lead_flag(name)
+        # pending: this very offer was sent but not accepted; the retry (or `atr inbox`) owns it, so don't send again
+        a["pending"] = bool(a["offer"] and flag and flag.get("offer") == offer)
+        a["new"] = bool(a["offer"]) and not a["pending"] and not (
+            last and last.get("offered") == offer["offered"] and last.get("running") == offer["running"])
         a["text"] = offer_text(room, a) if a["offer"] else ""
         if dry:
             return a
@@ -801,9 +815,7 @@ def offer_ready(name, dry=False):
             if last:
                 durable_unlink(_offer_path(name))
         elif a["new"]:
-            durable_write(_offer_path(name), json.dumps({"offered": a["offer"], "running": a["running"], "at": stamp()},
-                                                        sort_keys=True) + "\n")
-            notify_lead(room, a["text"])
+            notify_lead(room, a["text"], offer=offer)    # recorded only once T3 accepts it
     return a
 
 def trigger_offer(name):
@@ -818,7 +830,11 @@ def cmd_next(a):
     for x in r["ready"]:
         print(f"  ready {x['id']} {x['title']}{' (critical path)' if x['critical'] else ''}"
               + ("  <- would be offered" if x["id"] in r["offer"] else ""))
-    if r["offer"] and not r["new"]:
+    for x in r["unready"]:
+        print(f"  not ready {x['id']}: {x['why']}")
+    if r["pending"]:
+        print("offer pending: the lead was not notified; atr retries once, or the lead reads it with atr inbox")
+    elif r["offer"] and not r["new"]:
         print("already offered, nothing new to send")
     elif r["offer"]:
         print("dry run, nothing sent; the message would be:")
@@ -881,8 +897,8 @@ def cmd_log(a):
 def after_answer(room, d, choice):
     """A goal decision moves the goal: a) approved unlocks building, anything else sends it back to draft.
     Returns a sentence for the lead's message, or None."""
-    if d["type"] != "goal" or not room.goal:
-        return None
+    if d["type"] != "goal" or not room.goal or room.goal["card"] != d["id"]:
+        return None      # only the card `atr goal approve` made for this goal can move it
     goal = room.goal
     if choice == "a":
         goal.set("status", "approved")
@@ -916,6 +932,13 @@ def cmd_goal(a):
         if any(re.search(r"^## ", values[k], re.M) for _, k in GOAL_FIELDS):
             sys.exit("a goal field is text, not a heading")
         body = "".join(f"## {h}\n{values[k].strip()}\n\n" for h, k in GOAL_FIELDS).rstrip("\n") + "\n"
+        for d in room.decisions:             # the owner must never approve text they have not seen
+            if d["type"] == "goal" and d["status"] == "open":
+                d.set("status", "superseded")
+                d.set("updated", stamp())
+                d.save()
+        if _offer_path(room.name).exists():
+            durable_unlink(_offer_path(room.name))
         durable_write(room.dir / "GOAL.md", (TEMPLATES / "goal.md").read_text().format(
             title=room.title, now=stamp()) + body)
         print(f"{(room.dir / 'GOAL.md').relative_to(ROOT)}: goal saved as draft; next: atr goal {room.name} approve")
@@ -939,6 +962,8 @@ def cmd_goal(a):
                         "Read the goal at the top of the page.\n", 1)
     path = room.dir / "decisions" / f"{rid}-approve-goal.md"
     durable_write(path, text)
+    room.goal.set("card", rid)
+    room.goal.save()
     publish_card(room, rid, f"{room.name}: goal to approve", path)
 
 def cmd_brief(a):
@@ -957,6 +982,10 @@ def cmd_answer(a):
     r = room.find(a.id)
     if r["status"] == "final":
         raise StoreConflict(f"conflict: {a.room}/{a.id} is already final; reload the saved answer")
+    if r["status"] != "open" or r["decider"] != OWNER:
+        sys.exit(f"refused: {a.id} is {r['status']}, decider {r['decider']}; only an open card for the owner can be answered")
+    if a.choice not in {o["key"] for o in parse_options(r)}:
+        sys.exit(f"refused: {a.id} has no option {a.choice!r}")
     quote = f' · "{a.quote}"' if a.quote else ""
     r.append_to("Answer", f"{a.choice} · {a.by} · {room.local(now())}{quote}")
     r.set("status", "final")
@@ -1597,7 +1626,7 @@ def record_json(room, r):
 def autostart_json(room):
     a = autostart(room)
     return {"state": a["state"], "ready": [x["id"] for x in a["ready"]], "offer": a["offer"],
-            "running": a["running"], "cap": a["cap"], "reason": a["reason"]}
+            "running": a["running"], "cap": a["cap"], "reason": a["reason"], "unready": a["unready"]}
 
 def room_json(room, with_records=False):
     head = room.head
@@ -1680,11 +1709,13 @@ def clear_lead_flag(name):
 def _log_ping(name, thread, what):
     durable_append(ROOMS / name / "pings.log", f"{stamp()}  atr->{thread or '-'}  lead-notice  {what}\n")
 
-def _flag_lead(name, thread, text, reason, retryable):
+def _flag_lead(name, thread, text, reason, retryable, offer=None):
     old = read_lead_flag(name) or {}
-    _write_lead_flag(name, {"since": stamp(), "since_epoch": time.time(), "thread": thread or "", "text": text[:2000],
-                            "reason": reason[:500], "retryable": retryable, "retried": False,
-                            "missed": int(old.get("missed", 0)) + 1})
+    flag = {"since": stamp(), "since_epoch": time.time(), "thread": thread or "", "text": text[:2000],
+            "reason": reason[:500], "retryable": retryable, "retried": False, "missed": int(old.get("missed", 0)) + 1}
+    if offer:
+        flag["offer"] = offer
+    _write_lead_flag(name, flag)
     _log_ping(name, thread, f"not-notified: {reason[:200]}")
 
 def _send_notice(name, thread, text):
@@ -1692,35 +1723,42 @@ def _send_notice(name, thread, text):
     result = t3_call("message", thread, text)
     return result["ok"], result["evidence"]
 
-def _deliver_notice(name, thread, text):
+def _unknown_delivery(evidence):
+    return "acceptance unknown" in evidence
+
+def _deliver_notice(name, thread, text, offer=None):
     ok, evidence = _send_notice(name, thread, text)
     with store_transaction():
         if ok:
             _log_ping(name, thread, "sent")
+            if offer:
+                _record_offer(name, offer)
+        elif _unknown_delivery(evidence):     # T3 may have accepted it: a second send could duplicate it
+            _flag_lead(name, thread, text, f"delivery unknown, not retried: {evidence}", False, offer)
         else:
-            _flag_lead(name, thread, text, f"T3 did not accept the message: {evidence}", True)
+            _flag_lead(name, thread, text, f"T3 did not accept the message: {evidence}", True, offer)
     return ok
 
-def notify_lead(room, text, thread=None, allow_paused=False):
+def notify_lead(room, text, thread=None, allow_paused=False, offer=None):
     """Tell the room's lead, or `thread`. The caller has already saved its record. Sends once after the surrounding
     save commits; on a block or a failure the room is flagged instead (never queued). Returns True when the send was
     made and accepted, False when blocked or refused, None when it will run after the commit."""
     name = room.name
     thread = thread or active_lead(room)
     if not thread:
-        _flag_lead(name, "", text, "the room has no lead thread", False)
+        _flag_lead(name, "", text, "the room has no lead thread", False, offer)
         return False
     if room.paused and not allow_paused:
-        _flag_lead(name, thread, text, "room paused; the lead was not messaged", False)
+        _flag_lead(name, thread, text, "room paused; the lead was not messaged", False, offer)
         return False
     info = thread_info(thread) or {}
     if info.get("snoozed") or info.get("settled"):
-        _flag_lead(name, thread, text, "lead thread is snoozed or settled; not woken", False)
+        _flag_lead(name, thread, text, "lead thread is snoozed or settled; not woken", False, offer)
         return False
     if getattr(_store_state, "depth", 0):
-        after_commit(lambda: _deliver_notice(name, thread, text))
+        after_commit(lambda: _deliver_notice(name, thread, text, offer))
         return None
-    return _deliver_notice(name, thread, text)
+    return _deliver_notice(name, thread, text, offer)
 
 def retry_lead_flags(now_epoch=None):
     """Re-send once, RETRY_AFTER_S after the failure, for every room whose marker is a failed send that was not
@@ -1732,21 +1770,28 @@ def retry_lead_flags(now_epoch=None):
         flag = read_lead_flag(name)
         if not flag or not flag.get("retryable") or flag.get("retried") or now_epoch - flag.get("since_epoch", now_epoch) < RETRY_AFTER_S:
             continue
+        since = flag["since_epoch"]
         with store_transaction():
             flag = read_lead_flag(name)
-            if not flag or flag.get("retried"):
-                continue
+            if not flag or flag.get("retried") or flag.get("since_epoch") != since:
+                continue                      # `atr inbox` cleared it, or a newer failure replaced it
             flag["retried"] = True
             _write_lead_flag(name, flag)
         ok, evidence = _send_notice(name, flag["thread"], flag["text"])
         with store_transaction():
+            cur = read_lead_flag(name)
+            if not cur or cur.get("since_epoch") != since:
+                _log_ping(name, flag["thread"], f"retry {'sent' if ok else 'failed'} after the flag was cleared: {evidence[:200]}")
+                continue                      # never re-create a flag someone already cleared
             if ok:
                 clear_lead_flag(name)
+                if flag.get("offer"):
+                    _record_offer(name, flag["offer"])
                 _log_ping(name, flag["thread"], "sent (retry)")
             else:
-                flag = read_lead_flag(name) or flag
-                flag["reason"] = f"T3 did not accept the message, also on the retry: {evidence}"[:500]
-                _write_lead_flag(name, flag)
+                cur["reason"] = (f"delivery unknown after the retry: {evidence}" if _unknown_delivery(evidence)
+                                 else f"T3 did not accept the message, also on the retry: {evidence}")[:500]
+                _write_lead_flag(name, cur)
                 _log_ping(name, flag["thread"], f"not-notified (retry failed): {evidence[:200]}")
 
 def t3_cli_options():
@@ -2028,6 +2073,8 @@ def cmd_inbox(a):
     if flag:
         print(f"Not delivered to you ({flag['reason']}; {flag['missed']} notice(s)): {flag['text']}")
         clear_lead_flag(room.name)
+        if flag.get("offer"):                 # the lead has now read it: don't offer the same set again
+            _record_offer(room.name, flag["offer"])
     if not news:
         print(f"nothing new since {room.local(since) if since else 'the start'}")
     durable_write(mark, stamp())
@@ -2407,7 +2454,7 @@ def build_parser():
     n.add_argument("room"); n.add_argument("title")
     n.add_argument("--owner"); n.add_argument("--cap")
     n.add_argument("--depends", type=lambda s: s.split(",")); n.add_argument("--locks", type=lambda s: s.split(","))
-    n.add_argument("--type", default="decision", choices=["decision", "premise", "ask", "goal", "todo"])
+    n.add_argument("--type", default="decision", choices=["decision", "premise", "ask", "todo"])
     n.add_argument("--blocks", help="decisions: item ids this blocks, e.g. T07,T08")
     n.add_argument("--steps", help="todo cards: what the owner has to do, commands included")
     n.add_argument("--door", default="two", choices=["one", "two"])

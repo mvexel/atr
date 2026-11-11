@@ -1,4 +1,4 @@
-"""Rooms with several threads: fake threads, fake sender, temp atr root. No real T3 call or nudge.
+"""Rooms with several threads: fake threads, fake sender, temp atr root. No real T3 call or message.
 Run: python3 -m unittest tests.test_threads
 """
 import importlib.machinery, importlib.util, sys, tempfile, unittest, datetime as dt
@@ -80,7 +80,7 @@ class Threads(unittest.TestCase):
         self.th(LEAD, settled=True)
         self.assertTrue(tr.thread_state(r)["settled"])
 
-    def test_nudges_go_to_most_recent_live_thread(self):
+    def test_notices_go_to_most_recent_live_thread(self):
         r = self.room(extra=f"threads: [{FORK}, {NEW}]\n")
         self.th(LEAD, settled=True); self.th(FORK, up=T0 - 100); self.th(NEW, up=T0)
         self.assertEqual(tr.active_lead(r), NEW)

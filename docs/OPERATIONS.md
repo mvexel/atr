@@ -36,4 +36,4 @@ After restoring an older backup, do not immediately enable outbound automation: 
 
 External editors do not take atr locks or send revision preconditions. Quiesce all writers and complete any recovery before editing. Keep a backup, preserve unknown frontmatter/Markdown, and reload after the edit. Atr-mediated stale saves compare byte revisions and refuse incompatible changes, but cannot guarantee concurrency safety against an uncooperative editor. Several processes may share one local store; this is not synchronization between independent machines.
 
-Operator setup is under `.atr/operator/`. Legacy global cache/state and old setup files are not silently imported.
+Runtime state (lead-notice flags, offers, locks) is under `.atr/` in the store. Older global cache or state files from earlier versions are not imported.

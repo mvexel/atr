@@ -28,7 +28,7 @@ class Base(unittest.TestCase):
         tr.ROOT = tr.ROOMS.parent
         self.addCleanup(setattr, tr, "ROOT", self._canonical_root_before)
         self.told = []
-        tr.notify_lead = lambda room, text, thread=None: (self.told.append((room.name, text)), True)[1]
+        tr.notify_lead = lambda room, text, thread=None, **kw: (self.told.append((room.name, text)), kw.get('offer') and tr._record_offer(room.name, kw['offer']), True)[2]
 
     def tearDown(self):
         tr.ROOMS, tr.notify_lead = self.saved

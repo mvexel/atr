@@ -158,8 +158,8 @@ with t.store_transaction():
         decision = room / "decisions/D01-review.md"
         goal = room / "GOAL.md"
         before = {
-            decision: "---\nid: D01\ntype: goal\nstatus: open\n---\n## Answer\n",
-            goal: "---\nid: GOAL\nstatus: draft\n---\n## Architecture\na\n",
+            decision: "---\nid: D01\ntype: goal\ndecider: owner\nstatus: open\n---\n## Options\na) yes\nb) no\n\n## Answer\n",
+            goal: "---\nid: GOAL\nstatus: draft\ncard: D01\n---\n## Architecture\na\n",
             room / "BRIEF.md": "---\ntitle: Demo\ntz: UTC\n---\n",
         }
         code = """
@@ -217,7 +217,7 @@ t.cmd_answer(SimpleNamespace(room='demo',id='D01',choice='a',by='owner',quote=No
     def test_concurrent_answers_do_not_overwrite_or_append_to_a_final_answer(self):
         room = self.init_room()
         decision = room / "decisions/D01-choice.md"
-        decision.write_text("---\nid: D01\nstatus: open\n---\n## Answer\n")
+        decision.write_text("---\nid: D01\ndecider: owner\nstatus: open\n---\n## Options\na) yes\nb) no\n\n## Answer\n")
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             results = list(pool.map(lambda choice: self.run_cli("--data-dir", str(self.data), "answer", "demo", "D01", choice), ("a", "b")))
         self.assertEqual(sorted(r.returncode for r in results), [0, 1])
