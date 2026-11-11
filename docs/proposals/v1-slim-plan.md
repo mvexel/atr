@@ -75,3 +75,7 @@ Independent read of the full diff against the definition of done. Update CHANGEL
 - **check/bottlenecks/continuity:** trim `problems` to data integrity; cut overrun/review-stale/bottleneck rules; keep a trimmed `continuity` for the overview. SKILL.md references to `check --yield` and `delivery list` change with it.
 - **S1 scope grows:** also remove `cmd_service`, `cmd_setup`, `cmd_open`, `cmd_doctor`, `check_setup`, `setup_warnings`, `service_summary`, `restart_service`, `on_path`. `select_data_dir` shrinks to `--data-dir` / `ATR_DATA_DIR`. `read_setup`/`write_setup` stay until S3 (maintainer uses them).
 - **Revised order:** S1, S2, S4, S3, S5, S6, S7, S8.
+
+## Owner decisions after S2 (2026-11-11)
+- **S5 mechanism: message the lead.** atr never starts workers itself. It computes ready items from plan(), applies the cap (3 running) and the pause-on-first-failure rule, and sends the lead one message naming the items to dispatch (through notify_lead, so it gets the retry and the flag). The lead dispatches. No `t3 thread start` loop in atr serve. Trigger points: an item reaches done/dropped, a goal is approved, the owner unpauses.
+- **Effort:** Sonnet at low effort is accepted for S3, S6, S7. S4 runs at default effort already. S5 and the S8 reviewer stay at default effort unless the owner says otherwise.
