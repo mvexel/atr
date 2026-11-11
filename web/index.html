@@ -77,7 +77,6 @@
   .pal mark { background: color-mix(in srgb, var(--accent) 25%, transparent); color: inherit; border-radius: 2px; }
   .pal .empty { padding: 16px 12px; }
   .pal .foot { display: flex; gap: 14px; padding: 8px 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--text-muted); }
-         color: var(--text-primary); border-radius: 14px; padding: 6px 12px; font: inherit; text-align: left; cursor: pointer; }
   .sub2 { color: var(--text-secondary); font-size: 13px; margin: 2px 4px 6px; }
   .newpill { position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 20; border: 0;
              background: var(--accent-fill); color: var(--accent-ink); border-radius: 999px; padding: 10px 16px; font: inherit; font-size: 14px; font-weight: 600;
@@ -103,7 +102,7 @@
   .slotpill .t .ico { margin-right: 6px; }
   .slotpill.paused { font-weight: 600; }
   .slot .banner { margin: 4px 0 0; }
-  .line.attn { color: var(--text-secondary); }
+  .line.attn { color: var(--text-secondary); white-space: normal; overflow: visible; }
   .line.attn.loud { color: var(--critical-text); font-weight: 600; }
   .rooms button { border: 1px solid var(--line); background: var(--surface-1); color: var(--text-secondary);
                   border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 14px; }
@@ -115,16 +114,30 @@
                           border-radius: 999px; padding: 6px 10px; font: inherit; font-size: 14px; max-width: 240px; }
   .rooms select.settled.on { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--accent-ink); }
   .rooms button[aria-pressed="true"] { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--accent-ink); }
-  .counts { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 6px 0 4px; }
-  .count { background: var(--surface-1); border: 1px solid var(--line); border-radius: 10px; padding: 6px 4px;
-           font-size: 12px; color: var(--text-secondary); text-align: center; white-space: nowrap; }
-  .count b { display: block; color: var(--text-primary); font-size: 18px; line-height: 1.2; }
-  .count.hot { border-color: var(--critical); }
+  .counts { margin: 6px 0 0; font-size: 14px; color: var(--text-secondary); overflow-wrap: anywhere; }
+  .counts b { color: var(--text-primary); }
+  .counts .hot, .counts .hot b { color: var(--critical-text); }
+  .counts .sep { color: var(--text-muted); margin: 0 3px; }
+  .note { margin: 4px 0 0; font-size: 14px; color: var(--text-secondary); overflow-wrap: anywhere; }
+  .goalline { margin: 6px 0 0; font-size: 14px; font-weight: 600; color: var(--text-secondary); }
+  .goalline.draft { color: var(--critical-text); }
+  .goalline .ref { font-weight: 400; min-height: 32px; }
+  .banner .hint { display: block; margin-top: 2px; color: var(--text-secondary); }
+  .banner details { margin-top: 4px; } .banner summary { cursor: pointer; color: var(--text-muted); }
+  .details { margin: 24px 0 0; font-size: 14px; }
+  .details > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; color: var(--text-secondary); font-weight: 600; }
+  .details .phase { margin: 4px 4px 8px; }
+  .details h4 { margin: 12px 4px 4px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-secondary); }
+  .lane .chip .st.long { flex-basis: 100%; }
+  .card.receipt .titlebtn { display: inline; width: auto; }
+  .titlebtn { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; }
+  .titlebtn:hover .tt { text-decoration: underline; text-underline-offset: 2px; }
+  .age { font-size: 12px; color: var(--text-muted); }
   h2 { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-secondary);
        margin: 22px 4px 8px; display: flex; justify-content: space-between; }
   .card.urgent { border-color: var(--critical); }
   .card.done { opacity: .75; }
-  .badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+  .badges { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
   .badge { font-size: 12px; border-radius: 6px; padding: 2px 7px; border: 1px solid var(--line); color: var(--text-secondary); }
   .badge { display: inline-flex; align-items: center; gap: 4px; }
   .badge.urgent { background: var(--critical-soft); border-color: var(--critical); color: var(--text-primary); }
@@ -144,7 +157,7 @@
   .chip .i { font-weight: 600; }
   .s-doing { border-left-color: var(--accent); } .s-review { border-left-color: var(--warning); }
   .s-blocked { border-left-color: var(--critical); } .s-waits { border-left-color: var(--serious); }
-  .s-todo { border-left-color: var(--text-muted); } .s-done { border-left-color: var(--good); }
+  .s-done { border-left-color: var(--good); }
   .chip .flags { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; }
   .flag { border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; font-size: 12px; color: var(--text-muted); white-space: nowrap; }
   .why { font-size: 14px; color: var(--text-secondary); margin: 4px 0 10px; }
@@ -182,9 +195,7 @@
   textarea { width: 100%; margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 8px;
              font: inherit; font-size: 15px; background: var(--surface-0); color: var(--text-primary); min-height: 44px; }
   .addnote { display: block; margin-top: 12px; border: 0; background: none; color: var(--accent); font: inherit; font-size: 14px; padding: 6px 0; min-height: 44px; cursor: pointer; }
-  .meta { font-size: 12px; color: var(--text-muted); margin-top: 8px; display: flex; justify-content: space-between; gap: 8px; }
   .result { margin-top: 8px; font-size: 14px; }
-  .divider { text-align: center; font-size: 13px; color: var(--text-muted); margin: 16px 0 10px; }
   .lane { background: var(--surface-1); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; margin-bottom: 8px; }
   .lane .who { font-weight: 600; margin-bottom: 6px; display: flex; justify-content: space-between; }
   .lane .who small { color: var(--text-muted); font-weight: 400; }
@@ -217,7 +228,7 @@
   .pbox .m { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 3px; font-size: 12px; color: var(--text-muted); }
   .pbox .lk { border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; }
   .pbox .need { display: block; margin-top: 3px; font-size: 12px; color: var(--critical-text); overflow-wrap: anywhere; }
-  .pbox.p-ready { border-left-color: var(--good); } .pbox.p-waits { border-left-color: var(--text-muted); }
+  .pbox.p-ready { border-left-color: var(--good); } .s-todo { border-left-color: var(--good); } .pbox.p-waits { border-left-color: var(--text-muted); }
   .pbox.p-doing { border-left-color: var(--accent); } .pbox.p-review { border-left-color: var(--warning); }
   .pbox.p-blocked { border-left-color: var(--critical); } .pbox.p-done { border-left-color: var(--good); opacity: .6; }
   .pbox.crit { box-shadow: 0 0 0 2px var(--text-primary); }
@@ -228,7 +239,7 @@
     .plan .wave { flex: 1 0 170px; min-width: 170px; }
     .plan svg { display: block; }
   }
-  button.chip, .addnote, .slotpill, .rtoggle, .goalpill, .filters button, .seg button, .pal .chips button, .pbox { min-height: 44px; }
+  button.chip, .addnote, .slotpill, .filters button, .seg button, .pal .chips button, .pbox { min-height: 44px; }
   .rooms button { min-height: 44px; }
   button.chip { cursor: pointer; font: inherit; font-size: 13px; color: inherit; text-align: left; }
   .lane button.chip { width: 100%; }
@@ -247,18 +258,6 @@
   .sheet .sub { font-size: 13px; color: var(--text-secondary); }
   .sheet .back { border: 0; background: none; color: var(--accent); font: inherit; font-size: 14px; padding: 0 0 8px; cursor: pointer; }
   a.ref, button.ref { color: var(--accent); background: none; border: 0; padding: 0; font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
-  .chart { background: var(--surface-1); border: 1px solid var(--line); border-radius: 14px; padding: 10px 8px 8px; }
-  .chart svg { display: block; width: 100%; height: auto; }
-  .chart .cap { font-size: 12px; color: var(--text-muted); margin: 6px 4px 0; display: flex; justify-content: space-between; gap: 8px; }
-  .chart .legend { display: inline-flex; gap: 2px; align-items: center; }
-  .chart .legend i { width: 12px; height: 10px; border-radius: 2px; display: inline-block; }
-  .chart svg.ico { display: inline-block; width: 14px; height: 14px; }
-             background: none; color: var(--text-secondary); font: inherit; font-size: 13px; padding: 0; cursor: pointer; text-align: left; }
-  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  @media (min-width: 700px) {
-    .mrow { grid-template-columns: minmax(0, 1fr) 280px; align-items: center; gap: 16px; }
-    .mrow .nm { width: 110px; }
-  }
   .codeline { display: flex; gap: 6px; align-items: center; margin-top: 2px; font-size: 12px; }
   .codetag { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; color: var(--text-secondary); font-family: ui-monospace, monospace; }
   .codewarn { border-radius: 999px; padding: 1px 8px; background: var(--track); color: var(--text-primary); font-weight: 600; cursor: help; }
@@ -271,10 +270,6 @@
   .banner { background: var(--critical-soft); border: 1px solid var(--critical); border-radius: 12px; padding: 10px 12px;
             margin: 6px 0 4px; font-size: 14px; }
   .banner b { display: flex; align-items: center; gap: 6px; font-size: 15px; }
-  .goalpill { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); background: var(--surface-1);
-             color: var(--text-primary); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 14px; cursor: pointer; margin: 0 0 8px; }
-  .goalpill.locked { border-color: var(--warning); }
-  .goalpill.agreed { border-color: var(--good); }
   .goalblock p { margin: 2px 0; white-space: pre-wrap; }
   .card { background: var(--surface-1); border: 1px solid var(--line); border-radius: 14px; padding: 6px 12px 8px; margin: 8px 0 0; }
   .card .top .line { margin: 2px 0 0; }
@@ -287,7 +282,6 @@
     .card .top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; }
     .card .top .line { margin: 0; }
   }
-  .tip { font-size: 13px; color: var(--text-secondary); min-height: 18px; margin: 4px 4px 0; }
 .chipwrap{display:inline-flex;align-items:center;gap:.3em}
 .t3link{font-size:.85em}
 </style>
@@ -317,10 +311,10 @@ const armedAt = {}, cardFns = {}, cardMeta = {}, noteOpen = new Set();
 let inflight = 0, lastTouch = 0, retryTimer = null;
 const recCache = {}, recErr = {}, bodies = {};                 // room -> {id: record}; room -> {tag, text}
 let stateRoom = null, lastSig = "", drawn = false, shownStruct = null, pending = false, slotOpen = false, leadOpen = false, leadThread = "";
-let roomsOpen = false, roomSort = localStorage.getItem("roomSort") === "recent" ? "recent" : "needs", roomOrder = [];
+let detailsOpen = false, roomsOpen = false, roomSort = localStorage.getItem("roomSort") === "recent" ? "recent" : "needs", roomOrder = [];
 const recs = n => recCache[n] || {};
 const STATE = {
-  doing: ["●", "doing"], review: ["◐", "review"], blocked: ["■", "blocked"], todo: ["○", "to do"],
+  doing: ["●", "running"], review: ["◐", "review"], blocked: ["■", "blocked"], todo: ["○", "ready"],
   waits: ["…", "waiting"], done: ["✓", "done"], dropped: ["–", "dropped"],
   open: ["○", "open"], provisional: ["◐", "provisional"], final: ["✓", "final"], superseded: ["–", "superseded"],
 };
@@ -368,31 +362,54 @@ function localTime(z) {
   const d = z ? new Date(z.replace(/Z$/, ":00Z")) : null;
   return d && !isNaN(d) ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
 }
+// "updated 2m ago", from the server's own clock stamp; kept fresh by a timer, not by redrawing the page.
+function updatedText() {
+  const t = state && state.now ? new Date(state.now.replace(/Z$/, ":00Z")) : null;
+  if (!t || isNaN(t)) return "";
+  const m = Math.max(0, Math.floor((Date.now() - t) / 60000));
+  return "updated " + (m < 1 ? "just now" : age(m) + " ago");
+}
+setInterval(() => { const u = document.getElementById("upd"); if (u) u.textContent = updatedText(); }, 30000);
 const room = () => state?.rooms.find(r => r.name === current);
 const docURL = (file, anchor = "") => base + "doc?file=" + encodeURIComponent(file) + (anchor ? "#" + anchor : "");
 const SENT_NOTE = "the lead is told; a flag shows here if T3 does not accept it";
+// One plain sentence about auto-start, or nothing when there is nothing to say.
 function autostartLine(r) {
   const a = r.autostart;
-  if (!a || a.state === "closed" || (a.state === "ok" && !a.ready.length)) return null;
-  return el("div", { class: "line", role: "status" }, `Auto-start: ${a.state}, ${a.running}/${a.cap} running`
-    + (a.reason ? `, ${a.reason}` : "") + (a.offer.length ? `. Offered to the lead: ${a.offer.join(", ")}` : ""));
+  if (!a) return null;
+  const blocked = r.lanes.flatMap(l => l.items).filter(i => i.state === "blocked").map(i => i.id);
+  const text = a.state === "locked" ? "Auto-start waits for goal approval"
+    : a.state === "paused-failure" ? `Auto-start paused: ${blocked.join(", ") || "an item"} ${blocked.length > 1 ? "are" : "is"} blocked (${a.running} of ${a.cap} slots busy)`
+    : a.state === "capped" ? `Auto-start waits for a free slot (${a.running} of ${a.cap} busy)`
+    : a.state === "ok" && a.offer.length ? `Offered to the lead: ${a.offer.join(", ")}`
+    : null;
+  return text ? el("div", { class: "note", role: "status" }, text) : null;
 }
-// The room's goal: status pill (draft, proposed, approved, none) and its three fields; open until approved.
-function goalBlock(r) {
+// The goal in one line: red with a link to the approval card until approved, muted after.
+function goalLine(r) {
   const g = r.goal || { status: "none", locked: true };
-  const label = g.status === "none" ? "No goal yet: nothing starts" : `Goal ${g.status}${g.locked ? ": nothing starts until you approve it" : ""}`;
+  if (!g.locked) return el("div", { class: "goalline" }, "Goal approved");
+  const card = r.asks.find(d => d.type === "goal");
+  const go = () => { const n = document.querySelector(`[data-a="card:${dkey(card)}"]`); if (n) n.scrollIntoView({ behavior: "smooth", block: "start" }); };
+  return el("div", { class: "goalline draft", role: "status" },
+    g.status === "none" ? "No goal yet: the lead writes one, you approve it, then work starts" : `Goal ${g.status}: approve to start work`,
+    card ? [" ", el("button", { class: "ref", onclick: go }, "Go to approval ↓")] : null);
+}
+// The goal text and the lead's phase line; the phase is dropped while it still says "not written yet" over an existing goal.
+function goalDetails(r) {
+  const g = r.goal || { status: "none" };
   const fields = [["Architecture", g.architecture], ["Minimal viable result", g.result], ["Definition of done", g.done]].filter(f => f[1]);
-  return el("details", { class: "goalblock", open: !!g.locked && fields.length > 0 },
-    el("summary", { class: "goalpill " + (g.locked ? "locked" : "agreed") }, label),
-    ...fields.map(([h, t]) => el("p", {}, el("b", {}, h + ": "), linked(t))));
+  const phase = (r.phase || "").trim(), stale = g.status !== "none" && /not written yet/i.test(phase);
+  return [phase && !stale ? el("p", { class: "phase" }, linked(phase)) : null,
+    fields.length ? el("div", { class: "goalblock" }, el("h4", {}, "Goal"), ...fields.map(([h, t]) => el("p", {}, el("b", {}, h + ": "), linked(t)))) : null];
 }
 function leadFlagLine(r) {
   const f = r.lead_flag;
   if (!f) return null;
   return el("div", { class: "banner", role: "alert" },
-    el("b", {}, icon("warn"), "Lead not notified"),
-    el("span", {}, `${f.reason}. ${f.retryable && !f.retried ? "atr will try once more within a minute. " : ""}`
-      + `The lead sees it with atr inbox ${r.name}. Message: ${f.text}`));
+    el("b", {}, icon("warn"), `Lead not notified (${f.reason})`),
+    el("span", { class: "hint" }, f.retryable && !f.retried ? "atr retries once in about 60 s; the lead can also read it with atr inbox." : `The lead reads it with atr inbox ${r.name}.`),
+    el("details", {}, el("summary", {}, "Message"), el("div", {}, f.text)));
 }
 const $ = id => document.getElementById(id);
 const saveDrafts = () => localStorage.setItem("drafts", JSON.stringify(drafts));
@@ -435,12 +452,29 @@ function linked(text) {
   });
 }
 
+// One status for an item: running, review, blocked, waiting, ready, done. todo splits on its dependencies.
+const planItem = id => ((room() || {}).plan || { items: [] }).items.find(x => x.id === id);
+function skey(item) {
+  if (item.state !== "todo") return item.state;
+  const p = planItem(item.id);
+  return (item.waits && item.waits.length) || (p && !p.ready) ? "waits" : "todo";
+}
+// "waiting on T03", "blocked by T02 (needs: ...)": why an item is not running, from the plan.
+function whyLine(item) {
+  const p = planItem(item.id), k = skey(item);
+  if (k === "blocked") return `blocked${p && p.need ? ": " + p.need : ""}`;
+  if (k !== "waits") return "";
+  const deps = (item.waits && item.waits.length ? item.waits : p ? p.deps : []);
+  const out = deps.map(d => { const x = planItem(d); return x && x.state === "blocked" ? `blocked by ${d} (needs: ${x.need || "?"})` : `waiting on ${d}`; });
+  return out.length ? out.join("; ") : p && p.why_not ? `waiting: ${p.why_not}` : "waiting";
+}
 function chip(item, extra) {
-  const s = item.state === "todo" && item.waits && item.waits.length ? "waits" : item.state;
+  const s = skey(item);
   const [icon, label] = STATE[s] || ["?", s];
-  const b = el("button", { class: `chip s-${s}`, title: `${item.id} ${item.title} · ${label}`, onclick: () => openRecord(item.id) },
+  const why = whyLine(item);
+  const b = el("button", { class: `chip s-${s}`, title: `${item.id} ${item.title} · ${why || label}`, onclick: () => openRecord(item.id) },
     el("span", { class: "i" }, `${icon} ${item.id}`), el("span", { class: "t" }, item.title),
-    extra ? el("span", { class: "st" }, extra) : null);
+    extra ? el("span", { class: "st" + (why ? " long" : "") }, extra) : null);
   // A link next to the button, not inside it: the worker's thread in T3 where its id and environment are known.
   return item.agent_link ? el("span", { class: "chipwrap" }, b, el("a", { href: item.agent_link, target: "atr-t3", class: "t3link", title: "Open the worker's thread in T3" }, "T3")) : b;
 }
@@ -517,7 +551,7 @@ function drawSheetBody() {
     host.append(el("div", { class: "sheet-bg", onclick: e => { if (e.target === e.currentTarget) closeSheet(); } }, sheet));
     return;
   }
-  const [icon, label] = STATE[r.state] || ["", r.state];
+  const [icon, label] = STATE[/^T\d/.test(r.id) ? skey({ id: r.id, state: r.state, waits: [] }) : r.state] || ["", r.state];
   sheet = el("div", { class: "sheet", role: "dialog", "aria-modal": "true", "aria-label": `${r.id} ${r.title}` }, back,
     el("div", { class: "top" },
       el("div", {}, el("h3", {}, `${r.id} ${r.title}`),
@@ -752,21 +786,8 @@ function pick(name) {
 }
 
 // ---------- pause / resume the whole team ----------
-function leadLine(r) {
-  if (!r.lead_thread) return [el("span", { class: "dot" }, "○"), "no T3 lead configured"];
-  const st = r.lead_status === "running" ? ["on", "●", "Lead running in T3"]
-    : r.lead_status === "interrupted" ? ["bad", "■", "interrupted"]
-    : r.lead_status === "unavailable" || !r.lead_status ? ["", "○", "T3 lead state unavailable"]
-    : ["", "○", ["completed", "idle"].includes(r.lead_status) ? "Lead idle" : `Lead ${r.lead_status}`];
-  return [el("span", { class: "dot " + st[0] }, st[1]), st[2], ...(r.lead_link ? [" · ", el("a", { href: r.lead_link, target: "atr-t3", class: "t3link" }, "open lead in T3")] : [])];
-}
-// One line each, always present, so nothing above the thumb changes height between reloads.
-function msgLine(r) {
-  const l = pauseMsg ? [pauseMsg] : leadLine(r);
-  return el("div", { class: "line", id: "msgline", role: "status", title: pauseMsg || l.map(x => x.textContent ?? x).join("") }, l);
-}
-function refreshMsg() { const r = room(), m = $("msgline"); if (r && m) m.replaceWith(msgLine(r)); }
-// One fixed-height 'needs attention' line from needs_attention; loud ones are red, the rest muted.
+function refreshMsg() { if (room()) draw(); }
+// One 'needs attention' line from needs_attention; loud ones are red, the rest muted.
 function attnLine(r) {
   const a = r.attention || [];
   if (!a.length) return null;
@@ -797,7 +818,7 @@ function leadCmdBox(r) {
   box.addEventListener("toggle", () => { leadOpen = box.open; });
   return box;
 }
-function refreshSlot() { const r = room(), sl = document.querySelector(".slot"); if (r && sl) sl.replaceWith(statusSlot(r)); }
+function refreshSlot() { const r = room(), sl = document.querySelector(".slot"); if (r && sl) { const n = statusSlot(r); if (n) sl.replaceWith(n); else sl.remove(); } }
 async function setPaused(roomName, paused, revision) {
   pauseArmed = false;
   pauseMsg = paused ? "Pausing…" : "Resuming…";
@@ -830,7 +851,7 @@ function statusSlot(r) {
     label = [icon("pause"), `Team paused by you at ${localTime(r.paused_at) || r.paused}`];
     body = el("div", {}, "Pause saved locally. The stop message goes to the lead once; agent receipt and execution are unverified. New atr dispatch is blocked until you resume.");
   }
-  if (!kind) return slot;
+  if (!kind) return null;   // nothing to say, no gap
   const open = !!body && slotOpen;
   slot.append(el("button", { class: "slotpill " + kind, "aria-expanded": body ? String(open) : false,
     onclick: () => { if (body) { slotOpen = !slotOpen; refreshSlot(); } } }, el("span", { class: "t" }, label), body ? (open ? "▴" : "▾") : null));
@@ -867,7 +888,7 @@ async function answer(roomName, d, opt) {
   if (res.ok) {
     const rec = res.already ? (d.options.find(o => o.key === res.choice) || { key: res.choice, text: "" }) : opt;
     sent[key] = { ok: true, kind: "answer", room: roomName, id: d.id, title: d.title, opt: rec, at: new Date(), upd: d.updated, already: !!res.already,
-                  group: (cardMeta[key] || {}).group, idx: (cardMeta[key] || {}).idx };
+                  idx: (cardMeta[key] || {}).idx };
     delete drafts[key]; saveDrafts();
   } else sent[key] = { ok: false, kind: "answer", opt, text: res.conflict ? "Not saved: this record changed. Refresh and review your draft before trying again." : `Not saved: ${res.error}` };
   swapCard(key);
@@ -897,25 +918,15 @@ function noteBox(d, locked) {
 // What was sent, in the card's own slot. It stays until you leave the room.
 function receiptCard(key, s) {
   return el("article", { class: "card receipt", "data-a": "card:" + key },
-    el("p", { class: "title" }, el("span", { class: "tick", "aria-hidden": "true" }, "✓"), el("span", { class: "id" }, s.id), s.title),
+    el("p", { class: "title" }, el("span", { class: "tick", "aria-hidden": "true" }, "✓"),
+      el("button", { class: "titlebtn", title: "Open record", onclick: () => openRecord(s.id) }, el("span", { class: "id" }, s.id), el("span", { class: "tt" }, s.title))),
     el("p", { class: "pick" }, `${s.opt.key}) ${s.opt.text}`),
-    el("div", { class: "meta", role: "status" },
-      el("span", {}, s.already ? `Already saved: ${s.opt.key})`
-        : `Your answer was saved at ${s.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${SENT_NOTE}`),
-      el("button", { class: "openrec", onclick: () => openRecord(s.id) }, "Open record")));
+    el("div", { class: "result", role: "status" }, s.already ? `Already saved: ${s.opt.key})`
+      : `Your answer was saved at ${s.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${SENT_NOTE}`));
 }
 
 // Stored "- Q · who · HH:MM: text" lines; the stamp is kept whole (it contains a colon itself).
 const rewriteQA = t => t.replace(/^- Q · owner · (\S+?):(?= )/gm, "You asked at $1:").replace(/^- A · ([^ ]+) · (\S+?):(?= )/gm, "$1 replied at $2:");
-// First-use definitions (ui-language 1 and 5): room, card, lead, record ids and the five card kinds, said once.
-const KIND_DEFS = [["Decision", "A card with lettered options; you pick one."], ["Ask", "A card for something only you can supply, such as a name or a choice outside the options."],
-  ["Premise", "An assumption the team is working under; you confirm it or correct it."], ["Goal", "What the room is for, in three parts; you approve it before any work starts."],
-  ["Your task", "A card for a step only you can do, with the steps written out."]];
-function firstUse() {
-  return el("details", { class: "why firstuse" }, el("summary", {}, "What these words mean"),
-    el("p", {}, "A room is one project with its own team of agents and a lead, the agent that runs it. A card is one question for you, answered with one tap. Records have ids: T item, D decision, A ask, P premise."),
-    el("ul", {}, KIND_DEFS.map(([k, t]) => el("li", {}, el("b", {}, k), ": " + t))));
-}
 function askCard(roomName, d, maxImpact) {
   const key = dkey(d), s = sent[key], busyNow = sending[key];
   if (s && s.ok && s.kind === "answer" && s.upd === d.updated) return receiptCard(key, s);   // re-opened since: answerable again
@@ -924,8 +935,10 @@ function askCard(roomName, d, maxImpact) {
   card.append(el("div", { class: "badges" },
     d.urgent ? el("span", { class: "badge urgent" }, icon("warn"), "Urgent") : null,
     el("span", { class: "badge" + (d.door === "one" ? " oneway" : "") }, d.door === "one" ? [icon("lock"), "Hard to undo"] : [icon("undo"), "Easy to undo"]),
-    el("span", { class: "badge" }, { ask: "Ask", premise: "Premise", decision: "Decision", goal: "Goal", todo: "Your task" }[d.type] || d.type)));
-  card.append(el("p", { class: "title" }, el("span", { class: "id" }, d.id), d.title));
+    el("span", { class: "badge" }, { ask: "Ask", premise: "Premise", decision: "Decision", goal: "Goal", todo: "Your task" }[d.type] || d.type),
+    d.waiting_min >= 1 ? el("span", { class: "age" }, `waiting ${age(d.waiting_min)}`) : null));
+  card.append(el("p", { class: "title" }, el("button", { class: "titlebtn", title: "Open record", onclick: () => openRecord(d.id) },
+    el("span", { class: "id" }, d.id), el("span", { class: "tt" }, d.title))));
   if (d.type === "todo" && d.steps) card.append(el("pre", { class: "note", style: "margin:6px 0 10px; white-space:pre-wrap; user-select:all" }, d.steps));
   if (d.urgent) card.append(el("div", { class: "why" }, linked(d.urgent)));
   if (n) {
@@ -978,8 +991,6 @@ function askCard(roomName, d, maxImpact) {
   if (busyNow) card.append(el("div", { class: "result", role: "status" }, busyNow === "question" ? "Sending your question…" : "Sending to the lead…"));
   else if (s) card.append(el("div", { class: "result" + (s.ok ? "" : " err"), role: "status" }, s.text,
     s.ok ? null : [" · ", el("button", { class: "openrec", onclick: () => s.kind === "question" ? askQuestion(roomName, d) : answer(roomName, d, s.opt) }, "Try again")]));
-  card.append(el("div", { class: "meta" }, el("span", {}, `Waiting ${age(d.waiting_min)}`),
-    el("button", { class: "openrec", onclick: () => openRecord(d.id) }, "Open record")));
   return card;
 }
 
@@ -1019,10 +1030,10 @@ function draw(top) {
   if (!reg.some(r => r.name === current)) current = (open[0] || reg[0])?.name || null;
   const r = room();
   const settledAsks = settled.reduce((n, x) => n + needN(x), 0);
+  if (!roomOrder.length) roomOrder = computeOrder(roomSort);   // once per session; re-sorted only when the room sheet opens
   const ordered = orderedRooms();
   app.append(el("div", { class: "palkey" }, el("button", { onclick: palOpenSheet }, "Search · Ctrl-K")));
   if (!r) { app.append(el("p", { class: "empty" }, "No rooms yet. A room is one project with its own team of agents and a lead that runs it. Start the first one from a T3 thread or with atr start, then answer its first card here.")); app.style.minHeight = ""; return; }
-  if (!roomOrder.length) roomOrder = computeOrder(roomSort);
   shownStruct = structOf(r); pending = false; $("newpill").hidden = true;
   if (!(reg.length > 1)) app.append(el("div", { class: "rowtop" }, el("span", { style: "flex:1" }), el("button", { class: "palbtn", "aria-label": "Search", onclick: palOpenSheet }, "🔍")));
   if (reg.length > 1) {
@@ -1044,54 +1055,45 @@ function draw(top) {
           x.title + (needN(x) ? ` · ${needN(x)} need you` : "")))) : null));
   }
 
-  const c = r.counts;
+  const c = r.counts, hot = (n, text) => el("span", { class: n ? "hot" : "" }, el("b", {}, n), " " + text);
+  const sep = () => el("span", { class: "sep", "aria-hidden": "true" }, "·");
   app.append(el("header", {}, el("div", { class: "titlebar" }, el("h1", {}, r.title), pauseButton(r)),
     r.code && (r.code.branch || r.code.warn.length) ? el("div", { class: "codeline" },
       r.code.branch ? el("span", { class: "codetag", title: r.code.path || "no worktree path" }, `⎇ ${r.code.branch}`) : null,
       r.code.warn.length ? el("span", { class: "codewarn", title: r.code.warn.join("\n") }, "⚠ repo") : null) : null,
-    statusSlot(r), othersLine(r), attnLine(r), autostartLine(r), leadFlagLine(r), leadCmdBox(r),
-    goalBlock(r),
-    el("p", { class: "phase" }, linked(r.phase || "")),
-    el("div", { class: "counts" },
-      el("span", { class: "count" + (needN(r) ? " hot" : "") }, el("b", {}, needN(r)), "need you"),
-      el("span", { class: "count" }, el("b", {}, c.doing || 0), "running"),
-      el("span", { class: "count" + (c.blocked ? " hot" : "") }, el("b", {}, c.blocked || 0), "blocked"),
-      el("span", { class: "count" }, el("b", {}, ((r.autostart || {}).ready || []).length), "ready"),
-      el("span", { class: "count" }, el("b", {}, c.review || 0), "review"),
-      el("span", { class: "count" }, el("b", {}, c.done || 0), "done"))));
+    leadFlagLine(r), statusSlot(r),
+    pauseMsg ? el("div", { class: "note", role: "status" }, pauseMsg) : null,
+    goalLine(r),
+    el("div", { class: "counts", role: "status" }, hot(needN(r), "need you"), sep(), el("span", {}, el("b", {}, c.doing || 0), " running"), sep(),
+      hot(c.blocked || 0, "blocked"), sep(), el("span", {}, el("b", {}, ((r.autostart || {}).ready || []).length), " ready"), sep(),
+      el("span", {}, el("b", {}, c.review || 0), " review")),
+    autostartLine(r), othersLine(r), attnLine(r)));
 
   const kinds = { all: "All", goal: "Goal", decision: "Decisions", ask: "Asks", premise: "Premises" };
   const present = new Set(r.asks.map(d => d.type));
   if (filter !== "all" && !present.has(filter)) filter = "all";
   const shown = r.asks.filter(d => filter === "all" || d.type === filter);
-  app.append(firstUse());
-  app.append(el("h2", {}, el("span", {}, `Needs you · ${needN(r)}`), el("span", {}, "most blocking first")));
-  app.append(el("div", { class: "filters" }, present.size > 1 ? Object.entries(kinds)
+  app.append(el("h2", {}, el("span", {}, `Needs you · ${needN(r)}`), needN(r) > 1 ? el("span", {}, "most blocking first") : null));
+  if (present.size > 1) app.append(el("div", { class: "filters" }, Object.entries(kinds)
     .filter(([k]) => k === "all" || present.has(k))
     .map(([k, label]) => el("button", { "aria-pressed": String(filter === k), onclick: () => { filter = k; localStorage.setItem("filter", k); draw(); } },
-      k === "all" ? `${label} · ${r.asks.length}` : `${label} · ${r.asks.filter(d => d.type === k).length}`)) : null));
+      k === "all" ? `${label} · ${r.asks.length}` : `${label} · ${r.asks.filter(d => d.type === k).length}`))));
 
   const score = d => d.impact.agents.length * 100 + d.impact.items.length * 10 + d.impact.hours;
   const maxImpact = Math.max(1, ...r.asks.map(score));
   const askKeys = new Set(r.asks.map(dkey));
-  // A receipt keeps the slot its card had, even after the card has left the list.
+  // One list, most blocking first (the server's order). A receipt keeps the slot its card had, even after the card has left the list.
   const orphans = receiptKeys(r).filter(k => !askKeys.has(k)).map(k => sent[k]).sort((a, b) => (a.idx || 0) - (b.idx || 0));
-  const lists = { b: shown.filter(d => d.urgent || d.impact.items.length).map(d => ({ d })),
-                  l: shown.filter(d => !d.urgent && !d.impact.items.length).map(d => ({ d })) };
-  for (const o of orphans) { const L = lists[o.group] || lists.b; L.splice(Math.min(o.idx || 0, L.length), 0, { rec: o }); }
-  const cardNode = (g, e, i) => {
-    if (e.rec) return receiptCard(`${r.name}/${e.rec.id}`, e.rec);
+  const list = shown.map(d => ({ d }));
+  for (const o of orphans) list.splice(Math.min(o.idx || 0, list.length), 0, { rec: o });
+  if (!list.length) app.append(el("p", { class: "empty" }, needN(r) ? "Nothing of this kind." : "Nothing needs you."));
+  list.forEach((e, i) => {
+    if (e.rec) return app.append(receiptCard(`${r.name}/${e.rec.id}`, e.rec));
     const key = dkey(e.d);
-    cardMeta[key] = { group: g, idx: i };
+    cardMeta[key] = { idx: i };
     cardFns[key] = () => askCard(r.name, e.d, maxImpact);
-    return cardFns[key]();
-  };
-  if (!lists.b.length && !lists.l.length) if (!needN(r) || r.asks.length) app.append(el("p", { class: "empty" }, needN(r) ? "Nothing of this kind." : "Nothing needs you."));
-  lists.b.forEach((e, i) => app.append(cardNode("b", e, i)));
-  if (lists.l.length) {
-    app.append(el("div", { class: "divider" }, `Other decisions · ${lists.l.filter(e => e.d).length}`));
-    lists.l.forEach((e, i) => app.append(cardNode("l", e, i)));
-  }
+    app.append(cardFns[key]());
+  });
   if (r.provisional.length) {
     app.append(el("h2", {}, "Going ahead unless you say no"));
     r.provisional.forEach(d => app.append(el("div", { class: "row" }, el("button", { class: "ref", onclick: () => openRecord(d.id) }, d.id), " ", d.title, ` — ${d.default}`)));
@@ -1099,21 +1101,22 @@ function draw(top) {
 
   {
     const pl = r.plan || { items: [], waves: 0, critical: [], critical_h: 0, done: 0 };
+    const planView = planViewOn(r);
     app.append(el("h2", {}, el("span", {}, planView ? "Plan" : "Who's doing what"), el("span", {}, `${r.lanes.length} agent${r.lanes.length === 1 ? "" : "s"}`)));
     app.append(el("div", { class: "planbar" },
       el("div", { class: "filters", style: "margin:0;min-height:0" },
         [["Agents", false], ["Plan", true]].map(([label, on]) =>
-          el("button", { "aria-pressed": String(planView === on), onclick: () => { planView = on; localStorage.setItem("planview", on ? "1" : "0"); draw(); } }, label))),
+          el("button", { "aria-pressed": String(planView === on), onclick: () => { localStorage.setItem("planview", on ? "1" : "0"); draw(); } }, label))),
       planView && pl.items.length ? el("span", { class: "sub2" },
         `${pl.items.length} open · ${pl.waves} wave${pl.waves === 1 ? "" : "s"} · critical path ${pl.critical.join(" → ")} (${+pl.critical_h.toFixed(1)}h)`) : null));
   }
-  if (planView) app.append(planView_(r));
-  if (!planView) r.lanes.forEach(l => app.append(el("div", { class: "lane", "data-a": "lane:" + l.owner },
+  if (planViewOn(r)) app.append(planView_(r));
+  else r.lanes.forEach(l => app.append(el("div", { class: "lane", "data-a": "lane:" + l.owner },
     el("div", { class: "who" }, el("span", {}, l.owner),
       el("small", {}, `${l.items.length} item${l.items.length > 1 ? "s" : ""}`)),
     el("div", { class: "chips" }, l.items.map(it => {
-      const s = it.state === "todo" && it.waits.length ? "waits" : it.state;
-      return chip(it, it.waits.length ? `waits ${it.waits.join(", ")}` : `${STATE[s][1]}${it.updated_min != null ? " · " + age(it.updated_min) : ""}`);
+      const s = skey(it), why = whyLine(it);
+      return chip(it, why || `${STATE[s][1]}${s !== "todo" && it.updated_min != null ? " · " + age(it.updated_min) : ""}`);
     })))));
 
   if (r.recent.length) {
@@ -1124,10 +1127,15 @@ function draw(top) {
     app.append(el("h2", {}, el("span", {}, "From the lead"), el("span", {}, r.lead_note_min != null ? age(r.lead_note_min) + " ago" : "")));
     app.append(el("pre", { class: "note" }, linked(r.lead_note)));
   }
-  // A lock holder is "<who> since <time>: <whole shell command>"; show the first part, keep the command in a tooltip.
+  // Room details, collapsed: the lead's phase and goal text, handing over the lead, who holds which lock.
   const lockLine = l => { const i = l.holder.indexOf(": "), short = i < 0 ? l.holder : l.holder.slice(0, i);
     return el("div", { title: l.holder }, `lock ${l.name}: ${short}`); };
-  app.append(el("div", { class: "bfoot" }, [...r.locks.map(lockLine), el("div", {}, `updated ${state.now}`)]));
+  const locks = r.locks.filter(l => l.name !== "store");   // the store's own lock is always there, say nothing
+  app.append(el("details", { class: "details", open: detailsOpen, ontoggle: e => { detailsOpen = e.target.open; } },
+    el("summary", {}, "Room details"), goalDetails(r), leadCmdBox(r),
+    r.lead_link ? el("p", { class: "sub2" }, el("a", { href: r.lead_link, target: "atr-t3", class: "t3link" }, "Open the lead in T3")) : null,
+    locks.length ? el("div", { class: "bfoot" }, locks.map(lockLine)) : null));
+  app.append(el("div", { class: "bfoot" }, el("div", { id: "upd" }, updatedText())));
 
   // Scroll: new room starts at the top; a redraw puts the first visible card back where it was.
   const strip = app.querySelector("nav.rooms"), tab = strip && strip.querySelector('button[aria-pressed="true"], select.on');
@@ -1142,14 +1150,18 @@ function draw(top) {
 }
 
 // ---------- plan view: waves of items, arrows for depends_on, critical path outlined ----------
-let planView = localStorage.getItem("planview") === "1";
+// Plan is the default view of a room with more than 3 open items; a tap on the toggle is remembered.
+function planViewOn(r) {
+  const v = localStorage.getItem("planview");
+  return v === null ? ((r.plan || { items: [] }).items.length > 3) : v === "1";
+}
 function planBox(x) {
   const st = x.state === "todo" ? (x.ready ? "ready" : "waits") : x.state;
-  const [icon, label] = STATE[x.state === "todo" && !x.ready ? "waits" : x.state] || ["?", x.state];
-  return el("button", { class: `pbox p-${st}${x.critical ? " crit" : ""}`, "data-pid": x.id, title: `${x.id} ${x.title} · ${x.ready ? "ready" : label}`,
+  const [icon, label] = STATE[x.state === "todo" ? (x.ready ? "todo" : "waits") : x.state] || ["?", x.state];
+  return el("button", { class: `pbox p-${st}${x.critical ? " crit" : ""}`, "data-pid": x.id, title: `${x.id} ${x.title} · ${label}`,
       onclick: () => openRecord(x.id) },
-    el("span", { class: "i" }, `${x.state === "todo" && x.ready ? "○" : icon} ${x.id}`), el("span", { class: "t" }, x.title),
-    el("span", { class: "m" }, x.ready ? el("span", {}, "ready") : null, x.cap_h ? el("span", {}, `${x.cap_h}h`) : null,
+    el("span", { class: "i" }, `${icon} ${x.id}`), el("span", { class: "t" }, x.title),
+    el("span", { class: "m" }, el("span", {}, label), x.cap_h ? el("span", {}, `${x.cap_h}h`) : null,
       ...(x.locks || []).map(l => el("span", { class: "lk", title: "lock" }, l))),
     x.need ? el("span", { class: "need" }, `needs: ${x.need}`) : null);
 }
@@ -1186,7 +1198,7 @@ function planView_(r) {
   for (const x of p.items) {
     const n = box.querySelector(`[data-pid="${x.id}"]`);
     n.dataset.deps = [...x.done_deps, ...x.deps].join(",");
-    if (x.deps.length || x.done_deps.length) n.querySelector(".m").append(el("span", {}, `after ${[...x.done_deps, ...x.deps].join(", ")}`));
+    if (x.deps.length || x.done_deps.length) n.querySelector(".m").append(el("span", {}, x.deps.length && x.state === "todo" ? `waiting on ${x.deps.join(", ")}` : `after ${[...x.done_deps, ...x.deps].join(", ")}`));
   }
   const svg = document.createElementNS(ns, "svg");
   svg.innerHTML = '<defs><marker id="parrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L8,4L0,8z"/></marker></defs>';

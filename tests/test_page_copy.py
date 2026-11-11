@@ -22,10 +22,30 @@ class PageCopy(unittest.TestCase):
         self.assertIn('["Agents", false]', HTML)
         self.assertNotIn("next checkpoint", HTML)
         self.assertNotIn("lead_thread in BRIEF", HTML)
-        for kind in ("Decision", "Ask", "Premise", "Goal", "Your task"):
-            self.assertRegex(HTML, r'\["%s", "[^"]+"\]' % kind)
-        for needle in ("a lead, the agent that runs", "T item, D decision, A ask, P premise"):
+        for gone in ("What these words mean", "KIND_DEFS", "lock store", "}, \"Open record\")", "Other decisions", "waits ${", '"to do"'):
+            self.assertNotIn(gone, HTML)
+
+    def test_one_status_vocabulary(self):
+        self.assertIn('doing: ["●", "running"]', HTML)
+        self.assertIn('todo: ["○", "ready"]', HTML)
+        self.assertNotIn('"doing"]', HTML)
+        for needle in ("waiting on ${d}", "blocked by ${d} (needs:"):
             self.assertIn(needle, HTML)
+
+    def test_plain_autostart_goal_and_lead_lines(self):
+        for needle in ("Auto-start waits for goal approval", "Auto-start paused:", "Offered to the lead:",
+                       "approve to start work", "Lead not notified (${f.reason})"):
+            self.assertIn(needle, HTML)
+        self.assertNotIn("Auto-start: ${a.state}", HTML)
+        self.assertNotIn("Goal: not written yet", HTML)
+
+    def test_cards_come_first_and_details_collapse(self):
+        self.assertLess(HTML.index("hot(needN(r), \"need you\")"), HTML.index("`Needs you · ${needN(r)}`"))
+        self.assertLess(HTML.index("`Needs you · ${needN(r)}`"), HTML.index('el("summary", {}, "Room details")'))
+        self.assertIn("Hand over the lead", HTML)
+
+    def test_room_order_is_computed_before_the_tabs(self):
+        self.assertLess(HTML.index("roomOrder = computeOrder(roomSort);   // once"), HTML.index("const ordered = orderedRooms();"))
 
     @unittest.skipUnless(NODE, "node not installed")
     def test_one_duration_format(self):
@@ -47,7 +67,6 @@ class PageCopy(unittest.TestCase):
     def test_save_and_execution_claims_are_distinct(self):
         self.assertIn("Pause saved locally", HTML)
         self.assertIn("agent receipt and execution are unverified", HTML)
-        self.assertIn("T3 lead state unavailable", HTML)
 
 
 if __name__ == "__main__":
