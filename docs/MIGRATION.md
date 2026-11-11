@@ -4,7 +4,7 @@ These commands rehearse migration on explicit quiescent copies. They do not choo
 
 ## Prepare and inspect copies
 
-Set `PYTHON` and `ATR_SOURCE` as in `docs/SETUP.md`. Choose distinct absolute paths:
+Set `PYTHON` (Python 3.13+) and `ATR_SOURCE` (the checkout). Choose distinct absolute paths:
 
 ```sh
 LEGACY_COPY=/absolute/path/to/quiescent-legacy-copy

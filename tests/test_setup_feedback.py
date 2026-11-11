@@ -1,4 +1,4 @@
-"""Setup + feedback: process room, maintainer config, dedupe, nudge, /api/state fields.
+"""Feedback: process room, dedupe, nudge, /api/state fields.
 Temp atr root and temp HOME; fake launcher, fake T3 lookups and sends: no real thread or room is touched.
 Run: python3 -m unittest tests.test_setup_feedback
 """
@@ -14,12 +14,6 @@ spec.loader.exec_module(tr)
 TID = "11111111-aaaa-bbbb-cccc-000000000001"
 
 
-def ns(**kw):
-    base = dict(check=False, print_env=False, yes=False, no_maintainer=False, recreate_maintainer=False, skip_t3=True)
-    base.update(kw)
-    return argparse.Namespace(**base)
-
-
 def fb(text, room="quiet", doc="PROTOCOL", **kw):
     return argparse.Namespace(text=text, doc=doc, from_room=room, cites=kw.get("cites"),
                               from_thread=kw.get("from_thread"), by="Tester", blocks=kw.get("blocks"))
@@ -30,7 +24,7 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         shutil.copytree(REPO / "template", root / "template")
-        self.saved = (tr.ROOMS, tr.TEMPLATES, tr.ROOT, tr.LAUNCH_MAINTAINER, tr.ASK, tr.fetch_thread, tr.tell_thread,
+        self.saved = (tr.ROOMS, tr.TEMPLATES, tr.ROOT, tr.fetch_thread, tr.tell_thread,
                       os.environ.get("HOME"), os.environ.pop("ATR_MAINTAINER_THREAD", None))
         tr.ROOMS, tr.TEMPLATES, tr.ROOT = root / "rooms", root / "template", root
         tr.ROOMS.mkdir()
@@ -45,18 +39,12 @@ class Base(unittest.TestCase):
         os.environ.pop("T3CODE_CLI_PATH", None)
         os.environ["PATH"] = os.pathsep.join(d for d in os.environ.get("PATH", "").split(os.pathsep)
                                              if d and not os.path.exists(os.path.join(d, "t3")))
-        self.launched, self.sent, self.alive = [], [], {TID}
-        def launch(prompt):
-            self.launched.append(prompt)
-            return TID
-        tr.LAUNCH_MAINTAINER = launch
-        tr.ASK = lambda q: self.answer
-        self.answer = "y"
+        self.sent, self.alive = [], {TID}
         tr.fetch_thread = lambda t: {"status": "idle"} if t in self.alive else None
         tr.tell_thread = lambda t, text: self.sent.append((t, text)) or True
 
     def tearDown(self):
-        (tr.ROOMS, tr.TEMPLATES, tr.ROOT, tr.LAUNCH_MAINTAINER, tr.ASK, tr.fetch_thread, tr.tell_thread, home, env) = self.saved
+        (tr.ROOMS, tr.TEMPLATES, tr.ROOT, tr.fetch_thread, tr.tell_thread, home, env) = self.saved
         os.environ["HOME"] = home
         if env is not None:
             os.environ["ATR_MAINTAINER_THREAD"] = env
@@ -74,188 +62,36 @@ class Base(unittest.TestCase):
                     out.write(e.code)
         return code, out.getvalue()
 
+    def bootstrap(self, maintainer=True):
+        """The process room and the saved maintainer choice, as `atr setup` used to leave them."""
+        d = tr.ROOMS / tr.PROCESS_ROOM
+        tr.create_room_files(d, "Maintain the protocol, lead skill and charters from feedback", "",
+                             "standing room: feedback items, not a feature, so no PRD", tr.now())
+        tr.ensure_standing(d)
+        tr.write_setup({"maintainer": maintainer})
+        if maintainer:
+            self.set_lead(TID)
+            tr.durable_write(self.cfg("maintainer_thread"), TID + "\n")
+
+    def set_lead(self, thread):
+        b = tr.ROOMS / tr.PROCESS_ROOM / "BRIEF.md"
+        b.write_text(tr.re.sub(r"^lead_thread:.*$", f"lead_thread: {thread}", b.read_text(), count=1, flags=tr.re.M))
+
     def cfg(self, name):
         return tr.config_dir() / name
-
-
-class SetupTests(Base):
-    def test_yes_creates_room_thread_and_config(self):
-        code, out = self.run_cmd(tr.cmd_setup, ns(yes=True))
-        self.assertEqual(code, 0, out)
-        self.assertEqual(len(self.launched), 1)
-        self.assertIn("PROTOCOL.md", self.launched[0])
-        self.assertIn("skills/lead/SKILL.md", self.launched[0])
-        self.assertNotIn("skills/maintainer", self.launched[0])
-        self.assertEqual(self.cfg("maintainer_thread").read_text().strip(), TID)
-        self.assertIn('"maintainer": true', self.cfg("setup.json").read_text())
-        room = tr.Room("process")
-        self.assertEqual(room.brief["lead_thread"], TID)
-        self.assertIn("waived", room.brief["prd"])
-        self.assertEqual(room.title, tr.PROCESS_TITLE)
-
-    def test_waiver_is_saved_without_optional_template_fields(self):
-        template = tr.TEMPLATES / "brief.md"
-        template.write_text("\n".join(line for line in template.read_text().split("\n")
-                                      if not line.startswith(("slack:", "standing:"))))
-        code, output = self.run_cmd(tr.cmd_setup, ns(no_maintainer=True))
-        self.assertEqual(code, 0, output)
-        room = tr.Room("process")
-        self.assertEqual(room.brief["prd"], f"waived ({tr.PROCESS_WAIVE})")
-        self.assertFalse(room.build_locked)
-        self.assertEqual(room.title, tr.PROCESS_TITLE)
-
-    def test_idempotent(self):
-        self.run_cmd(tr.cmd_setup, ns(yes=True))
-        code, out = self.run_cmd(tr.cmd_setup, ns())
-        self.assertEqual(code, 0)
-        self.assertEqual(len(self.launched), 1)          # no second thread
-        self.assertEqual(tr.Room("process").brief["lead_thread"], TID)
-
-    def test_no_maintainer_recorded_and_not_asked_again(self):
-        self.run_cmd(tr.cmd_setup, ns(no_maintainer=True))
-        self.assertEqual(self.launched, [])
-        self.assertFalse(self.cfg("maintainer_thread").exists())
-        tr.ASK = lambda q: self.fail("asked twice")
-        code, _ = self.run_cmd(tr.cmd_setup, ns())
-        self.assertEqual(code, 0)
-        self.assertEqual(self.run_cmd(tr.cmd_setup, ns(check=True))[0], 0)
-
-    def test_interactive_answer_is_recorded(self):
-        tr.sys = type("S", (), {"stdin": type("I", (), {"isatty": lambda s: True})(), "exit": sys.exit, "stderr": sys.stderr, "executable": sys.executable})
-        try:
-            self.answer = "n"
-            self.run_cmd(tr.cmd_setup, ns())
-        finally:
-            tr.sys = sys
-        self.assertIn('"maintainer": false', self.cfg("setup.json").read_text())
-        self.assertEqual(self.launched, [])
-
-    def test_no_terminal_and_no_flag_records_nothing(self):
-        code, out = self.run_cmd(tr.cmd_setup, ns())
-        self.assertEqual(code, 0)
-        self.assertIn("not asked", out)
-        self.assertFalse(self.cfg("setup.json").exists())
-
-    def test_check_reports_missing_then_ok(self):
-        code, out = self.run_cmd(tr.cmd_setup, ns(check=True))
-        self.assertEqual(code, 1)
-        self.assertIn("room process is missing", out)
-        self.assertFalse(tr.ROOMS.joinpath("process").exists())          # --check changes nothing
-        self.run_cmd(tr.cmd_setup, ns(yes=True))
-        self.assertEqual(self.run_cmd(tr.cmd_setup, ns(check=True))[0], 0)
-
-    def test_check_dead_thread_says_how_to_recreate(self):
-        self.run_cmd(tr.cmd_setup, ns(yes=True))
-        self.alive.clear()
-        code, out = self.run_cmd(tr.cmd_setup, ns(check=True))
-        self.assertEqual(code, 0)
-        self.assertIn("T3: skipped", out)
-
-    def test_recreate_replaces_thread(self):
-        self.run_cmd(tr.cmd_setup, ns(yes=True))
-        new = "22222222-aaaa-bbbb-cccc-000000000002"
-        tr.LAUNCH_MAINTAINER = lambda prompt: new
-        self.run_cmd(tr.cmd_setup, ns(recreate_maintainer=True))
-        self.assertEqual(self.cfg("maintainer_thread").read_text().strip(), new)
-        self.assertEqual(tr.Room("process").brief["lead_thread"], new)
-
-    def test_launch_failure_exits_nonzero_and_keeps_choice(self):
-        def boom(prompt):
-            raise RuntimeError("t3 not runnable")
-        tr.LAUNCH_MAINTAINER = boom
-        code, out = self.run_cmd(tr.cmd_setup, ns(yes=True))
-        self.assertEqual(code, 1)
-        self.assertIn("--recreate-maintainer", out)
-        self.assertFalse(self.cfg("maintainer_thread").exists())
-
-    def test_resolution_order(self):
-        self.assertEqual(tr.maintainer_thread(), ("", ""))
-        tr.create_room_files(tr.ROOMS / "process", "P", "procthread-001", "x", tr.now())
-        self.assertEqual(tr.maintainer_thread()[0], "procthread-001")
-        self.cfg("maintainer_thread").parent.mkdir(parents=True)
-        self.cfg("maintainer_thread").write_text("filethread-001\n")
-        self.assertEqual(tr.maintainer_thread()[0], "filethread-001")
-        os.environ["ATR_MAINTAINER_THREAD"] = "envthread-0001"
-        try:
-            self.assertEqual(tr.maintainer_thread()[0], "envthread-0001")
-        finally:
-            del os.environ["ATR_MAINTAINER_THREAD"]
-
-    def test_real_launcher_is_not_called(self):
-        self.assertIsNot(tr.LAUNCH_MAINTAINER, tr.t3_launch_maintainer)
-
-
-    def test_path_note_quiet_once_install_sh_wrote_the_rc_block(self):
-        self.addCleanup(setattr, tr, "on_path", tr.on_path); tr.on_path = lambda: False
-        self.addCleanup(os.environ.__setitem__, "SHELL", os.environ.get("SHELL", ""))
-        os.environ["SHELL"] = "/bin/bash"
-        self.assertIn("install.sh", tr.path_note()[0])
-        home = Path(os.environ["HOME"]); home.mkdir(parents=True, exist_ok=True)
-        (home / ".bashrc").write_text(f"{tr.RC_BEGIN}\nalias atr='x'\n# <<< atr <<<\n")
-        self.assertEqual(tr.path_note(), [])
-
-    def test_t3_cli_finds_the_cli_installers_symlink(self):
-        saved = os.environ.pop("T3CODE_CLI_PATH", None)
-        self.addCleanup(lambda: saved is not None and os.environ.__setitem__("T3CODE_CLI_PATH", saved))
-        home = Path(os.environ["HOME"])
-        (home / ".local/bin").mkdir(parents=True)
-        (home / ".local/bin/t3").write_text("")
-        self.assertEqual(tr.t3_cli(), str(home / ".local/bin/t3"))
-        (home / ".t3/bin").mkdir(parents=True)
-        (home / ".t3/bin/t3").write_text("")
-        self.assertEqual(tr.t3_cli(), str(home / ".t3/bin/t3"))
-        os.environ["T3CODE_CLI_PATH"] = "/explicit/t3"
-        self.assertEqual(tr.t3_cli(), "/explicit/t3")
-        del os.environ["T3CODE_CLI_PATH"]
-
-    def test_path_note_only_when_atr_is_not_on_path(self):
-        import shutil
-        saved = shutil.which
-        try:
-            shutil.which = lambda n: None
-            self.assertEqual(len(tr.path_note()), 1)
-            shutil.which = lambda n: str(Path(tr.__file__))
-            self.assertEqual(tr.path_note(), [])
-        finally:
-            shutil.which = saved
-
-    def test_print_env_prints_per_shell_lines_and_changes_nothing(self):
-        for shell, first in (("fish", "set -gx ATR_DATA_DIR "), ("zsh", "export ATR_DATA_DIR="), ("bash", "export ATR_DATA_DIR=")):
-            code, out = self.run_cmd(tr.cmd_setup, ns(print_env=shell))
-            self.assertEqual(code, 0)
-            self.assertTrue(out.startswith(first), out)
-            self.assertIn("atr", out)
-            self.assertIn(f"completions/atr.{shell}", out)
-        self.assertFalse((tr.ROOMS / tr.PROCESS_ROOM).exists())
-
-    def test_print_env_defaults_to_shell_env_and_bash_for_unknown(self):
-        saved = os.environ.get("SHELL")
-        try:
-            os.environ["SHELL"] = "/usr/bin/fish"
-            self.assertTrue(tr.env_snippet()[0].startswith("set -gx"))
-            os.environ["SHELL"] = "/bin/tcsh"
-            self.assertTrue(tr.env_snippet()[0].startswith("export"))
-        finally:
-            os.environ.pop("SHELL") if saved is None else os.environ.__setitem__("SHELL", saved)
-
-    def test_check_still_ok_with_path_note(self):
-        self.run_cmd(tr.cmd_setup, ns(no_maintainer=True))
-        code, out = self.run_cmd(tr.cmd_setup, ns(check=True))
-        self.assertEqual(code, 0)
-        self.assertIn("setup ok", out)
 
 
 class FeedbackTests(Base):
     def setUp(self):
         super().setUp()
-        self.run_cmd(tr.cmd_setup, ns(yes=True))
+        self.bootstrap()
         self.sent.clear()
 
     def test_no_process_room(self):
         shutil.rmtree(tr.ROOMS / "process")
         code, out = self.run_cmd(tr.cmd_feedback, fb("x"))
         self.assertEqual(code, 1)
-        self.assertIn("bin/atr setup", out)
+        self.assertIn("no room process", out)
 
     def test_creates_item_and_nudges(self):
         code, out = self.run_cmd(tr.cmd_feedback, fb("The lead skill never says when to close a room.", cites="notes/D05"))
@@ -284,7 +120,7 @@ class FeedbackTests(Base):
         self.assertEqual(len(tr.Room("process").items), 3)
 
     def test_no_nudge_when_setup_said_no(self):
-        self.run_cmd(tr.cmd_setup, ns(no_maintainer=True))
+        tr.write_setup({"maintainer": False})
         self.sent.clear()
         self.run_cmd(tr.cmd_feedback, fb("kept anyway"))
         self.assertEqual(len(tr.Room("process").items), 1)
@@ -292,7 +128,7 @@ class FeedbackTests(Base):
 
     def test_no_nudge_without_thread(self):
         self.cfg("maintainer_thread").unlink()
-        tr.set_lead_thread(tr.ROOMS / "process", "")
+        self.set_lead("")
         self.run_cmd(tr.cmd_feedback, fb("no one to tell"))
         self.assertEqual(self.sent, [])
         self.assertEqual(len(tr.Room("process").items), 1)
@@ -327,7 +163,7 @@ class BlocksTests(Base):
     """Feedback --blocks room/item."""
     def setUp(self):
         super().setUp()
-        self.run_cmd(tr.cmd_setup, ns(yes=True))
+        self.bootstrap()
         d = tr.ROOMS / "app"
         (d / "items").mkdir(parents=True)
         (d / "decisions").mkdir()

@@ -49,36 +49,19 @@ class LocalStore(unittest.TestCase):
         (room / "BRIEF.md").write_text("---\ntitle: Demo\ntz: UTC\n---\n")
         return room
 
-    def test_selection_order_and_legacy_protection(self):
+    def test_selection_order(self):
         tr = load()
         env = dict(self.env)
-        self.assertEqual(tr.select_data_dir(self.source, env=env)[0], self.base / "xdg/atr")
-        legacy = self.source / "rooms/legacy"
-        legacy.mkdir(parents=True)
-        self.assertEqual(tr.select_data_dir(self.source, env=env)[0], self.source)
-        config = self.base / "config/atr/config.json"
-        config.parent.mkdir(parents=True)
-        config.write_text(json.dumps({"data_dir": str(self.base / "configured")}))
-        self.assertEqual(tr.select_data_dir(self.source, env=env)[0], self.base / "configured")
+        self.assertEqual(tr.select_data_dir(env=env)[0], self.base / "home/.local/share/atr")
         env["ATR_DATA_DIR"] = str(self.base / "environment")
-        self.assertEqual(tr.select_data_dir(self.source, env=env)[0], self.base / "environment")
-        self.assertEqual(tr.select_data_dir(self.source, explicit=str(self.data), env=env)[0], self.data)
+        self.assertEqual(tr.select_data_dir(env=env)[0], self.base / "environment")
+        self.assertEqual(tr.select_data_dir(explicit=str(self.data), env=env)[0], self.data)
 
-    def test_invalid_config_does_not_silently_select_an_empty_store(self):
-        config = self.base / "config/atr/config.json"
-        config.parent.mkdir(parents=True)
-        config.write_text("{broken")
-        result = self.run_cli("team")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("config", result.stderr)
-
-    def test_relative_xdg_paths_are_ignored_and_relative_environment_store_is_rejected(self):
+    def test_relative_environment_store_is_rejected(self):
         tr = load()
-        env = dict(self.env, XDG_DATA_HOME="relative", XDG_CONFIG_HOME="relative")
-        self.assertEqual(tr.select_data_dir(self.source, env=env)[0], self.base / "home/.local/share/atr")
-        env["ATR_DATA_DIR"] = "relative"
+        env = dict(self.env, ATR_DATA_DIR="relative")
         with self.assertRaises(ValueError):
-            tr.select_data_dir(self.source, env=env)
+            tr.select_data_dir(env=env)
 
     def test_explicit_store_uses_bundled_templates_from_another_directory(self):
         self.init_room()

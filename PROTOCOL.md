@@ -1,6 +1,6 @@
 # Agent coordination workflow
 
-Atr coordinates work on required T3. The selected local Markdown store is canonical; T3 owns agent execution, threads and messages. Use the same explicit `--data-dir` for every command and agent. See [setup](docs/SETUP.md) and [operations](docs/OPERATIONS.md).
+Atr coordinates work on required T3. The selected local Markdown store is canonical; T3 owns agent execution, threads and messages. Use the same explicit `--data-dir` for every command and agent. See [operations](docs/OPERATIONS.md).
 
 ## Start or resume a room
 

@@ -1220,9 +1220,7 @@ function draw(top) {
       el("span", { "aria-hidden": "true" }, inStd ? "✕" : "›")));
   }
   app.append(el("div", { class: "palkey" }, el("button", { onclick: palOpenSheet }, "Search · Ctrl-K")));
-  if (!r) { app.append(el("p", { class: "empty" }, "No rooms yet. A room is one project with its own team of agents and a lead that runs it. Create the first one from the ",
-    el("a", { href: docURL("docs/SETUP.md"), target: "_blank", rel: "noopener" }, "setup guide"),
-    " (docs/SETUP.md in the repository), then answer its first card here.")); app.style.minHeight = ""; return; }
+  if (!r) { app.append(el("p", { class: "empty" }, "No rooms yet. A room is one project with its own team of agents and a lead that runs it. Start the first one from a T3 thread or with atr start, then answer its first card here.")); app.style.minHeight = ""; return; }
   if (!roomOrder.length) roomOrder = computeOrder(roomSort);
   shownStruct = structOf(r); pending = false; $("newpill").hidden = true;
   if (!(reg.length > 1 || (std && reg.length))) app.append(el("div", { class: "rowtop" }, el("span", { style: "flex:1" }), el("button", { class: "palbtn", "aria-label": "Search", onclick: palOpenSheet }, "🔍")));
@@ -1465,7 +1463,7 @@ function showT3Note(st) {
   const n = $("t3note"), msg = t3NoteText(st);
   n.hidden = !msg;
   if (!msg) return n.replaceChildren();
-  n.replaceChildren(el("b", {}, msg[0]), msg[1] + " ", el("a", { href: base + "doc?file=docs/SETUP.md" }, "Setup guide"));
+  n.replaceChildren(el("b", {}, msg[0]), msg[1]);
 }
 // t3note:end
 // stale:begin

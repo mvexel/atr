@@ -66,7 +66,7 @@ Save records before communicating. Use `delivery list` to tell local saves from 
 
 The owner's taps on the web page reach you between turns; run `inbox ROOM` mid-turn to pick them up sooner. Review results, run appropriate checks, update now-head and advance the next eligible item while your turn lasts. Before yielding, run `status ROOM` and `check ROOM --yield`, and leave a concrete event, time or owner question that will resume the room.
 
-Main merges, releases, deployment and live store cut-over need the owner's authorization. Preserve unknown metadata, attachments, dirty or untracked code and branch history before cleanup. Follow the source's `docs/OPERATIONS.md` and `docs/NIXOS.md` for restore and reinstall. Never put credentials or private host paths in this skill.
+Main merges, releases, deployment and live store cut-over need the owner's authorization. Preserve unknown metadata, attachments, dirty or untracked code and branch history before cleanup. Follow the source's `docs/OPERATIONS.md` for restore. Never put credentials or private host paths in this skill.
 
 ## Standing maintainer initialization and owner messages
 

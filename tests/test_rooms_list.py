@@ -25,7 +25,6 @@ class RoomsList(unittest.TestCase):
         self.assertIn("no rooms in", self.atr("room", "list"))
 
     def test_lists_rooms_with_state_and_counts(self):
-        self.atr("setup", "--no-maintainer")
         self.atr("room", "new", "demo", "Demo project", "--waive-prd", "not a feature: test")
         self.atr("new", "item", "demo", "first")
         self.atr("new", "item", "demo", "second")
@@ -36,7 +35,6 @@ class RoomsList(unittest.TestCase):
         self.assertEqual(lines[0].split(), ["ROOM", "STATE", "ITEMS", "DECISIONS", "TITLE"])
         rows = {l.split()[0]: l.split(None, 4) for l in lines[1:]}
         self.assertEqual(rows["demo"], ["demo", "open", "2", "1", "Demo project"])
-        self.assertEqual(rows["process"][1], "standing")
 
     def test_rooms_alias_still_creates(self):
         self.atr("rooms", "new", "old", "Old spelling", "--waive-prd", "not a feature: test")

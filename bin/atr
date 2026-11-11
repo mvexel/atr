@@ -15,8 +15,6 @@ Usage (ROOM is a folder name under rooms/):
   atr migrate preview|copy|verify|rollback|review --source COPY --destination COPY [--evidence TEXT]
                                     explicit rehearsal only; never changes store selection or services
   atr serve [--port 8787]  tap-to-decide web page (web/index.html), in the foreground
-  atr open                       open the web page, starting it if it isn't running
-  atr service install|uninstall|status|restart   keep the web page running from login
   atr name ROOM ROLE NAME --pronoun she|he   give a role its first name (keeps he/she even)
   atr start "what you want" [--project DIR]   start a T3 thread that creates a room and leads it
   atr lead ROOM [THREAD]          hand the lead to a T3 thread; without THREAD, print text to copy and paste to take it
@@ -27,20 +25,12 @@ Usage (ROOM is a folder name under rooms/):
   atr refinement ROOM RFnn review   signed: open an "Agree RFnn" card
   atr brief ROOM                  print the binding: PRD.md + agreed refinements
   atr team [ROOM]                 show who is who
-  atr setup [--check] [--print-env [SHELL]] [--yes|--no-maintainer] [--recreate-maintainer]   first run: process room + maintainer thread
-  atr doctor                                               diagnose local setup without changing it
-  atr self-update                                          update this source installation
-  atr uninstall [--yes]                                     undo install.sh (keeps your data and T3)
-  atr completion bash|zsh|fish                              print the tab-completion script (install.sh loads it)
   atr feedback "text" --doc PROTOCOL|skill|charter --from ROOM [--cites REC] [--from-thread ID] [--blocks ROOM/ITEM,...]   file feedback
   atr inbox ROOM                  the owner's taps and pause changes since you last looked (run it mid-turn)
 
 Local store:
   atr --data-dir PATH <command> selects a Markdown store independently of the source checkout.
-  Selection: --data-dir, ATR_DATA_DIR, $XDG_CONFIG_HOME/atr/config.json (data_dir),
-  then $XDG_DATA_HOME/atr (defaults: ~/.config and ~/.local/share).
-  Without an explicit selection, existing source/rooms keeps the legacy layout. If both legacy and
-  default stores exist, select explicitly. Selection never migrates, copies or deletes existing data.
+  Selection: --data-dir, then ATR_DATA_DIR, then ~/.local/share/atr.
   Templates, rules and web assets stay bundled with the source; .atr/ in the store holds locks,
   recovery and runtime state. ATR_LOCKDIR overrides named resource locks only, never the store lock.
   Atr readers recover interrupted transitions before access. External editors must stop atr
@@ -58,48 +48,22 @@ class StoreConflict(RuntimeError):
     """A stale edit cannot replace a newer saved record."""
 
 
-def select_data_dir(source=SOURCE_ROOT, explicit=None, env=None):
-    """Return (path, selection). Existing legacy rooms are never silently hidden by first-run defaults.
-
-    config.json contains an absolute data_dir. Explicit choices take precedence over a broken config,
-    allowing recovery. No probing of Git or external services is needed to select a store.
-    """
+def select_data_dir(explicit=None, env=None):
+    """Return (path, selection): --data-dir, else ATR_DATA_DIR, else ~/.local/share/atr."""
     env = os.environ if env is None else env
     home = Path(env.get("HOME", str(Path.home())))
-    def xdg_path(name, fallback):
-        value = Path(env.get(name, str(fallback)))
-        return value if value.is_absolute() else fallback
-    def absolute(value):
+    def absolute(value, what):
         if not isinstance(value, str) or not value.strip():
             raise ValueError("data directory must be a nonempty path")
+        if not (Path(value).is_absolute() or value.startswith("~/")):
+            raise ValueError(f"{what} must be absolute (or start with ~/)")
         value = str(home) + value[1:] if value.startswith("~/") else value
         return Path(value).absolute().resolve()
     if explicit is not None:
-        return absolute(str(explicit)), "--data-dir"
+        return absolute(str(explicit), "--data-dir"), "--data-dir"
     if env.get("ATR_DATA_DIR"):
-        if not Path(env["ATR_DATA_DIR"]).is_absolute() and not env["ATR_DATA_DIR"].startswith("~/"):
-            raise ValueError("ATR_DATA_DIR must be absolute (or start with ~/)")
-        return absolute(env["ATR_DATA_DIR"]), "ATR_DATA_DIR"
-    config = xdg_path("XDG_CONFIG_HOME", home / ".config") / "atr/config.json"
-    if config.exists():
-        try:
-            data = json.loads(config.read_text())
-            if not isinstance(data, dict):
-                raise ValueError("expected an object")
-            if "data_dir" in data:
-                value = absolute(data["data_dir"])
-                if not Path(data["data_dir"]).is_absolute() and not data["data_dir"].startswith("~/"):
-                    raise ValueError("data_dir must be absolute")
-                return value, str(config)
-        except (OSError, ValueError, TypeError) as e:
-            raise ValueError(f"invalid store config {config}: {e}") from e
-    default = xdg_path("XDG_DATA_HOME", home / ".local/share") / "atr"
-    legacy = Path(source).resolve()
-    if (legacy / "rooms").is_dir():
-        if (default / "rooms").exists() and default.resolve() != legacy:
-            raise ValueError(f"both legacy rooms at {legacy} and local rooms at {default}; select --data-dir explicitly")
-        return legacy, "legacy source layout (select --data-dir to use a separate store)"
-    return default.absolute().resolve(), "XDG default"
+        return absolute(env["ATR_DATA_DIR"], "ATR_DATA_DIR"), "ATR_DATA_DIR"
+    return (home / ".local/share/atr").absolute().resolve(), "default"
 
 
 # Selection on import is read-only; CLI selection is repeated after parsing --data-dir.
@@ -1190,76 +1154,6 @@ def t3_configured():
     """True when the T3 command-line program exists where atr will look for it (runtime acceptance is not checked)."""
     return Path(t3_cli()).is_file()
 
-T3_INSTALLER = "https://t3.codes/install.sh"
-T3_MISSING = ("T3 is required and was not found: agents will not receive or act on anything; atr only records.\n"
-              "Set T3CODE_CLI_PATH or install T3: see docs/SETUP.md")
-
-def t3_responds():
-    """True when the T3 program answers a read-only query (a running T3 server is needed for it)."""
-    if not t3_configured():
-        return False
-    try:
-        r = subprocess.run([t3_cli(), "thread", "list", "--log-level", "error", *t3_cli_options()],
-                           capture_output=True, text=True, timeout=15, stdin=subprocess.DEVNULL)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    # A project-resolution error is a server response, not a connection failure.
-    return r.returncode == 0 or "No T3 Code project matches" in (r.stderr + r.stdout)
-
-def t3_install():
-    """Run T3's official CLI installer. True when a T3 program is found afterwards."""
-    import tempfile, urllib.request
-    try:
-        with tempfile.TemporaryDirectory() as d:
-            script = Path(d) / "install.sh"
-            with urllib.request.urlopen(T3_INSTALLER, timeout=30) as r:
-                script.write_bytes(r.read())
-            subprocess.run(["sh", str(script)], check=True)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return t3_configured()
-
-def t3_start(wait=20):
-    """Start T3 without a browser, detached, and wait until it answers. True when it does."""
-    if not t3_configured():
-        return False
-    try:
-        subprocess.Popen([t3_cli(), "serve", *t3_cli_options()], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, start_new_session=True)
-    except OSError:
-        return False
-    deadline = time.time() + wait
-    while time.time() < deadline:
-        if t3_responds():
-            return True
-        time.sleep(1)
-    return False
-
-def offer_t3(a, say):
-    """FR9: T3 first. Offer install, then start; only on a yes or --yes, never without a terminal. Declining is fine."""
-    if from_installer_env() or getattr(a, "skip_t3", False) or t3_responds():
-        return
-    can_ask = a.yes or sys.stdin.isatty()
-    def yes(q):
-        return a.yes or (can_ask and ASK(q).strip().lower() in ("y", "yes"))
-    installed_now = False
-    if not t3_configured():
-        if not yes("Install and start T3 (required)? [y/N] "):
-            return
-        if not t3_install():
-            say("T3 install failed; try: curl -fsSL " + T3_INSTALLER + " | sh", "warn")
-            return
-        say("T3 installed")
-        installed_now = True
-    if t3_responds():
-        return
-    if not installed_now and not yes("T3 is installed but not running. Start it now? [y/N] "):
-        return
-    say("T3 started and answering" if t3_start() else "T3 did not answer; start it yourself: t3 serve", "ok" if t3_responds() else "warn")
-
-def from_installer_env():
-    return os.environ.get("ATR_INSTALLER") == "1"
-
 def t3_status():
     """What /api/state reports: whether T3 is configured, the location atr uses, and what it tried (no file-path assumption:
     `location` is an opaque string a remote T3 could fill later)."""
@@ -1427,6 +1321,14 @@ def active_lead(room):
     st = thread_state(room)
     return st["others_active"][0] if st["lead_settled"] and st["others_active"] else st["lead"]
 
+def tilde(path):
+    p, home = str(path), str(Path.home())
+    return "~" + p[len(home):] if p == home or p.startswith(home + "/") else p
+
+def agent_command():
+    """How an agent runs atr without the owner's shell: this Python, isolated, this source."""
+    return shlex.join([sys.executable, "-I", str(Path(__file__).resolve())])
+
 def atr_command():
     """The explicit command prefix an agent or person can run from any directory: this source, this store."""
     return f"{agent_command()} --data-dir {shlex.quote(str(ROOT))}"
@@ -1458,7 +1360,7 @@ def cmd_start(a):
     action = delivery_actions()[action["id"]]
     if action["state"] == "confirmed":
         print(f"lead thread started{': ' + action['thread'] if action.get('thread') else ''}. It creates the room; "
-              f"watch for it on the web page: {web_url()}")
+              "watch for it on the web page (atr serve).")
     else:
         print(f"T3 launch {action['id']} is {action['state']}: {action['evidence']}\nCheck it with: atr delivery list")
 
@@ -2265,14 +2167,6 @@ def _launch_claimant(action, actions):
 def t3_cli_options():
     value = os.environ.get("ATR_T3_BASE_DIR")
     return ["--base-dir", value] if value else []
-
-
-def t3_project():
-    value = os.environ.get("ATR_T3_PROJECT")
-    if not value:
-        return str(SOURCE_ROOT)
-    path = Path(value).expanduser()
-    return str(path.resolve()) if path.exists() else value
 
 
 def t3_execute(action):
@@ -3159,15 +3053,8 @@ def cmd_serve(a):
 # the lead_thread of room `process`.
 
 PROCESS_ROOM = "process"
-PROCESS_TITLE = "Maintain the protocol, lead skill and charters from feedback"
-PROCESS_WAIVE = "standing room: feedback items, not a feature, so no PRD"
 FEEDBACK_DOCS = ("PROTOCOL", "skill", "charter")
 FEEDBACK_DEDUPE_H = 24
-MAINTAINER_STUB = ("Maintain the atr coordination rules and core workflow from feedback recorded in room process. "
-                   "Read PROTOCOL.md and skills/lead/SKILL.md. Inspect the requested feedback and its evidence, "
-                   "record the outcome and successor, and preserve the owner's review gates. "
-                   "Keep work bounded to the requested maintenance; publication, deployment and live store changes "
-                   "require their applicable authorization.")
 
 def config_dir():
     return ROOT / ".atr/operator"
@@ -3203,591 +3090,6 @@ def maintainer_thread(fallback=True):
             return t, f"lead_thread of room {PROCESS_ROOM}"
     return "", ""
 
-def maintainer_prompt():
-    return (f"{MAINTAINER_STUB}\n\n---\nAtr data: {ROOT}\n"
-            f"Rules: {SOURCE_ROOT / 'PROTOCOL.md'}\nLead guidance: {SOURCE_ROOT / 'skills/lead/SKILL.md'}\n"
-            f"Room: {PROCESS_ROOM}. `export ATR_AS=Maintainer`.\n"
-            f"Initialize this existing room now: read BRIEF.md, now-head.md and the binding brief, "
-            f"find your own thread id and run atr lead {PROCESS_ROOM} YOUR_THREAD_ID using the command below. "
-            "Rename yourself Room · process · lead and pin yourself using T3 tools. "
-            "Fill the room goal, scope and repository/branch paths; update now-head with readiness and resume event. "
-            "For every owner instruction in this conversation, save its substance and your action in the tracker "
-            "before replying: create or update a bounded item, maintain its state, Result and successor, and keep "
-            "now-head current. Questions and status requests get a recorded answer; do not create busywork. "
-            "Check inbox and status before reporting initialization complete. "
-            "Stay available for explicitly requested feedback; do not start unrelated work.\n")
-
-def t3_launch_maintainer(prompt):
-    """Start the maintainer as a T3 thread, through the required bridge."""
-    return queue_t3_action("launch", t3_project(), prompt, room=PROCESS_ROOM,
-                           options={"title": "Room · process · lead", "purpose": "maintainer"})
-
-LAUNCH_MAINTAINER = t3_launch_maintainer     # tests replace these two; nothing runs at import time
-ASK = input
-
-def set_lead_thread(room_dir, thread):
-    b = room_dir / "BRIEF.md"
-    durable_write(b, re.sub(r"^lead_thread:[ \t]*[^#\n]*?(\s*#.*)?$", lambda m: f"lead_thread: {thread}" + (f"  {m.group(1).strip()}" if m.group(1) else ""),
-                        b.read_text(), count=1, flags=re.M))
-
-def check_setup():
-    """List of what is missing; empty when set up."""
-    out, cfg = [], read_setup()
-    if not (ROOMS / PROCESS_ROOM / "BRIEF.md").exists():
-        out.append(f"room {PROCESS_ROOM} is missing: run bin/atr setup")
-    if "maintainer" not in cfg:
-        out.append(f"{config_dir() / 'setup.json'}: no choice recorded about a maintainer thread: run bin/atr setup")
-    elif cfg["maintainer"]:
-        tid, src = maintainer_thread()
-        if not tid:
-            out.append("maintainer thread: none recorded; recreate it with: bin/atr setup --recreate-maintainer")
-    return out
-
-def setup_warnings():
-    """Things worth a look that don't fail `setup --check`."""
-    cfg = read_setup()
-    if not cfg.get("maintainer"):
-        return []
-    tid, src = maintainer_thread()
-    if tid and (fetch_thread(tid) or {}).get("settled"):
-        return [f"maintainer thread {tid} ({src}) is settled; it must stay unsettled (unsettle it in T3, or "
-                "bin/atr setup --recreate-maintainer)"]
-    return []
-
-def on_path():
-    """True when the `atr` command found on PATH is this source's bin/atr."""
-    import shutil
-    found = shutil.which("atr")
-    return bool(found) and Path(found).resolve() == Path(__file__).resolve()
-
-RC_BEGIN = "# >>> atr >>>"      # opening marker of the block ./install.sh writes
-
-def login_shell():
-    return Path(os.environ.get("SHELL", "")).name
-
-def rc_file(shell=None):
-    """The startup file ./install.sh writes to for `shell` (default: $SHELL), or None for a shell it does not know."""
-    shell = shell or login_shell()
-    home = Path.home()
-    if shell == "fish":
-        return Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config") / "fish/config.fish"
-    if shell == "zsh":
-        return Path(os.environ.get("ZDOTDIR") or home) / ".zshrc"
-    if shell == "bash":
-        return home / ".bashrc"
-    return None
-
-def rc_has_atr(shell=None):
-    """True when the shell's startup file has the block ./install.sh writes."""
-    f = rc_file(shell)
-    try:
-        return bool(f) and RC_BEGIN in f.read_text()
-    except OSError:
-        return False
-
-# ---------- making atr discoverable to agents in T3 ----------
-# T3 has no skill directory of its own: its providers find skills (Claude Code in ~/.claude/skills, Codex in
-# ~/.codex/skills). Agents also don't inherit the owner's shell, so the `atr` function and ATR_DATA_DIR are
-# invisible to them; config.json records the store and the exact command instead.
-
-SKILL_NAME = "atr-lead"
-
-def skill_homes():
-    """[(provider, agent home, skill link)] for the providers T3 runs whose skills atr can be found by."""
-    home = Path.home()
-    claude = Path(os.environ.get("CLAUDE_CONFIG_DIR") or home / ".claude")
-    codex = Path(os.environ.get("CODEX_HOME") or home / ".codex")
-    return [("Claude Code", claude, claude / "skills" / SKILL_NAME), ("Codex", codex, codex / "skills" / SKILL_NAME)]
-
-def skill_source():
-    return SKILL_DIR.resolve()
-
-def skill_status():
-    """[(provider, link, state)]; state is linked, missing, other (something else is there) or no-agent."""
-    out = []
-    for provider, agent_home, link in skill_homes():
-        if link.is_symlink() or link.exists():
-            state = "linked" if link.resolve() == skill_source() else "other"
-        else:
-            state = "missing" if agent_home.is_dir() else "no-agent"
-        out.append((provider, link, state))
-    return out
-
-def install_skills():
-    """Link the lead skill into each installed provider's skills directory. Never replaces anything else."""
-    lines = []
-    for provider, link, state in skill_status():
-        if state == "missing":
-            durable_mkdir(link.parent, parents=True, exist_ok=True)
-            link.symlink_to(skill_source(), target_is_directory=True)
-            lines.append(("ok", f"lead skill: available to {provider} ({tilde(link)})"))
-        elif state == "linked":
-            lines.append(("ok", f"lead skill: available to {provider}"))
-        elif state == "other":
-            lines.append(("warn", f"lead skill: {tilde(link)} exists and is not atr's; left alone, so {provider} "
-                                  f"won't find atr's skill"))
-    if not any(state != "no-agent" for _, _, state in skill_status()):
-        lines.append(("warn", "lead skill: neither Claude Code nor Codex is installed here; "
-                              "run atr setup again after installing one"))
-    return lines
-
-def tilde(path):
-    p, home = str(path), str(Path.home())
-    return "~" + p[len(home):] if p == home or p.startswith(home + "/") else p
-
-def store_config_path():
-    home = Path.home()
-    xdg = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config")
-    return (xdg if xdg.is_absolute() else home / ".config") / "atr/config.json"
-
-def agent_command():
-    """How an agent runs atr without the owner's shell: this Python, isolated, this source."""
-    return shlex.join([sys.executable, "-I", str(Path(__file__).resolve())])
-
-def remember_store():
-    """Record this store and command in config.json so agents find both. Never repoints an existing choice."""
-    f = store_config_path()
-    try:
-        cfg = json.loads(f.read_text()) if f.exists() else {}
-    except (OSError, ValueError):
-        return ("warn", f"{tilde(f)} is unreadable; agents can't find the store from it. Fix or remove it, then run atr setup")
-    if not isinstance(cfg, dict):
-        return ("warn", f"{tilde(f)} is not a JSON object; fix or remove it, then run atr setup")
-    saved = cfg.get("data_dir")
-    if saved and Path(str(saved).replace("~", str(Path.home()), 1)).resolve() != ROOT:
-        return ("warn", f"{tilde(f)} points agents at {saved}, not this store ({tilde(ROOT)}); "
-                        "edit data_dir there if this store is the one you use")
-    if saved and cfg.get("command") == agent_command():
-        return ("ok", f"agents find this store through {tilde(f)}")
-    cfg.update(data_dir=str(ROOT), command=agent_command())
-    durable_mkdir(f.parent, parents=True, exist_ok=True)
-    durable_write(f, json.dumps(cfg, indent=2, sort_keys=True) + "\n")
-    return ("ok", f"agents find this store through {tilde(f)}")
-
-# ---------- the web page as a user service ----------
-# `atr serve` is the web page and also the T3 bridge's background loop (thread status, retrying queued deliveries).
-# A user service keeps it running from login: systemd --user on Linux, launchd on macOS. ATR_SERVICE=off disables
-# service management (tests); ATR_SYSTEMCTL / ATR_LAUNCHCTL name the tools.
-
-SERVICE_UNIT = "atr.service"
-LAUNCHD_LABEL = "atr.web"
-DEFAULT_PORT = 8787
-SERVICE_ENV = ("PATH", "T3CODE_CLI_PATH", "ATR_T3_PROJECT", "ATR_T3_BASE_DIR", "ATR_T3_TIMEOUT", "ATR_USERS")
-
-def read_config():
-    try:
-        cfg = json.loads(store_config_path().read_text())
-        return cfg if isinstance(cfg, dict) else {}
-    except (OSError, ValueError):
-        return {}
-
-def set_config(**values):
-    """Add keys to config.json; never rewrites a file atr can't read."""
-    f = store_config_path()
-    if f.exists() and not read_config():
-        try:
-            if json.loads(f.read_text()) != {}:
-                return
-        except (OSError, ValueError):
-            return
-    cfg = read_config()
-    cfg.update(values)
-    durable_mkdir(f.parent, parents=True, exist_ok=True)
-    durable_write(f, json.dumps(cfg, indent=2, sort_keys=True) + "\n")
-
-def web_port():
-    try:
-        return int(read_config().get("web_port") or DEFAULT_PORT)
-    except (TypeError, ValueError):
-        return DEFAULT_PORT
-
-def web_url(port=None):
-    return f"http://127.0.0.1:{port or web_port()}/"
-
-def web_alive(port=None, timeout=1.0):
-    """True when atr's page answers on the loopback port."""
-    import urllib.request
-    try:
-        with urllib.request.urlopen(web_url(port), timeout=timeout) as r:
-            return r.status == 200 and b"agent-rooms" in r.read(4096)
-    except (OSError, ValueError):
-        return False
-
-def wait_alive(port, seconds=6.0):
-    end = time.time() + seconds
-    while time.time() < end:
-        if web_alive(port):
-            return True
-        time.sleep(0.3)
-    return False
-
-def service_tool(kind):
-    import shutil
-    if kind == "systemd":
-        return os.environ.get("ATR_SYSTEMCTL") or shutil.which("systemctl")
-    return os.environ.get("ATR_LAUNCHCTL") or shutil.which("launchctl")
-
-def service_kind():
-    """'systemd', 'launchd' or None (no user service manager, or ATR_SERVICE=off)."""
-    if os.environ.get("ATR_SERVICE") == "off":
-        return None
-    if sys.platform == "darwin":
-        return "launchd" if service_tool("launchd") else None
-    tool = service_tool("systemd")
-    if not tool:
-        return None
-    try:
-        r = subprocess.run([tool, "--user", "show-environment"], capture_output=True, timeout=10)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    return "systemd" if r.returncode == 0 else None
-
-def service_file(kind):
-    if kind == "systemd":
-        return store_config_path().parent.parent / "systemd/user" / SERVICE_UNIT
-    return Path.home() / "Library/LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
-
-def service_argv(port):
-    return [sys.executable, "-I", str(Path(__file__).resolve()), "--data-dir", str(ROOT),
-            "serve", "--host", "127.0.0.1", "--port", str(port)]
-
-def service_definition(kind, port):
-    env = {k: os.environ[k] for k in SERVICE_ENV if os.environ.get(k)}
-    if kind == "systemd":
-        q = lambda v: '"' + v.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%") + '"'
-        return ("[Unit]\nDescription=atr web page and T3 bridge\n\n[Service]\n"
-                f"ExecStart={' '.join(q(x) for x in service_argv(port))}\n"
-                + "".join(f"Environment={q(f'{k}={v}')}\n" for k, v in env.items())
-                + "Restart=on-failure\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n")
-    import plistlib
-    log = str(Path.home() / "Library/Logs/atr.log")
-    return plistlib.dumps({"Label": LAUNCHD_LABEL, "ProgramArguments": service_argv(port), "EnvironmentVariables": env,
-                           "RunAtLoad": True, "KeepAlive": True, "StandardOutPath": log, "StandardErrorPath": log}).decode()
-
-def service_run(kind, *args):
-    tool = service_tool(kind)
-    cmd = [tool, "--user", *args] if kind == "systemd" else [tool, *args]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        return False, str(e)
-    return r.returncode == 0, (r.stderr or r.stdout).strip()
-
-def launchd_domain():
-    return f"gui/{os.getuid()}"
-
-def install_service(port=None):
-    """Install or refresh the user service and start it. Returns (mark, line)."""
-    kind = service_kind()
-    if not kind:
-        return ("warn", "web page: no user service manager here (systemd --user or launchd); open it with: atr open")
-    port = port or web_port()
-    f = service_file(kind)
-    taken = web_alive(port) and not f.exists()     # an `atr serve` someone started by hand holds the port
-    durable_mkdir(f.parent, parents=True, exist_ok=True)
-    durable_write(f, service_definition(kind, port))
-    set_config(web_port=port)
-    if kind == "systemd":
-        steps = [("daemon-reload",), ("enable", SERVICE_UNIT), ("restart", SERVICE_UNIT)]
-    else:
-        service_run(kind, "bootout", f"{launchd_domain()}/{LAUNCHD_LABEL}")
-        steps = [("bootstrap", launchd_domain(), str(f))]
-    for step in steps:
-        ok, detail = service_run(kind, *step)
-        if not ok:
-            return ("warn", f"web page: could not start the service ({' '.join(step)}: {detail}); "
-                            "see atr service status")
-    if taken:
-        return ("warn", f"web page: service installed, but something already serves {web_url(port)} (an atr serve "
-                        "you started?). Stop it; the service takes over within seconds and then starts when you log in")
-    if wait_alive(port):
-        return ("ok", f"web page: running at {web_url(port)} (starts when you log in)")
-    return ("warn", f"web page: service installed but nothing answers at {web_url(port)} yet "
-                    f"(another program on port {port}?); see atr service status")
-
-def uninstall_service():
-    kind = service_kind()
-    if not kind or not service_file(kind).exists():
-        return ("ok", "web page: no service installed")
-    f = service_file(kind)
-    if kind == "systemd":
-        service_run(kind, "disable", "--now", SERVICE_UNIT)
-        f.unlink()
-        service_run(kind, "daemon-reload")
-    else:
-        service_run(kind, "bootout", f"{launchd_domain()}/{LAUNCHD_LABEL}")
-        f.unlink()
-    return ("ok", f"web page: service removed ({tilde(f)})")
-
-def restart_service():
-    kind = service_kind()
-    if not kind or not service_file(kind).exists():
-        return None
-    if kind == "systemd":
-        return service_run(kind, "restart", SERVICE_UNIT)
-    return service_run(kind, "kickstart", "-k", f"{launchd_domain()}/{LAUNCHD_LABEL}")
-
-def service_summary():
-    """One line about the web page for doctor and status."""
-    kind = service_kind()
-    installed = bool(kind) and service_file(kind).exists()
-    alive = web_alive()
-    if installed and alive:
-        return f"Web page: {web_url()} (user service)"
-    if installed:
-        return f"note: the web page service is installed but nothing answers at {web_url()}; see atr service status"
-    if alive:
-        return f"Web page: {web_url()} (not a service; it stops with its terminal. To keep it running: atr service install)"
-    return "note: the web page isn't running. Keep it running with: atr service install (or open it once: atr open)"
-
-def cmd_service(a):
-    if a.verb == "install":
-        mark, line = install_service(a.port)
-        print(line)
-        if mark != "ok":
-            sys.exit(1)
-    elif a.verb == "uninstall":
-        print(uninstall_service()[1])
-    elif a.verb == "restart":
-        r = restart_service()
-        if r is None:
-            sys.exit("no service installed; install it with: atr service install")
-        if not r[0]:
-            sys.exit(f"restart failed: {r[1]}")
-        print(f"restarted; {'running at ' + web_url() if wait_alive(web_port()) else 'not answering yet'}")
-    else:
-        kind = service_kind()
-        print(f"Service manager: {kind or 'none found'}")
-        if kind:
-            f = service_file(kind)
-            print(f"Service file: {tilde(f)}" + ("" if f.exists() else " (not installed)"))
-            if f.exists() and kind == "systemd":
-                print("State: " + (service_run(kind, "is-active", SERVICE_UNIT)[1] or "unknown")
-                      + f" (logs: journalctl --user -u {SERVICE_UNIT})")
-            elif f.exists():
-                print(f"Logs: {tilde(Path.home() / 'Library/Logs/atr.log')}")
-        print(f"Web page: {web_url()} " + ("answers" if web_alive() else "does not answer"))
-
-def cmd_open(a):
-    """Open the web page, starting it first if it isn't running."""
-    port = web_port()
-    if not web_alive(port):
-        if restart_service() is None:
-            durable_mkdir(ROOT / ".atr", parents=True, exist_ok=True)
-            log = open(ROOT / ".atr/serve.log", "ab")
-            subprocess.Popen(service_argv(port), stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
-            print(f"started the web page in the background (log: {tilde(ROOT / '.atr/serve.log')}); "
-                  "to keep it running across logins: atr service install")
-        if not wait_alive(port, 10):
-            sys.exit(f"the web page didn't come up at {web_url(port)}; see atr service status")
-    print(web_url(port))
-    if not a.no_browser:
-        import webbrowser
-        webbrowser.open(web_url(port))
-
-def env_snippet(shell=None):
-    """The lines ./install.sh puts in the shell's startup file, for `shell` (default: $SHELL); fish, zsh or bash."""
-    shell = shell if shell in ("fish", "zsh", "bash") else (login_shell() if login_shell() in ("fish", "zsh", "bash") else "bash")
-    q, py, exe = shlex.quote, shlex.quote(sys.executable), shlex.quote(str(Path(__file__).resolve()))
-    comp = shlex.quote(str(SOURCE_ROOT / "completions" / f"atr.{shell}"))
-    if shell == "fish":
-        return [f"set -gx ATR_DATA_DIR {q(str(ROOT))}", f"function atr; {py} -I {exe} $argv; end", f"source {comp}"]
-    return [f"export ATR_DATA_DIR={q(str(ROOT))}", "unalias atr 2>/dev/null", f'function atr {{ {py} -I {exe} "$@"; }}', f". {comp}"]
-
-def path_note():
-    if on_path() or rc_has_atr():
-        return []
-    return [f"atr is not on your PATH; run {SOURCE_ROOT / 'install.sh'} to add it to your shell's startup file, or see the lines with: atr setup --print-env"]
-
-def cmd_setup(a):
-    if getattr(a, "print_env", False):
-        return _cmd_setup_local(a)      # prints only: no T3 lookups, no store lock
-    if not a.check:
-        # prerequisite first (FR9): before anything else is created
-        offer_t3(a, lambda line, mark="ok": print(line))
-    try:
-        return _cmd_setup(a)
-    finally:
-        if not a.check and not getattr(a, "skip_t3", False) and not t3_configured():
-            print(T3_MISSING)
-
-def _cmd_setup(a):
-    # Ask T3 about the maintainer thread before taking the store lock: under the lock, lookups read only
-    # the cache, and an empty cache would read as "T3 does not find it".
-    for fallback in (False, True):
-        tid, _ = maintainer_thread(fallback=fallback)
-        if tid:
-            refresh_thread(tid)
-    return _cmd_setup_local(a)
-
-def _cmd_setup_local(a):
-    if getattr(a, "print_env", False):
-        print("\n".join(env_snippet(a.print_env if isinstance(a.print_env, str) else None)))
-        return
-    # install.sh sets ATR_INSTALLER and has already reported T3, the data directory and the PATH
-    from_installer = os.environ.get("ATR_INSTALLER") == "1"
-    if not from_installer:
-        print("T3: skipped (--skip-t3)" if getattr(a, "skip_t3", False) else
-              "T3: configured; runtime acceptance unverified" if t3_configured() else "T3: not found (required)")
-    if a.check:
-        problems = check_setup()
-        if not t3_configured() and not getattr(a, "skip_t3", False):
-            problems.insert(0, T3_MISSING.replace("\n", "; ") + " (CI or restore: --skip-t3)")
-        for w in setup_warnings():
-            print(f"warning: {w}")
-        for p in problems:
-            print(f"missing: {p}")
-        if problems:
-            sys.exit(1)
-        print("setup ok")
-        for n in path_note():
-            print(f"note: {n}")
-        return
-    for n in ([] if from_installer else path_note()):
-        print(f"note: {n}")
-    def say(line, mark="ok"):
-        """One status line; under install.sh, in its style (indented, marked)."""
-        if not from_installer:
-            return print(line)
-        tty = sys.stdout.isatty() and not os.environ.get("NO_COLOR") and os.environ.get("TERM", "dumb") != "dumb"
-        utf = "utf" in (os.environ.get("LC_ALL") or os.environ.get("LC_CTYPE") or os.environ.get("LANG") or "").lower()
-        sym, color = {"ok": ("✓" if utf else "+", "32"), "warn": ("!", "33"), "ask": ("?", "36")}[mark]
-        print(f"  \033[{color}m{sym}\033[0m {line}" if tty else f"  {sym} {line}", end="" if mark == "ask" else "\n",
-              flush=True)
-    d = ROOMS / PROCESS_ROOM
-    created = not d.exists()
-    if created:
-        create_room_files(d, PROCESS_TITLE, "", PROCESS_WAIVE, now())
-    if ensure_standing(d) or created:
-        say(f"room {PROCESS_ROOM} created: it stays open and collects feedback on the protocol and lead skill")
-    mark, line = remember_store()
-    say(line, mark)
-    if not getattr(a, "no_skills", False):
-        for mark, line in install_skills():
-            say(line, mark)
-    if not getattr(a, "no_service", False):
-        mark, line = install_service()
-        say(line, mark)
-    cfg = read_setup()
-    if a.recreate_maintainer or a.yes:
-        want = True
-    elif a.no_maintainer:
-        want = False
-    elif from_installer and t3_configured():
-        want = True
-    elif "maintainer" in cfg:
-        want = bool(cfg["maintainer"])
-    elif from_installer and not t3_configured():
-        say("maintainer thread: not offered without T3; once T3 is installed: atr setup --yes", "warn")
-        return
-    elif sys.stdin.isatty():
-        q = "Start a maintainer thread in T3 that acts on that feedback? You can add one later. [y/N] "
-        if from_installer:
-            say("", "ask")
-        want = ASK(q).strip().lower() in ("y", "yes")
-    else:
-        print("not asked (no terminal): rerun with --yes or --no-maintainer to record the choice")
-        return
-    if cfg.get("maintainer") != want:
-        cfg.update(maintainer=want, asked=stamp())
-        write_setup(cfg)
-    if not want:
-        say("maintainer thread: none (choice saved; nothing to do). To start one later: atr setup --yes"
-            if from_installer else
-            "maintainer thread: none (your choice is saved; nothing to do). "
-            f"Feedback items are still kept in room {PROCESS_ROOM}. To start one later: atr setup --yes")
-        return
-    have, src = maintainer_thread(fallback=True)
-    if have and not a.recreate_maintainer:
-        after_commit(lambda: open_maintainer(have))
-        say(f"maintainer thread {have} ({src})" + ("" if fetch_thread(have) else
-              "\nT3 does not find it; if it is gone, recreate it with: bin/atr setup --recreate-maintainer"))
-        return
-    if LAUNCH_MAINTAINER is t3_launch_maintainer:
-        action = LAUNCH_MAINTAINER(maintainer_prompt())
-        say(f"maintainer thread: T3 launch {action['id']} is pending; check it with: atr delivery list")
-        return
-    try:
-        tid = LAUNCH_MAINTAINER(maintainer_prompt())
-    except Exception as e:
-        sys.exit(f"could not start the maintainer thread: {e}\nretry with: bin/atr setup --recreate-maintainer")
-    durable_mkdir(config_dir(), parents=True, exist_ok=True)
-    durable_write(config_dir() / "maintainer_thread", tid + "\n")
-    set_lead_thread(d, tid)
-    say(f"maintainer thread {tid} started; room {PROCESS_ROOM} lead_thread set")
-
-def cmd_doctor(a):
-    """Inspect local prerequisites without creating a store or contacting T3."""
-    problems = []
-    print(f"Source: {SOURCE_ROOT}")
-    print(f"Python: {sys.version.split()[0]} ({sys.executable})")
-    if sys.version_info < (3, 13):
-        problems.append("Python 3.13 or newer is required")
-    for name in ("template/brief.md", "template/item.md", "template/decision.md", "template/prd.md",
-                 "template/refinement.md", "template/now-head.md", "web/index.html", "PROTOCOL.md", "install.sh"):
-        if not (SOURCE_ROOT / name).is_file():
-            problems.append(f"source asset missing: {name}; restore a complete atr installation")
-    print(f"Atr data: {ROOT} ({DATA_SELECTION})")
-    if ROOT.exists() and not ROOT.is_dir():
-        problems.append(f"data path is not a directory: {ROOT}")
-    else:
-        parent = ROOT
-        while not parent.exists() and parent != parent.parent:
-            parent = parent.parent
-        if not os.access(parent, os.W_OK | os.X_OK):
-            problems.append(f"data directory is not writable: {parent}")
-        try:
-            problems.extend(check_setup())
-        except (OSError, ValueError, TypeError, AttributeError) as error:
-            problems.append(f"cannot read local setup: {error}; repair it or run atr setup")
-    cli = t3_cli()
-    if Path(cli).is_file() and os.access(cli, os.X_OK):
-        print(f"T3: {cli}; runtime acceptance unverified")
-    else:
-        print(f"warning: T3 unavailable or not executable: {cli}; install T3 or set T3CODE_CLI_PATH")
-        print("Local records remain usable; automated work requires T3.")
-    for provider, link, state in skill_status():
-        if state == "linked":
-            print(f"Lead skill: {provider} ({tilde(link)})")
-        elif state == "missing":
-            print(f"note: {provider} can't find the lead skill; run atr setup to link it")
-        elif state == "other":
-            print(f"note: {tilde(link)} is not atr's lead skill; {provider} won't find atr's")
-    print(service_summary())
-    cfg_file = store_config_path()
-    try:
-        saved = json.loads(cfg_file.read_text()).get("data_dir") if cfg_file.exists() else None
-    except (OSError, ValueError, AttributeError):
-        saved = None
-    if not saved:
-        print(f"note: agents in T3 can't find this store; run atr setup to record it in {tilde(cfg_file)}")
-    for note in path_note():
-        print(f"note: {note}")
-    for problem in problems:
-        print(f"missing: {problem}")
-    if problems:
-        sys.exit(1)
-    print("doctor ok (local setup; T3 execution has not been verified)")
-
-
-def cmd_self_update(a):
-    """Update the running installation, leaving setup and records alone."""
-    script = SOURCE_ROOT / "install.sh"
-    if not script.is_file():
-        sys.exit(f"{script} is missing; restore a complete atr installation")
-    sys.stdout.flush()
-    os.execvp("sh", ["sh", str(script), "--self-update"])
-
-
-def cmd_uninstall(a):
-    """Hand over to install.sh --uninstall, which undoes what the installer did (data and T3 stay)."""
-    script = SOURCE_ROOT / "install.sh"
-    if not script.is_file():
-        sys.exit(f"{script} is missing; remove the atr block from your shell startup file by hand")
-    sys.stdout.flush()
-    os.execvpe("sh", ["sh", str(script), "--uninstall", *(["--yes"] if a.yes else [])],
-               {**os.environ, "ATR_DATA_DIR": os.environ.get("ATR_DATA_DIR") or str(ROOT)})
-
 def norm_text(s):
     return re.sub(r"\s+", " ", s or "").strip().lower()
 
@@ -3797,7 +3099,7 @@ def feedback_field(rec, name):
 
 def cmd_feedback(a):
     if not (ROOMS / PROCESS_ROOM / "BRIEF.md").exists():
-        sys.exit(f"no room {PROCESS_ROOM}: run bin/atr setup first")
+        sys.exit(f"no room {PROCESS_ROOM}: create it first")
     room = Room(PROCESS_ROOM)
     refuse_closed(room, "feedback")
     text = re.sub(r"[ \t]+", " ", a.text).strip()
@@ -3987,146 +3289,22 @@ def feedback_counts(room, now_t=None):
     out["week_days"] = 7
     return out
 
-# ---------- shell completion ----------
-# The scripts in completions/ are thin: on <Tab> they run `atr __complete WORD... CURRENT` and show what it
-# prints, one "value<TAB>description" per line. A first line ":dirs" asks the shell for directories instead.
-# Everything else is read from the argparse parser below, so completion cannot drift from the commands.
-COMPLETION_SHELLS = {"bash": "atr.bash", "zsh": "atr.zsh", "fish": "atr.fish"}
-COMPLETE_DIRS = {"data_dir", "source", "destination"}
-COMPLETE_ROOMS = {"room", "rooms", "from_room"}
-COMPLETE_ITEM_LISTS = {("new", "depends"), ("new", "blocks"), ("need", "needs")}
-COMPLETE_IDS = {"set": "TD", "log": "TD", "need": "T", "reply": "D", "answer": "D"}
-
-def cmd_completion(a):
-    print((SOURCE_ROOT / "completions" / COMPLETION_SHELLS[a.shell]).read_text(), end="")
-
-def _completion_rooms(rooms_dir):
-    try:
-        return sorted(p.name for p in rooms_dir.iterdir() if p.is_dir() and not p.name.startswith("."))
-    except OSError:
-        return []
-
-def _completion_records(rooms_dir, room, kinds):
-    """(id, title) for a room's items (T) and/or decisions (D), read without locks: completion only looks."""
-    out = []
-    for kind, folder in (("T", "items"), ("D", "decisions")):
-        if kind not in kinds or "/" in room or room.startswith("."):
-            continue
-        found = []
-        for p in (rooms_dir / room / folder).glob("*.md"):
-            if p.name == "INDEX.md":
-                continue
-            try:
-                m = re.search(r"^title:\s*(.*)$", p.read_text(errors="replace").split("\n---", 1)[0], re.M)
-            except OSError:
-                m = None
-            found.append((p.name.split("-")[0].removesuffix(".md"), m.group(1).strip() if m else ""))
-        out += sorted(found, key=lambda r: idkey(r[0]))
-    return out
-
-def completion_candidates(parser, words):
-    """What can follow `atr WORDS[:-1]`, filtered by the partial last word: (value, description) pairs,
-    or [(":dirs", "")] when the shell should complete a directory."""
-    *done, cur = words or [""]
-    p, index, values, pending, path, data_dir = parser, 0, {}, None, [], None
-    for w in done:
-        if pending is not None:
-            values[pending.dest] = w
-            pending = None
-            continue
-        if w.startswith("-") and w != "-":
-            name, eq, value = w.partition("=")
-            action = p._option_string_actions.get(name)
-            if action is not None and action.nargs != 0:
-                if eq:
-                    values[action.dest] = value
-                else:
-                    pending = action
-            continue
-        positionals = [x for x in p._actions if not x.option_strings]
-        if index >= len(positionals):
-            continue
-        action = positionals[index]
-        if isinstance(action, argparse._SubParsersAction):
-            if w not in action.choices:
-                return []
-            if p is parser:
-                data_dir = values.get("data_dir")
-            p, index = action.choices[w], 0
-            path.append(action._name_parser_map[w].prog.split()[-1])
-            continue
-        if action.nargs in ("*", "+"):
-            values.setdefault(action.dest, []).append(w)
-        else:
-            values[action.dest] = w
-            index += 1
-    cmd = path[0] if path else ""
-    try:
-        rooms_dir = select_data_dir(explicit=data_dir)[0] / "rooms" if data_dir else ROOMS
-    except ValueError:
-        rooms_dir = ROOMS
-
-    def pick(pairs, prefix=""):
-        return [(prefix + v, d) for v, d in pairs if v.startswith(cur[len(prefix):]) or not cur[len(prefix):]]
-
-    def for_value(action):
-        if action.dest in COMPLETE_DIRS:
-            return [(":dirs", "")]
-        if action.choices is not None and not isinstance(action, argparse._SubParsersAction):
-            return pick((str(c), "") for c in action.choices)
-        if (cmd, action.dest) in COMPLETE_ITEM_LISTS and values.get("room"):
-            head = cur.rpartition(",")[0]
-            given = set(head.split(","))
-            return [(v, d) for v, d in pick(_completion_records(rooms_dir, values["room"], "T"),
-                                            head + "," if head else "") if v.rpartition(",")[2] not in given]
-        if action.dest in COMPLETE_ROOMS:
-            taken = values.get(action.dest) if isinstance(values.get(action.dest), list) else []
-            return pick((r, "") for r in _completion_rooms(rooms_dir) if r not in taken)
-        if action.dest == "id" and cmd in COMPLETE_IDS and values.get("room"):
-            return pick(_completion_records(rooms_dir, values["room"], COMPLETE_IDS[cmd]))
-        return []
-
-    if pending is not None:
-        return for_value(pending)
-    if cur.startswith("-"):
-        seen = {o for o in done if o.startswith("--")}
-        return pick((o, x.help or "") for x in p._actions for o in x.option_strings
-                    if o.startswith("--") and x.help != argparse.SUPPRESS
-                    and (o not in seen or isinstance(x, argparse._AppendAction)))
-    positionals = [x for x in p._actions if not x.option_strings]
-    if index >= len(positionals):
-        return []
-    action = positionals[index]
-    if isinstance(action, argparse._SubParsersAction):
-        helps = {c.dest: c.help or "" for c in action._choices_actions}
-        return pick((name, helps.get(name, "")) for name, sp in action.choices.items()
-                    if sp.prog.split()[-1] == name)       # canonical names only, not aliases
-    return for_value(action)
-
 def main():
     ap = build_parser()
-    if sys.argv[1:2] == ["__complete"]:
-        for value, description in completion_candidates(ap, sys.argv[2:]):
-            print(f"{value}\t{' '.join(description.split())}" if description else value)
-        return
     a = ap.parse_args()
     if a.lock_directory:
         print(LOCKDIR)
         return
     if not a.cmd:
         ap.error("a command is required")
-    if a.cmd == "setup":
-        if os.environ.get("ATR_INSTALLER") != "1":
-            print(f"Atr data: {ROOT} ({DATA_SELECTION})")
     {"new": cmd_new, "set": cmd_set, "need": cmd_need, "log": cmd_log, "answer": cmd_answer, "reply": cmd_reply, "status": cmd_status,
      "check": cmd_check, "serve": cmd_serve,
-     "name": cmd_name, "team": cmd_team, "rooms": cmd_rooms, "room": cmd_rooms, "prd": cmd_prd, "refinement": cmd_refinement, "brief": cmd_brief, "inbox": cmd_inbox, "lead": cmd_lead, "start": cmd_start, "service": cmd_service, "open": cmd_open,
-     "setup": cmd_setup, "doctor": cmd_doctor, "self-update": cmd_self_update, "uninstall": cmd_uninstall, "feedback": cmd_feedback, "delivery": cmd_delivery, "migrate": cmd_migrate, "t3": cmd_t3,
-     "completion": cmd_completion}[a.cmd](a)
+     "name": cmd_name, "team": cmd_team, "rooms": cmd_rooms, "room": cmd_rooms, "prd": cmd_prd, "refinement": cmd_refinement, "brief": cmd_brief, "inbox": cmd_inbox, "lead": cmd_lead, "start": cmd_start,
+     "feedback": cmd_feedback, "delivery": cmd_delivery, "migrate": cmd_migrate, "t3": cmd_t3}[a.cmd](a)
 
 def build_parser():
     ap = argparse.ArgumentParser(prog="atr", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--data-dir", help="local Markdown store (overrides ATR_DATA_DIR, config.json and the XDG default)")
+    ap.add_argument("--data-dir", help="local Markdown store (overrides ATR_DATA_DIR)")
     ap.add_argument("--lock-directory", action="store_true", help=argparse.SUPPRESS)
     sub = ap.add_subparsers(dest="cmd")
     who = os.environ.get("ATR_AS", "lead")
@@ -4197,20 +3375,6 @@ def build_parser():
     pr = sub.add_parser("prd"); pr.add_argument("room"); pr.add_argument("action", choices=["review"])
     sv = sub.add_parser("serve"); sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8787)
-    su = sub.add_parser("setup", help="first run: create the process room, optionally start the maintainer thread")
-    su.add_argument("--check", action="store_true", help="report what is missing and exit non-zero; changes nothing")
-    su.add_argument("--print-env", nargs="?", const=True, metavar="SHELL", help="print the shell lines (fish, zsh or bash; default $SHELL) that put atr on your PATH and exit; changes nothing")
-    su.add_argument("--yes", action="store_true", help="start the maintainer thread, and install/start T3 if missing, without asking")
-    su.add_argument("--skip-t3", action="store_true", help="don't require or offer T3 (CI, restore)")
-    su.add_argument("--no-maintainer", action="store_true", help="record that no maintainer thread is wanted")
-    su.add_argument("--recreate-maintainer", action="store_true", help="start a new maintainer thread (the old one is gone)")
-    su.add_argument("--no-skills", action="store_true", help="don't link the lead skill into Claude Code's and Codex's skills")
-    su.add_argument("--no-service", action="store_true", help="don't install the web page as a user service")
-    sv2 = sub.add_parser("service", help="keep the web page running from login (systemd --user or launchd)")
-    sv2.add_argument("verb", choices=["install", "uninstall", "status", "restart"])
-    sv2.add_argument("--port", type=int, help=f"port for install (default {DEFAULT_PORT} or the saved one)")
-    op = sub.add_parser("open", help="open the web page, starting it if it isn't running")
-    op.add_argument("--no-browser", action="store_true", help="only make sure it runs and print the address")
     fb = sub.add_parser("feedback", help="file feedback on PROTOCOL.md, the lead skill or a charter")
     fb.add_argument("text"); fb.add_argument("--doc", required=True, choices=FEEDBACK_DOCS)
     fb.add_argument("--from", dest="from_room", required=True, help="the room the feedback comes from")
@@ -4225,20 +3389,13 @@ def build_parser():
     ld = sub.add_parser("lead", help="hand a room's lead to another T3 thread")
     ld.add_argument("room"); ld.add_argument("thread", nargs="?", help="omit to print copyable take-the-lead text")
     ld.add_argument("--keep-old", action="store_true", help="keep the old lead in threads: even if it is settled")
-    sub.add_parser("doctor", help="diagnose Python, source assets, data directory, setup and T3; changes nothing")
-    sub.add_parser("self-update", help="update this source installation; keeps data, shell configuration and T3")
-    un = sub.add_parser("uninstall", help="undo install.sh: remove atr from your shell startup files and delete the "
-                        "fetched source; keeps your data and T3")
-    un.add_argument("--yes", action="store_true", help="remove without asking")
-    cp = sub.add_parser("completion", help="print the shell completion script (install.sh already loads it)")
-    cp.add_argument("shell", choices=sorted(COMPLETION_SHELLS))
     return ap
 
 # All canonical entry points participate in the same lock/recovery boundary, including calls made
 # directly by the web server and its background loops. CLI commands acquire before reading Room.
 for _name in ("cmd_new", "cmd_set", "cmd_need", "cmd_log", "cmd_answer", "cmd_reply", "cmd_status",
               "cmd_name", "cmd_room", "cmd_prd", "cmd_refinement", "cmd_brief",
-              "cmd_inbox", "cmd_feedback", "_cmd_setup_local"):
+              "cmd_inbox", "cmd_feedback"):
     globals()[_name] = store_command(globals()[_name])
 
 for _name in ("web_pause", "web_question", "web_answer", "web_nudge", "after_answer", "sync_binding", "set_team",
