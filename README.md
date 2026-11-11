@@ -72,6 +72,8 @@ Check the web page:
 - **Items**: what’s to do, in progress, in review, blocked or done. Open one for its details and result.
 - **Rooms**: which of your rooms need you, if you run several.
 
+Once a goal is approved, atr messages the lead when items are ready: at most 3 running at once, critical path first, one message per change. It never starts workers itself. A blocked item (`atr need`) or a paused room stops new offers, and the room page says why.
+
 To change course, talk to the lead in its T3 thread. To start something new, ask in a new T3 thread: one thread leads one room.
 
 ## The command line
@@ -83,6 +85,7 @@ The `atr` command is mainly for the lead and its workers. The ones you might use
 | `atr start "what you want"` | start a room’s lead thread in T3 from the terminal |
 | `atr lead ROOM` | text that hands an existing room to a different T3 thread |
 | `atr room list` | every room, from the terminal |
+| `atr next ROOM` | dry run: which ready items atr would offer the lead now (sends nothing) |
 
 `atr --help` lists the rest.
 

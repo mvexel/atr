@@ -375,6 +375,12 @@ function localTime(z) {
 const room = () => state?.rooms.find(r => r.name === current);
 const docURL = (file, anchor = "") => base + "doc?file=" + encodeURIComponent(file) + (anchor ? "#" + anchor : "");
 const SENT_NOTE = "the lead is told; a flag shows here if T3 does not accept it";
+function autostartLine(r) {
+  const a = r.autostart;
+  if (!a || a.state === "closed" || (a.state === "ok" && !a.ready.length)) return null;
+  return el("div", { class: "line", role: "status" }, `Auto-start: ${a.state}, ${a.running}/${a.cap} running`
+    + (a.reason ? `, ${a.reason}` : "") + (a.offer.length ? `. Offered to the lead: ${a.offer.join(", ")}` : ""));
+}
 function leadFlagLine(r) {
   const f = r.lead_flag;
   if (!f) return null;
@@ -1070,7 +1076,7 @@ function draw(top) {
     r.code && (r.code.branch || r.code.warn.length) ? el("div", { class: "codeline" },
       r.code.branch ? el("span", { class: "codetag", title: r.code.path || "no worktree path" }, `⎇ ${r.code.branch}`) : null,
       r.code.warn.length ? el("span", { class: "codewarn", title: r.code.warn.join("\n") }, "⚠ repo") : null) : null,
-    statusSlot(r), othersLine(r), attnLine(r), leadFlagLine(r), leadCmdBox(r),
+    statusSlot(r), othersLine(r), attnLine(r), autostartLine(r), leadFlagLine(r), leadCmdBox(r),
     goalBlock(r),
     el("p", { class: "phase" }, linked(r.phase || "")),
     el("div", { class: "counts" },

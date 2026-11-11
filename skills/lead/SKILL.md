@@ -53,6 +53,10 @@ To lead an existing room, run `lead ROOM YOUR_THREAD_ID`, then `inbox ROOM` and 
 
 `atr t3 organize ROOM` prints the `t3_thread_organize` calls your own thread needs (JSON; atr cannot call T3 tools): `pin` while an owner decision, ask or goal approval card is open, `unpin` then `settle` once the room is closed. Only the lead is pinned; nothing is snoozed. The standing process maintainer stays pinned even without an open owner card. Run it before `check ROOM --yield` and again when you close the room, then make the calls it lists (omit `threadId` for your own thread; settle last, it applies at turn end). Steps T3 already satisfies are skipped, and a repeat is harmless. If T3 facts are unavailable the steps are marked `unknown`: make them anyway. `atr status` and `check` hint when the pin state is out of line.
 
+## Dispatching what atr offers
+
+atr never starts workers. Once the goal is approved, it messages you ("N items ready to start") when the ready set or the running count changes, naming up to `3 - running` items, critical path first. Dispatch exactly those, one worker per item, each in its own worktree (see Delegating workers), then `atr set ROOM ID state=doing owner=ROLE agent=THREAD`. Never exceed 3 items in `doing`; review does not count. `atr next ROOM` shows the same offer without sending. atr offers nothing while the goal is unapproved, the room is paused, or any item is `blocked`: resolve the block (see `need`), then set the item back to `todo` or `doing` and atr offers again. The room page shows the state as auto-start.
+
 ## Delegating workers
 
 `atr t3 launch ROOM "instructions" --item ID` is a CLI and cannot call T3 tools, so it creates no thread. After the dependency and brief checks it prints a ready `delegate_task` brief (title `<room> · <item> · <role>`, task text with room, item, store and atr command, `isolation: worktree`, role `implementation`). Then:

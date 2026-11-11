@@ -654,6 +654,8 @@ def cmd_set(a):
     if r in room.items and r["state"] in ("review", "done") and r["state"] != before and a.by != "lead":
         notify_lead(room, f"{r['id']} ({r['title']}) in room {room.name} reached {r['state']} ({a.by}). "
                                  f"Review it: atr inbox {room.name}; atr check {room.name}")
+    if r in room.items and r["state"] in ("done", "dropped") and r["state"] != before:
+        trigger_offer(room.name)
 
 def open_items(room):
     return [i for i in room.items if i["state"] not in ("done", "dropped")]
@@ -751,6 +753,100 @@ def ready_unstaffed(room):
 def ready_message(ids):
     return f"{', '.join(ids)} {'is' if len(ids) == 1 else 'are'} ready (wave 0, no agent): dispatch {'it' if len(ids) == 1 else 'them'} before yielding"
 
+# ---------- auto-start: offer ready items to the lead ----------
+# atr never starts a worker. For a room it works out which todo items are ready (plan(): every dependency done or
+# dropped), and when the goal is approved, the room is open and unpaused and nothing has failed, it sends the lead ONE
+# message naming up to CAP - running items to dispatch, critical path first. "Running" is state=doing only: an item in
+# review has a finished worker and waits on the lead, so it does not occupy a slot. "Failed" is state=blocked (what
+# `atr need` sets): it pauses new offers until the lead resolves it. The last offer is kept in
+# .atr/autostart/ROOM.json, and the same ready set with the same running count is never offered twice.
+AUTOSTART_CAP = 3
+
+def _offer_path(name):
+    return ROOT / ".atr/autostart" / f"{name}.json"
+
+def read_offer(name):
+    try:
+        return json.loads(_offer_path(name).read_text())
+    except (OSError, ValueError):
+        return None
+
+def autostart(room):
+    """{state, ready, offer, running, cap, reason}. state: ok | capped | paused-failure | paused | locked | closed.
+    ready lists every ready item; offer is the ids that would be named to the lead now (empty unless ok)."""
+    p = plan(room)
+    running = sum(1 for i in room.items if i["state"] == "doing")
+    ready = sorted((x for x in p["items"] if x["ready"]), key=lambda x: not x["critical"])  # stable: plan order within
+    out = {"state": "ok", "ready": [{"id": x["id"], "title": x["title"], "critical": x["critical"],
+                                     "done_deps": x["done_deps"]} for x in ready],
+           "offer": [], "running": running, "cap": AUTOSTART_CAP, "reason": ""}
+    blocked = [i["id"] for i in room.items if i["state"] == "blocked"]
+    if room.closed:
+        out.update(state="closed", reason="room is closed")
+    elif room.build_locked:
+        out.update(state="locked", reason=f"{goal_state(room)}; nothing starts until the owner approves it")
+    elif room.paused:
+        out.update(state="paused", reason=f"paused by the owner since {room.local(room.paused)}")
+    elif blocked:
+        out.update(state="paused-failure", reason=f"{', '.join(blocked)} blocked: no new starts until resolved")
+    elif running >= AUTOSTART_CAP:
+        out.update(state="capped", reason=f"{running} running, cap {AUTOSTART_CAP}")
+    else:
+        out["offer"] = [x["id"] for x in ready][:AUTOSTART_CAP - running]
+        out["reason"] = "" if out["offer"] else "nothing ready"
+    return out
+
+def offer_text(room, a):
+    by = {x["id"]: x for x in a["ready"]}
+    n = len(a["offer"])
+    lines = [f"Room {room.name}: {n} item{'s' if n != 1 else ''} ready to start, {a['running']} running "
+             f"(cap {a['cap']}). Dispatch {'it' if n == 1 else 'them'} now: one worker per item, each in its own worktree."]
+    for i in a["offer"]:
+        x = by[i]
+        deps = f"; depends on {', '.join(x['done_deps'])}, done" if x["done_deps"] else "; no dependencies"
+        lines.append(f"- {i} {x['title']}{' (critical path)' if x['critical'] else ''}{deps}")
+    lines.append(f"After starting each: atr set {room.name} ID state=doing owner=ROLE agent=THREAD. "
+                 f"Never exceed {a['cap']} running.")
+    return "\n".join(lines)
+
+def offer_ready(name, dry=False):
+    """Compute the room's auto-start state and, unless dry, message the lead once for a new (ready set, running)
+    pair. Returns the autostart dict plus 'new' (would be or was offered) and 'text'."""
+    with store_transaction():
+        room = Room(name)
+        a = autostart(room)
+        last = read_offer(name)
+        a["new"] = bool(a["offer"]) and not (last and last.get("offered") == a["offer"] and last.get("running") == a["running"])
+        a["text"] = offer_text(room, a) if a["offer"] else ""
+        if dry:
+            return a
+        if not a["offer"]:
+            if last:
+                durable_unlink(_offer_path(name))
+        elif a["new"]:
+            durable_write(_offer_path(name), json.dumps({"offered": a["offer"], "running": a["running"], "at": stamp()},
+                                                        sort_keys=True) + "\n")
+            notify_lead(room, a["text"])
+    return a
+
+def trigger_offer(name):
+    """After the surrounding save commits, re-check the room and offer if the ready set or running count changed."""
+    after_commit(lambda: offer_ready(name))
+
+def cmd_next(a):
+    room = Room(a.room)
+    r = offer_ready(room.name, dry=True)
+    print(f"{room.name}: auto-start {r['state']}" + (f" ({r['reason']})" if r["reason"] else "")
+          + f"; {r['running']} running, cap {r['cap']}")
+    for x in r["ready"]:
+        print(f"  ready {x['id']} {x['title']}{' (critical path)' if x['critical'] else ''}"
+              + ("  <- would be offered" if x["id"] in r["offer"] else ""))
+    if r["offer"] and not r["new"]:
+        print("already offered, nothing new to send")
+    elif r["offer"]:
+        print("dry run, nothing sent; the message would be:")
+        print(r["text"])
+
 def plan_lines(room):
     p = plan(room)
     if not p["items"]:
@@ -822,6 +918,8 @@ def after_answer(room, d, choice):
         goal.set("approved", "")
     goal.set("updated", stamp())
     goal.save()
+    if choice == "a":
+        trigger_offer(room.name)
     return None
 
 GOAL_FIELDS = (("Architecture", "architecture"), ("Minimal viable result", "result"), ("Definition of done", "done"))
@@ -1172,16 +1270,24 @@ def wanted_threads(now_t=None):
             slow.discard(t)
     return fast, slow - fast
 
+OFFER_CHECK_S = 120    # catch-up check for auto-start offers
+
 def thread_refresher(every=20):
     """Background: refresh the wanted threads in parallel, a pass every `every` s."""
     import time
     from concurrent.futures import ThreadPoolExecutor
     pool = ThreadPoolExecutor(max_workers=6)
+    last_offer_check = 0
     while True:
         try:
             fast, slow = wanted_threads()
             list(pool.map(refresh_thread, sorted(fast | slow)))
             retry_lead_flags()
+            if time.time() - last_offer_check >= OFFER_CHECK_S:
+                last_offer_check = time.time()
+                for d in sorted(ROOMS.iterdir()):
+                    if (d / "BRIEF.md").exists():
+                        offer_ready(d.name)
         except (Exception, SystemExit) as e:  # keep the refresher alive whatever one room or lookup does
             print(f"atr: thread refresher: {e}", file=sys.stderr)
             print("atr error:", str(e), file=sys.stderr)
@@ -1731,6 +1837,11 @@ def lead_idle_min(thread):
     observed = _epoch(info.get("updated"))
     return max(0, int((time.time() - observed) / 60)) if observed else None
 
+def autostart_json(room):
+    a = autostart(room)
+    return {"state": a["state"], "ready": [x["id"] for x in a["ready"]], "offer": a["offer"],
+            "running": a["running"], "cap": a["cap"], "reason": a["reason"]}
+
 def room_json(room, with_records=False):
     head = room.head
     asks = [decision_json(room, d) for d in needs_you(room)]
@@ -1755,6 +1866,7 @@ def room_json(room, with_records=False):
     counts = {s: sum(1 for i in room.items if i["state"] == s) for s in ITEM_STATES}
     return {"name": room.name, "title": room.title, "tz": room.tz.key,
             "lead_flag": read_lead_flag(room.name),
+            "autostart": autostart_json(room),
             "revision": room.brief._version if room.brief else None,
             "paused": room.local(room.paused) if room.paused else "",
             "paused_at": stamp(room.paused) if room.paused else "",
@@ -2250,6 +2362,8 @@ def web_pause(room, pause, note, push, by="", until="", expected_revision=None):
                + (f' Note: "{note}".' if note else "")
                + " Pick up where you stopped: re-read the room, then re-dispatch the items that were in flight.")
     notify_lead(room, msg, allow_paused=True)
+    if not pause:
+        trigger_offer(room.name)
     return {"ok": True}
 
 def cmd_serve(a):
@@ -2514,7 +2628,7 @@ def main():
         ap.error("a command is required")
     {"new": cmd_new, "set": cmd_set, "need": cmd_need, "log": cmd_log, "answer": cmd_answer, "reply": cmd_reply, "status": cmd_status,
      "check": cmd_check, "serve": cmd_serve,
-     "rooms": cmd_rooms, "room": cmd_rooms, "goal": cmd_goal, "brief": cmd_brief, "inbox": cmd_inbox, "lead": cmd_lead, "start": cmd_start,
+     "rooms": cmd_rooms, "room": cmd_rooms, "goal": cmd_goal, "brief": cmd_brief, "inbox": cmd_inbox, "next": cmd_next, "lead": cmd_lead, "start": cmd_start,
      "t3": cmd_t3}[a.cmd](a)
 
 def build_parser():
@@ -2565,6 +2679,8 @@ def build_parser():
     rm.add_argument("--lead-thread", default="",
                     help="your own T3 thread id (t3_thread_configuration); a thread can lead only one room")
     ib = sub.add_parser("inbox"); ib.add_argument("room")
+    nx = sub.add_parser("next", help="dry run: which ready items atr would offer the lead now (sends nothing)")
+    nx.add_argument("room")
     br = sub.add_parser("brief", help="print the room's goal and code line"); br.add_argument("room")
     gl = sub.add_parser("goal", help="write the room's goal (3 fields), then ask the owner to approve it")
     gl.add_argument("room"); gl.add_argument("verb", choices=["new", "approve"])
