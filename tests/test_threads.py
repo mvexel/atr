@@ -89,14 +89,6 @@ class Threads(unittest.TestCase):
         self.th(LEAD, settled=False)
         self.assertEqual(tr.active_lead(r), LEAD)
 
-    def test_continuity_follows_live_thread(self):
-        r = self.room(extra=f"threads: [{FORK}]\n")
-        self.th(LEAD, settled=True); self.th(FORK, status="running")
-        self.assertEqual(tr.continuity(r)[0], "moving")
-
-
-
-
     def handoff(self, *argv):
         ns = type("A", (), {"room": "r1", "thread": NEW, "keep_old": False})()
         for k, v in zip(("thread", "keep_old"), argv):

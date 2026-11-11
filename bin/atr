@@ -11,7 +11,7 @@ Usage (ROOM is a folder name under rooms/):
   atr reply ROOM ID TEXT            answer a question the owner asked on a card (card stays open)
   atr answer ROOM ID CHOICE [--by owner] [--quote "D05 b"]
   atr status [ROOM ...]          regenerate rooms/ROOM/README.md and decisions/INDEX.md
-  atr check [ROOM ...] [--strict] [--yield]   --yield: judge the room as if the lead's turn had ended
+  atr check [ROOM ...] [--strict]   data-integrity lint
   atr serve [--port 8787]  tap-to-decide web page (web/index.html), in the foreground
   atr start "what you want" [--project DIR]   start a T3 thread that creates a room and leads it
   atr lead ROOM [THREAD]          hand the lead to a T3 thread; without THREAD, print text to copy and paste to take it
@@ -368,7 +368,7 @@ def store_guard(function):
         with store_transaction():
             args = tuple(Room(a.name) if isinstance(a, Room) and hasattr(a, "name") else a for a in args)
             result = function(*args, **kwargs)
-        if isinstance(result, dict) and result.get("ok") and function.__name__ in ("web_answer", "web_question", "web_pause", "web_nudge"):
+        if isinstance(result, dict) and result.get("ok") and function.__name__ in ("web_answer", "web_question", "web_pause"):
             result["saved"] = True
         return result
     return wrapped
@@ -401,7 +401,6 @@ ITEM_STATES = {"todo", "doing", "blocked", "review", "done", "dropped"}
 DECISION_STATES = {"open", "provisional", "final", "superseded", "sent"}
 ACTIVE = ["blocked", "doing", "review", "todo"]
 W = 40  # status page width, so it reads on a phone
-STALE_H = 2
 
 
 # ---------- records ----------
@@ -641,7 +640,7 @@ def cmd_set(a):
         sys.exit(f"refused: {r['id']} has an empty {' and '.join(brief_gaps(r))}. Write the brief first "
                  "(testable Acceptance, Inputs with files and upstream Results), or --force")
     if "state=doing" in a.pairs and not r["cap_h"] and not any(p.startswith("cap_h=") and p[6:] for p in a.pairs):
-        print(f"warn: {r['id']} goes to doing with no cap_h: an uncapped doing item nudges the room's lead "
+        print(f"warn: {r['id']} goes to doing with no cap_h: the critical path assumes 1h "
               f"(bin/atr set {room.name} {r['id']} cap_h=<hours>)", file=sys.stderr)
     before = r["state"]
     for kv in a.pairs:
@@ -724,34 +723,12 @@ def plan(room):
                     "need": latest_need(i) if i["state"] == "blocked" else "",
                     "critical": v in top[1]})
     out.sort(key=lambda x: (x["wave"], idkey(x["id"])))
-    idle = set(ready_unstaffed(room))
-    for x in out:
-        x["unstaffed"] = x["id"] in idle
     by_id = {i["id"]: i for i in room.items}
     for x in out:
         x["done_deps"] = [d for d in (items[x["id"]]["depends_on"] or []) if d in by_id and by_id[d]["state"] == "done"]
     seen = {d for x in out for d in x["done_deps"]}
     return {"done_items": [{"id": d, "title": by_id[d]["title"]} for d in sorted(seen, key=idkey)], "items": out, "waves": 1 + max(wave.values(), default=-1), "critical": top[1], "critical_h": top[0],
             "done": sum(1 for i in room.items if i["state"] == "done")}
-
-def ready_unstaffed(room):
-    """Ids of todo items that could start now and have nobody on them: every dependency done or dropped,
-    no lock held by a doing item, no running `agent:` thread, no open question for the owner blocking them, and
-    not named (by id) in now-head `waiting:`. A closed or paused room has none."""
-    if room.closed or room.paused:
-        return []
-    by_id = {i["id"]: i for i in room.items}
-    held = {l for i in room.items if i["state"] == "doing" for l in i["locks"] or []}
-    carded = {b for d in room.decisions if d["status"] == "open" and d["decider"] == OWNER for b in d["blocks"] or []}
-    named = set(re.findall(r"\b[A-Z]\d{2,}\b", (room.head["waiting"] if room.head else "") or ""))
-    return [i["id"] for i in sorted(room.items, key=lambda x: idkey(x["id"]))
-            if i["state"] == "todo" and i["id"] not in carded and i["id"] not in named
-            and all(d not in by_id or d == i["id"] or by_id[d]["state"] in ("done", "dropped") for d in i["depends_on"] or [])
-            and not held & set(i["locks"] or [])
-            and not (i["agent"] and thread_status(i["agent"]) == "running")]
-
-def ready_message(ids):
-    return f"{', '.join(ids)} {'is' if len(ids) == 1 else 'are'} ready (wave 0, no agent): dispatch {'it' if len(ids) == 1 else 'them'} before yielding"
 
 # ---------- auto-start: offer ready items to the lead ----------
 # atr never starts a worker. For a room it works out which todo items are ready (plan(): every dependency done or
@@ -856,9 +833,6 @@ def plan_lines(room):
     for w in range(p["waves"]):
         ids = [x["id"] + ("*" if x["critical"] else "") for x in p["items"] if x["wave"] == w]
         out += wrap(f"wave {w}: {' '.join(ids)}", "")
-    idle = [x["id"] for x in p["items"] if x["unstaffed"]]
-    if idle:
-        out += wrap(f"ready, no agent: {' '.join(idle)}", "")
     return out
 
 def brief_gaps(i):
@@ -1357,7 +1331,7 @@ def lead_commands(room):
             "prompt": (f"Take the lead of atr room {room}. Read {SOURCE_ROOT}/PROTOCOL.md and {SOURCE_ROOT}/skills/lead/SKILL.md first. "
                        f"Find your own T3 thread id in your thread configuration, then run:\n"
                        f"{base} lead {name} <your-thread-id>\n"
-                       f"Then run `{base} inbox {name}` and `{base} check {name} --yield`, and carry on leading the room.")}
+                       f"Then run `{base} inbox {name}` and `{base} status {name}`, and carry on leading the room.")}
 
 def start_message(text):
     """The first message of a new lead thread: start a room for what the owner wants, and lead it."""
@@ -1411,7 +1385,7 @@ def _cmd_lead_local(a):
     durable_append(room.dir / "pings.log", f"{stamp(t)}  {old or '-'}->{new}  lead-handoff  local-routing-saved\n")
     notify_lead(room, f"You are now the lead of room {room.name} (lead_thread in BRIEF.md now points at this thread"
                 f"{', replacing ' + old if old else ''}). Read `bin/atr inbox {room.name}` for what the owner did on the "
-                f"page, then run `bin/atr check {room.name} --yield` and carry on leading: dispatch, answer, keep the room moving.",
+                f"page, then run `bin/atr status {room.name}` and carry on leading: dispatch, answer, keep the room moving.",
                 thread=new, allow_paused=True)
     print(f"{room.name}: lead_thread {old or '(none)'} -> {new}; threads: {', '.join(keep) or '(none)'}; "
           "new lead notified (the room page flags it if T3 did not accept the message)")
@@ -1462,193 +1436,48 @@ def lead_rooms(thread):
             found.append(d.name)
     return found
 
-def worker_stall(room, item):
-    """Why a `doing` item's agent: can't be running, or None when it names nothing or says nothing useful."""
-    agent = (item["agent"] or "").strip()
-    if not agent:
-        return None
-    if not THREAD_ID.fullmatch(agent):
-        return f"{item['id']} marked doing, but its agent: field is not a thread id"
-    info = thread_info(agent)
-    if not info or info.get("status") == "running":
-        return None
-    try:
-        at = dt.datetime.fromisoformat(str(info.get("updated") or "").replace("Z", "+00:00"))
-        at = at if at.tzinfo else at.replace(tzinfo=dt.timezone.utc)
-    except ValueError:
-        at = None
-    how = "settled" if info.get("settled") else (info.get("status") or "finished")
-    return (f"{item['id']} marked doing, but its worker {info.get('title') or agent} finished"
-            f"{' at ' + room.when(at) if at else ''} ({how}) and nobody flipped the item")
-
-def continuity(room, yielding=False):
-    """Where an unfinished room stands: (state, detail). state is one of closed, paused, moving,
-    waiting_owner, waiting, stalled. Native subagents can't wake an idle lead, so a room only counts
-    as moving while the lead's turn runs or some item's `agent:` is a running T3 thread (delegate_task).
-    yielding=True judges the room as if the lead's turn had just ended."""
+def continuity(room):
+    """What the overview needs: (state, detail). state is one of closed, paused, running, waiting_owner, blocked, idle."""
     if room.closed:
         return "closed", room.brief["closed"]
     if room.paused:
         return "paused", f"paused at {room.local(room.paused)}"
-    lead = None if yielding else thread_status(active_lead(room))
-    doing = [i for i in room.items if i["state"] == "doing"]
-    # A running delegate_task child wakes the lead when it ends, whatever state its item is in.
-    live = [i["id"] for i in room.items if i["agent"] and thread_status(i["agent"]) == "running"]
-    if live:
-        return "moving", f"{', '.join(live)} running"
-    if lead == "running":
-        return "moving", "the lead is working" + (f" ({', '.join(i['id'] for i in doing)} in flight)" if doing else "")
+    doing = [i["id"] for i in room.items if i["state"] == "doing"]
+    if doing:
+        return "running", f"{', '.join(doing)} running"
     asks = [d["id"] for d in room.decisions if d["status"] == "open" and d["decider"] == OWNER
             and (len(parse_options(d)) >= 2 or d["type"] in ("ask", "todo"))]
     if asks:
         return "waiting_owner", f"waiting on you: {', '.join(asks)}"
-    waiting, resume = (room.head["waiting"], room.head["resume"]) if room.head else (None, None)
-    if waiting and resume:
-        at = parse_time(resume)
-        if not at and lead != "running":
-            awaited = set(re.findall(r"\bT\d{2,}\b", f"{waiting} {resume}"))
-            states = {i["id"]: i["state"] for i in room.items}
-            if awaited and awaited <= set(states) and all(states[x] in ("review", "done", "dropped") for x in awaited):
-                return "stalled", (f"everything awaited ({', '.join(sorted(awaited))}) finished "
-                                   "but the lead is idle and nobody resumed the room")
-        if at and at < now():
-            return "stalled", f"the wait on {waiting} was due to resume at {room.when(at)} and nobody resumed it"
-        return "waiting", f"waiting on {waiting}; resumes {room.when(at) if at else resume}"
-    if doing:
-        if why := [x for i in doing if (x := worker_stall(room, i))]:
-            return "stalled", "; ".join(why)
-    if not yielding and lead is None:
-        return "unavailable", "T3 lead execution state is unavailable or unknown; local records and decision saves remain usable"
-    if doing:
-        return "stalled", (f"{', '.join(i['id'] for i in doing)} marked doing, but nothing is running: "
-                           "the lead is idle and no item has a live T3 agent")
-    if idle := ready_unstaffed(room):
-        return "stalled", ready_message(idle)
-    return "stalled", "nothing is running, queued for a live agent, or waiting on you"
-
-
-# ---------- bottleneck checks ----------
-# `check --yield` counts any live agent as moving, so a slow agent or a forgotten review never trips it.
-# These are warnings only: they never change continuity() (moving/waiting/stalled).
-
-OVERRUN_X, HARD_OVERRUN_X = 1.0, 1.5      # elapsed / cap_h
-REVIEW_WARN_MIN, REVIEW_LOUD_MIN = 60, 180
-BOTTLENECK_CAP_FRAC, BOTTLENECK_MIN_BLOCKED = 0.5, 2
+    blocked = [i["id"] for i in room.items if i["state"] == "blocked"]
+    if blocked:
+        return "blocked", f"{', '.join(blocked)} blocked"
+    a = autostart(room)
+    if a["ready"]:
+        return "idle", f"{len(a['ready'])} ready: {a['reason'] or 'offered to the lead'}"
+    return "idle", "nothing running or ready"
 
 def cap_hours(i):
     m = re.match(r"\s*(\d+(?:\.\d+)?)", str(i["cap_h"] or ""))
     return float(m.group(1)) if m and float(m.group(1)) > 0 else None
 
-def state_since(i, state):
-    """When the item last went to `state`: the time of the last `set ... state=<state>` Log line. Log lines carry
-    only HH:MMZ, so dates are rebuilt walking forward from `created:`, a day later whenever a line's time is earlier
-    than the previous one's (`updated` is not trusted: hand-edited Logs leave it stale). Without `created:` the anchor
-    is `updated`; no line lands after now. Falls back to `updated`."""
-    up = parse_time(i["updated"] or "")
-    created = parse_time(str(i["created"] or ""))
-    lines = re.findall(r"^- (\d\d):(\d\d)Z\b(.*)$", i.section("Log"), re.M)
-    if not (created or up):
-        return None
-    anchor = (created or up).replace(second=0, microsecond=0)
-    limit = now()
-    cur, found, times = anchor, None, []
-    for n, (h, m, rest) in enumerate(lines):
-        t = cur.replace(hour=int(h), minute=int(m))
-        if n and t < cur:
-            t += dt.timedelta(days=1)
-        cur = t
-        times.append((t, rest))
-    if times and not created and times[-1][0] > limit + dt.timedelta(minutes=5):     # a few minutes ahead is clock skew, not yesterday
-        shift = dt.timedelta(days=-((times[-1][0] - limit).days + 1))
-        times = [(t + shift, r) for t, r in times]
-    for t, rest in times:
-        if re.search(rf"\bstate={state}\b", rest):
-            found = min(t, limit)
-    return found or up
-
-def dur(minutes):
-    minutes = int(minutes)
-    return f"{minutes}m" if minutes < 60 else f"{minutes // 60}h{minutes % 60:02d}m"
-
-def bottlenecks(room, now_t=None):
-    """[{id, rule, level, text, nudge, since}] for an open room. level is note | warn | loud; nudge is the plain
-    sentence for the lead (None: shown only). rules: need, no-cap, overrun, hard-overrun, review-stale, review-late, bottleneck."""
-    now_t = now_t or now()
+def needs_attention(room):
+    """[{id, rule, level, text}] shown on the page: a blocked item with a need, and a lead that settled while
+    work is open (text for the owner only: a message would wake the settled thread)."""
     if room.closed or room.paused:
         return []
-    carded = {b for d in room.decisions if d["status"] == "open" and d["decider"] == OWNER for b in d["blocks"] or []}
-    lead = room.who("lead")
-    lead = f"{lead} (the lead)" if lead != "lead" else "the lead"
-    out = []
-    def add(i, rule, level, text, nudge=None, since=None):
-        out.append({"id": i["id"], "rule": rule, "level": level, "text": text, "nudge": nudge,
-                    "since": stamp(since) if since else ""})
-    for i in room.items:
-        if i["state"] == "blocked" and latest_need(i):
-            add(i, "need", "warn", f"{i['id']} is blocked: {latest_need(i)}", None, state_since(i, "blocked"))
-    for i in room.items:
-        if i["state"] not in ("doing", "review") or i["id"] in carded:
-            continue
-        since = state_since(i, i["state"])
-        mins = (now_t - since).total_seconds() / 60 if since else 0
-        if i["state"] == "review":
-            if i["agent"] and thread_status(i["agent"]) == "running":
-                continue     # a reviewer is on it
-            if mins > REVIEW_LOUD_MIN:
-                add(i, "review-late", "loud", f"{i['id']} has sat in review {dur(mins)}: {lead} flips it to done or dispatches a reviewer",
-                    f"{i['id']} has sat in review for {dur(mins)}. Flip it to done if it's finished, or dispatch a reviewer.", since)
-            elif mins > REVIEW_WARN_MIN:
-                add(i, "review-stale", "warn", f"{i['id']} has sat in review {dur(mins)}: {lead} flips it to done or dispatches a reviewer",
-                    f"{i['id']} has sat in review for {dur(mins)}. Flip it to done if it's finished, or dispatch a reviewer.", since)
-            continue
-        cap = cap_hours(i)
-        if cap is None:
-            add(i, "no-cap", "warn", f"{i['id']} is doing with no cap_h (running {dur(mins)}): set one so an overrun can be seen",
-                f"{i['id']} is running with no cap_h. Set one (bin/atr set {room.name} {i['id']} cap_h=<hours>).", since)
-            continue
-        x = mins / 60 / cap
-        capt = f"{cap:g}h"
-        if x >= HARD_OVERRUN_X:
-            add(i, "hard-overrun", "loud", f"{i['id']} hard overrun: {x:.1f}x its {capt} cap ({dur(mins)} running)",
-                f"{i['id']} has run {x:.1f}x its {capt} cap. Decide now: split it, extend the cap, or stop it.", since)
-        elif x >= OVERRUN_X:
-            add(i, "overrun", "warn", f"{i['id']} overrun: {x:.1f}x its {capt} cap ({dur(mins)} running)",
-                f"{i['id']} has run {x:.1f}x its {capt} cap. Decide whether to split, extend or stop it.", since)
-        if x > BOTTLENECK_CAP_FRAC:
-            blocked, queue = [], [i["id"]]
-            while queue:
-                cur = queue.pop(0)
-                for j in room.items:
-                    if cur in (j["depends_on"] or []) and j["id"] not in blocked and j["state"] not in ("done", "dropped"):
-                        blocked.append(j["id"])
-                        queue.append(j["id"])
-            todo = [b for b in blocked if next(j for j in room.items if j["id"] == b)["state"] == "todo"]
-            if len(todo) >= BOTTLENECK_MIN_BLOCKED:
-                add(i, "bottleneck", "note", f"bottleneck: {i['id']} blocks {', '.join(todo)} ({x:.0%} of its {capt} cap used)",
-                    None, since)
+    out = [{"id": i["id"], "rule": "need", "level": "warn", "text": f"{i['id']} is blocked: {latest_need(i)}"}
+           for i in room.items if i["state"] == "blocked" and latest_need(i)]
+    left = [i["id"] for i in room.items if i["state"] not in ("done", "dropped")]
+    if left and lead_is_settled(room):
+        out.append({"id": ",".join(left), "rule": "settled-open", "level": "loud",
+                    "text": f"lead settled with open items: {', '.join(left)}: finish or drop them, "
+                            "set closed:, or unsettle the lead"})
     return out
 
-def settled_open_warn(room):
-    """The lead thread is settled in T3 while items are open, so the room is unfinished. Text for the owner only:
-    never sent to the lead (a message would wake the settled thread). None for closed and paused rooms."""
-    if room.closed or room.paused or not lead_is_settled(room):
-        return None
-    left = [i["id"] for i in room.items if i["state"] not in ("done", "dropped")]
-    if not left:
-        return None
-    return {"id": ",".join(left), "rule": "settled-open", "level": "loud", "nudge": None,
-            "text": f"lead settled with open items: {', '.join(left)}: finish or drop them, "
-                    "set closed:, or unsettle the lead"}
-
 def attention_json(room):
-    b = bottlenecks(room)
-    w = settled_open_warn(room)
-    if w:
-        b = b + [w]
-    if lead_is_settled(room):     # nudges are withheld from a settled lead; show them to the owner instead
-        b = [dict(x, text=f"{x['text']} (nudge withheld: lead thread is settled)") if x["nudge"] else x for x in b]
-    return {"attention": [{k: x[k] for k in ("id", "rule", "level", "text")} for x in b],
-            "attention_loud": any(x["level"] == "loud" for x in b)}
+    b = needs_attention(room)
+    return {"attention": b, "attention_loud": any(x["level"] == "loud" for x in b)}
 
 def t3_thread_link(thread):
     """Portable HTTPS tracker link; custom desktop protocols are not available in every browser."""
@@ -1670,91 +1499,32 @@ def worker_role(item, role=None):
     word = slug(role or (item["owner"] or "").split(" ")[0] or "") or "worker"
     return word
 
-def lead_title_warn(room):
-    """The active lead thread's title should start with 'Room · '. None for closed rooms
-    and when T3 doesn't know the thread."""
-    if room.closed or not (room.brief and room.brief["lead_thread"]):
-        return None
-    info = thread_info(active_lead(room))
-    if not info:
-        return None
-    title = info.get("title") or ""
-    if title.startswith("Room · "):
-        return None
-    return (f"{room.name}: lead thread is titled {title!r}: rename it to 'Room · {room.name} · lead' "
-            "with t3_thread_update")
-
-def problems(room, yielding=False):
+def problems(room):
+    """Data-integrity lint only: bad state, unknown dependency, cycle, doing with unmet dependencies, lock clash,
+    decision shape, no goal."""
     p, ids = [], {i["id"] for i in room.items}
+    by_id = {i["id"]: i for i in room.items}
+    if room.items and not room.goal:
+        p.append(f"{room.name}: no goal")
     for i in room.items:
         tag = f"{room.name}/{i['id']}"
         if i["state"] not in ITEM_STATES:
             p.append(f"{tag}: bad state {i['state']!r}")
-        if i["state"] not in ("todo", "dropped") and not i["owner"]:
-            p.append(f"{tag}: {i['state']} but no owner")
         for d in i["depends_on"] or []:
             if d not in ids:
                 p.append(f"{tag}: depends on unknown {d}")
         if i["state"] == "doing":
-            unmet = [d for d in i["depends_on"] or [] if d in ids and next(x for x in room.items if x["id"] == d)["state"] != "done"
-                     and next(x for x in room.items if x["id"] == d)["state"] != "dropped"]
+            unmet = [d for d in i["depends_on"] or [] if d in ids and by_id[d]["state"] not in ("done", "dropped")]
             if unmet:
                 p.append(f"{tag}: doing, but depends_on {', '.join(unmet)} not done")
-            if brief_gaps(i):
-                p.append(f"{tag}: doing with an empty {' and '.join(brief_gaps(i))}; the brief belongs in the item before work starts")
-        if i["state"] == "done":
-            if "- [ ]" in i.section("Acceptance"):
-                p.append(f"{tag}: done with unticked acceptance")
-            art = re.search(r"^Artifacts:\s*(.*)$", i.section("Result"), re.M)
-            if not art or not art.group(1).strip():
-                p.append(f"{tag}: done without Artifacts in Result")
-        agent = (i["agent"] or "").strip()
-        if agent and i["state"] not in ("done", "dropped") and (
-                not THREAD_ID.fullmatch(agent)):
-            p.append(f"{i['id']}: agent: {agent!r} is not a thread id, the page can't see the worker")
-        up = parse_time(i["updated"])
-        if i["state"] == "doing" and up and now() - up > dt.timedelta(hours=STALE_H):
-            p.append(f"{tag}: doing, no update for {ago(up)}")
     for cyc in dependency_cycles(room):
         p.append(f"{room.name}: dependency cycle {' > '.join(cyc + cyc[:1])}; break it, nothing in it can ever start")
-    live = open_items(room)
-    if len(live) >= 4 and not any(i["depends_on"] or i["locks"] for i in room.items):
-        p.append(f"{room.name}: no dependency plan: {len(live)} open items and no depends_on or locks anywhere "
-                 "(PROTOCOL: Plan the dependencies first)")
     holders = {}
     for i in room.items:
         if i["state"] == "doing":
             for l in i["locks"] or []:
                 holders.setdefault(l, []).append(i["id"])
     p += [f"{room.name}: lock {l} claimed by {', '.join(v)}" for l, v in holders.items() if len(v) > 1]
-    if room.build_locked:
-        for i in room.items:
-            if i["state"] == "doing":
-                p.append(f"{room.name}/{i['id']}: building while {goal_state(room)}")
-    tmp = [str(f.relative_to(room.dir)) for f in sorted(room.dir.rglob("*.md"))
-           if f.name not in ("README.md", "INDEX.md") and re.search(r"(?<![\w.])/tmp/\S", f.read_text())]
-    if tmp:
-        p.append(f"{room.name}: {len(tmp)} record(s) cite /tmp ({', '.join(tmp[:3])}{', …' if len(tmp) > 3 else ''}); "
-                 "temporary files can disappear: copy the evidence into notes/")
-    shared = lead_rooms(room.brief and room.brief["lead_thread"])
-    if len(shared) > 1 and not room.closed:
-        p.append(f"{room.name}: its lead thread also leads {', '.join(r for r in shared if r != room.name)}; "
-                 "one thread is one room, so new work needs a new thread")
-    if yielding and (idle := ready_unstaffed(room)):
-        p.append(f"{room.name}: {ready_message(idle)}")
-    state, detail = continuity(room, yielding)
-    if state == "stalled" and not (yielding and detail == ready_message(ready_unstaffed(room))):
-        p.append(f"{room.name}: STALLED: {detail}. Dispatch the successor (delegate_task, agent: on the item), "
-                 "put a real question on the page, set waiting:/resume: in now-head.md, or close the room")
-    p += (code_info(room) or {"warn": []})["warn"]
-    if (w := lead_title_warn(room)):
-        p.append(w)
-    if settled_open_warn(room):
-        p.append(f"{room.name}: {settled_open_warn(room)['text']}")
-    if (w := organize_warn(room)):
-        p.append(w)
-    for x in bottlenecks(room):
-        p.append(f"{room.name}/{x['id']}: {x['text']}")
     for d in room.decisions:
         tag = f"{room.name}/{d['id']}"
         if d["status"] not in DECISION_STATES:
@@ -1776,7 +1546,7 @@ def problems(room, yielding=False):
     return p
 
 def cmd_check(a):
-    found = [x for room in rooms_from(a.rooms) for x in problems(room, a.yield_)]
+    found = [x for room in rooms_from(a.rooms) for x in problems(room)]
     print("\n".join(f"warn: {x}" for x in found) or "ok")
     sys.exit(1 if a.strict and found else 0)
 
@@ -1829,14 +1599,6 @@ def record_json(room, r):
             "sections": [{"h": h.strip(), "text": t.strip()} for h, t in sections if t.strip()],
             "file": str(r.path.relative_to(ROOT))}
 
-def lead_idle_min(thread):
-    """Age of the latest T3 observation, unknown while running or unavailable."""
-    info = thread_info(thread)
-    if not info or info.get("status") == "running":
-        return None
-    observed = _epoch(info.get("updated"))
-    return max(0, int((time.time() - observed) / 60)) if observed else None
-
 def autostart_json(room):
     a = autostart(room)
     return {"state": a["state"], "ready": [x["id"] for x in a["ready"]], "offer": a["offer"],
@@ -1888,7 +1650,6 @@ def room_json(room, with_records=False):
                    if room.goal else {"status": "none", "locked": True},
             "continuity": dict(zip(("state", "detail"), continuity(room))),
             "lead_status": thread_status(active_lead(room)),
-            "lead_idle_min": lead_idle_min(active_lead(room)),
             **attention_json(room),
             "closed": bool(room.closed),
             "lead_settled": (ts := thread_state(room))["settled"],
@@ -2257,14 +2018,6 @@ def cmd_inbox(a):
         print(f"nothing new since {room.local(since) if since else 'the start'}")
     durable_write(mark, stamp())
 
-def web_nudge(room, note):
-    state, detail = continuity(room)
-    note = re.sub(r"\s+", " ", note or "").strip()[:500]
-    notify_lead(room,
-                f"A local nudge was saved for {room.name}: {state} ({detail})." + (f" Note: {note}" if note else "")
-                + " Read the room and advance eligible work after checking its current gates.")
-    return {"ok": True}
-
 def create_room_files(d, title, thread, t):
     """The room directory, BRIEF and now-head."""
     durable_mkdir(d / "items", parents=True)
@@ -2473,7 +2226,7 @@ def cmd_serve(a):
                 return self.send(500, json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"}).encode())
 
         def post_request(self):
-            if self.route() not in ("/api/answer", "/api/pause", "/api/nudge"):
+            if self.route() not in ("/api/answer", "/api/pause"):
                 return self.send(404, b'{"error":"not found"}')
             if allowed and self.headers.get("Tailscale-User-Login", "") not in allowed:
                 return self.send(403, b'{"error":"not allowed"}')
@@ -2481,9 +2234,7 @@ def cmd_serve(a):
                 return self.send(415, b'{"error":"json only"}')
             try:
                 req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
-                if self.route() == "/api/nudge":
-                    res = web_nudge(known_room(req["room"]), req.get("note", ""))
-                elif self.route() == "/api/pause":
+                if self.route() == "/api/pause":
                     res = web_pause(known_room(req["room"]), bool(req["paused"]), req.get("note", ""), False,
                                     expected_revision=req.get("revision"))
                 else:
@@ -2671,7 +2422,6 @@ def build_parser():
     an.add_argument("--by", default=OWNER); an.add_argument("--quote")
     st = sub.add_parser("status"); st.add_argument("rooms", nargs="*")
     ck = sub.add_parser("check"); ck.add_argument("rooms", nargs="*"); ck.add_argument("--strict", action="store_true")
-    ck.add_argument("--yield", dest="yield_", action="store_true")
     rms = sub.add_parser("room", aliases=["rooms"], help="list rooms, or start a feature room")
     rms_sub = rms.add_subparsers(dest="verb", required=True)
     rms_sub.add_parser("list", help="every room: state, open items, open decisions, title")
@@ -2703,7 +2453,7 @@ for _name in ("cmd_new", "cmd_set", "cmd_need", "cmd_log", "cmd_answer", "cmd_re
               "cmd_inbox"):
     globals()[_name] = store_command(globals()[_name])
 
-for _name in ("web_pause", "web_question", "web_answer", "web_nudge", "after_answer",
+for _name in ("web_pause", "web_question", "web_answer", "after_answer",
               "create_room_files",
               "search_data"):
     globals()[_name] = store_guard(globals()[_name])

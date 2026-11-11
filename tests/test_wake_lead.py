@@ -1,4 +1,4 @@
-"""A worker's review/done reaches the lead; an idle lead behind a finished wait is stalled."""
+"""A worker's review/done reaches the lead; continuity() gives the overview state."""
 import argparse, importlib.machinery, importlib.util, tempfile, unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -41,15 +41,13 @@ class Wake(unittest.TestCase):
         self.set('lead', 'state=done')
         self.assertEqual(self.sent, [])
 
-    def test_free_text_wait_on_finished_items_is_stalled_when_lead_idle(self):
-        room = tr.Room('demo')
-        self.assertEqual(tr.continuity(room, True)[0], 'waiting')   # the second awaited item is unknown: keep today's behaviour
-        (self.root / 'rooms/demo/now-head.md').write_text('---\nwaiting: T01\nresume: when T01 reaches review\n---\n')
-        self.assertEqual(tr.continuity(tr.Room('demo'), True)[0], 'waiting')  # still doing
+    def test_continuity_overview(self):
+        room = lambda: tr.Room('demo')
+        self.assertEqual(tr.continuity(room())[0], 'running')
+        self.set('worker', 'state=blocked')
+        self.assertEqual(tr.continuity(room())[0], 'blocked')
         self.set('worker', 'state=review')
-        self.assertEqual(tr.continuity(tr.Room('demo'), True)[0], 'stalled')
-        self.status = 'running'
-        self.assertEqual(tr.continuity(tr.Room('demo'))[0], 'moving')
+        self.assertEqual(tr.continuity(room())[0], 'idle')
 
 
 if __name__ == '__main__':

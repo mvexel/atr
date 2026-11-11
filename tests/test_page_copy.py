@@ -45,8 +45,8 @@ class PageCopy(unittest.TestCase):
         self.assertEqual(out, 'You asked at 16:15: "Why?"\nlead replied at 16:16: "Because."')
 
     def test_save_and_execution_claims_are_distinct(self):
-        self.assertIn('"Saved locally"', HTML)
-        self.assertIn("receipt and execution unverified", HTML)
+        self.assertIn("Pause saved locally", HTML)
+        self.assertIn("agent receipt and execution are unverified", HTML)
         self.assertIn("T3 lead state unavailable", HTML)
 
 

@@ -52,7 +52,6 @@
   .roomrow .nm b { display: block; font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .roomrow .nm small { display: block; font-size: 13px; color: var(--text-secondary); }
   .roomrow[aria-current="true"] .nm b { color: var(--accent); }
-  .roomrow .nm small.stalled { color: var(--critical-text); }
   .palbtn { flex: none; width: 48px; min-height: 48px; margin: 0 0 4px; border: 1px solid var(--line); background: var(--surface-1); color: var(--text-primary); border-radius: 14px; font-size: 18px; cursor: pointer; }
   .rowtop { display: flex; gap: 6px; align-items: stretch; } .rowtop .roombtn { flex: 1; min-width: 0; width: auto; }
   .palkey { display: none; }
@@ -103,7 +102,6 @@
   .slotpill .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .slotpill .t .ico { margin-right: 6px; }
   .slotpill.paused { font-weight: 600; }
-  .slotpill.stalled { border-color: var(--critical); background: var(--critical-soft); font-weight: 600; }
   .slot .banner { margin: 4px 0 0; }
   .line.attn { color: var(--text-secondary); }
   .line.attn.loud { color: var(--critical-text); font-weight: 600; }
@@ -149,7 +147,6 @@
   .s-todo { border-left-color: var(--text-muted); } .s-done { border-left-color: var(--good); }
   .chip .flags { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; }
   .flag { border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; font-size: 12px; color: var(--text-muted); white-space: nowrap; }
-  .flag.unstaffed { border-color: var(--good); color: var(--text-secondary); }
   .why { font-size: 14px; color: var(--text-secondary); margin: 4px 0 10px; }
   .why summary { cursor: pointer; color: var(--text-muted); }
   .opts { display: grid; gap: 8px; }
@@ -273,7 +270,6 @@
   .pause.resume { border-color: var(--good); }
   .banner { background: var(--critical-soft); border: 1px solid var(--critical); border-radius: 12px; padding: 10px 12px;
             margin: 6px 0 4px; font-size: 14px; }
-  nav.rooms .stall { color: var(--critical-text); display: inline-flex; }
   .banner b { display: flex; align-items: center; gap: 6px; font-size: 15px; }
   .goalpill { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); background: var(--surface-1);
              color: var(--text-primary); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 14px; cursor: pointer; margin: 0 0 8px; }
@@ -381,6 +377,15 @@ function autostartLine(r) {
   return el("div", { class: "line", role: "status" }, `Auto-start: ${a.state}, ${a.running}/${a.cap} running`
     + (a.reason ? `, ${a.reason}` : "") + (a.offer.length ? `. Offered to the lead: ${a.offer.join(", ")}` : ""));
 }
+// The room's goal: status pill (draft, proposed, approved, none) and its three fields; open until approved.
+function goalBlock(r) {
+  const g = r.goal || { status: "none", locked: true };
+  const label = g.status === "none" ? "No goal yet: nothing starts" : `Goal ${g.status}${g.locked ? ": nothing starts until you approve it" : ""}`;
+  const fields = [["Architecture", g.architecture], ["Minimal viable result", g.result], ["Definition of done", g.done]].filter(f => f[1]);
+  return el("details", { class: "goalblock", open: !!g.locked && fields.length > 0 },
+    el("summary", { class: "goalpill " + (g.locked ? "locked" : "agreed") }, label),
+    ...fields.map(([h, t]) => el("p", {}, el("b", {}, h + ": "), linked(t))));
+}
 function leadFlagLine(r) {
   const f = r.lead_flag;
   if (!f) return null;
@@ -430,21 +435,12 @@ function linked(text) {
   });
 }
 
-// flags:begin  the plan JSON's `unstaffed` as chip text
-function flagChips(x) {
-  const out = [];
-  if (x.unstaffed) out.push({ text: "ready, no agent", cls: "unstaffed" });
-  return out;
-}
-// flags:end
-function flagEls(x) { return flagChips(x).map(f => el("span", { class: `flag ${f.cls}` }, f.text)); }
-
-function chip(item, extra, flags) {
+function chip(item, extra) {
   const s = item.state === "todo" && item.waits && item.waits.length ? "waits" : item.state;
   const [icon, label] = STATE[s] || ["?", s];
   const b = el("button", { class: `chip s-${s}`, title: `${item.id} ${item.title} · ${label}`, onclick: () => openRecord(item.id) },
     el("span", { class: "i" }, `${icon} ${item.id}`), el("span", { class: "t" }, item.title),
-    extra ? el("span", { class: "st" }, extra) : null, flags && flagChips(flags).length ? el("span", { class: "flags" }, ...flagEls(flags)) : null);
+    extra ? el("span", { class: "st" }, extra) : null);
   // A link next to the button, not inside it: the worker's thread in T3 where its id and environment are known.
   return item.agent_link ? el("span", { class: "chipwrap" }, b, el("a", { href: item.agent_link, target: "atr-t3", class: "t3link", title: "Open the worker's thread in T3" }, "T3")) : b;
 }
@@ -691,7 +687,6 @@ document.addEventListener("keydown", e => {
 
 // ---------- rooms: one button and a sheet on a phone, pills on a wide screen ----------
 const isClosed = x => x.lead_settled || x.closed;
-const isStalled = x => x.continuity && x.continuity.state === "stalled";
 const needN = x => x.asks.length;
 const roomScore = x => x.asks.reduce((n, d) => n + d.impact.agents.length * 100 + d.impact.items.length * 10 + d.impact.hours, 0);
 function lastActive(x) {
@@ -699,13 +694,13 @@ function lastActive(x) {
   return v.length ? Math.min(...v) : null;
 }
 function roomWord(x) {
-  return isClosed(x) ? "settled" : x.paused ? "paused" : isStalled(x) ? "stalled" : needN(x) ? "waiting on you"
-    : x.continuity && x.continuity.state === "waiting" ? "waiting" : x.continuity?.state === "unavailable" ? "T3 state unknown" : "moving";
+  return isClosed(x) ? "settled" : x.paused ? "paused" : needN(x) ? "waiting on you"
+    : ({ running: "running", blocked: "blocked", idle: "idle" })[x.continuity && x.continuity.state] || "idle";
 }
 function computeOrder(mode) {
   const rooms = state.rooms, live = rooms.filter(x => !isClosed(x)), dead = rooms.filter(isClosed);
   const recent = (a, b) => (lastActive(a) ?? 1e9) - (lastActive(b) ?? 1e9);
-  const tier = x => needN(x) ? 0 : isStalled(x) ? 1 : 2;
+  const tier = x => needN(x) ? 0 : 1;
   const needs = (a, b) => {
     if (tier(a) !== tier(b)) return tier(a) - tier(b);
     if (tier(a) === 0) {
@@ -732,7 +727,7 @@ function drawRoomSheet(host) {
   const need = state.rooms.reduce((n, x) => n + needN(x), 0);   
   const row = x => el("button", { class: "roomrow", "aria-current": String(x.name === current), onclick: () => { roomsOpen = false; drawSheet(); pick(x.name); } },
     el("span", { class: "nm" }, el("b", {}, x.title),
-      el("small", { class: isStalled(x) && !x.paused ? "stalled" : "" }, roomWord(x), lastActive(x) != null ? ` · active ${age(lastActive(x))} ago` : "")),
+      el("small", {}, roomWord(x), lastActive(x) != null ? ` · active ${age(lastActive(x))} ago` : "")),
     needN(x) ? el("span", { class: "n" + (x.paused ? " paused" : ""), "aria-label": `${needN(x)} need you` }, needN(x)) : null);
   const setSort = m => { roomSort = m; localStorage.setItem("roomSort", m); openRoomSheet(); };
   const sheet = el("div", { class: "sheet", role: "dialog", "aria-modal": "true", "aria-label": "Rooms" },
@@ -771,7 +766,7 @@ function msgLine(r) {
   return el("div", { class: "line", id: "msgline", role: "status", title: pauseMsg || l.map(x => x.textContent ?? x).join("") }, l);
 }
 function refreshMsg() { const r = room(), m = $("msgline"); if (r && m) m.replaceWith(msgLine(r)); }
-// One fixed-height 'needs attention' line from the bottleneck checks; loud ones are red, the rest muted.
+// One fixed-height 'needs attention' line from needs_attention; loud ones are red, the rest muted.
 function attnLine(r) {
   const a = r.attention || [];
   if (!a.length) return null;
@@ -826,36 +821,14 @@ function pauseButton(r) {
   } }, icon("pause"), pauseArmed ? "Tap to confirm" : "Pause");
 }
 
-// ---------- a room nothing will move ----------
-let nudgeMsg = {};
-async function nudge(roomName) {
-  nudgeMsg[roomName] = "Telling the lead…"; refreshSlot();
-  try {
-    const res = await (await fetch(base + "api/nudge", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ room: roomName }) })).json();
-    nudgeMsg[roomName] = !res.ok ? `Not sent: ${res.error}` : "Notice saved locally · " + SENT_NOTE;
-  } catch (e) { nudgeMsg[roomName] = `Not sent: ${e}`; }
-  refreshSlot();
-}
-// Paused, stalled or waiting: one fixed-height line that expands on tap.
+// Paused: one fixed-height line that expands on tap.
 function statusSlot(r) {
-  const c = r.continuity || {}, slot = el("div", { class: "slot", role: "status" });
+  const slot = el("div", { class: "slot", role: "status" });
   let kind = null, label = null, body = null;
   if (r.paused) {
     kind = "paused";
     label = [icon("pause"), `Team paused by you at ${localTime(r.paused_at) || r.paused}`];
     body = el("div", {}, "Pause saved locally. The stop message goes to the lead once; agent receipt and execution are unverified. New atr dispatch is blocked until you resume.");
-  } else if (c.state === "unavailable") {
-    kind = "unavailable"; label = [icon("pause"), "T3 execution state unavailable"];
-    body = el("div", {}, c.detail, ". Saved decisions remain local; a flag shows if the lead was not told, and receipt and resumed execution are separate.");
-  } else if (c.state === "stalled") {
-    kind = "stalled"; label = [icon("warn"), "Stalled: nothing will move by itself"];
-    body = el("div", {}, c.detail.charAt(0).toUpperCase() + c.detail.slice(1) + ".",
-      el("div", { style: "margin-top:8px; display:flex; gap:10px; align-items:center; flex-wrap:wrap" },
-        el("button", { class: "pause", onclick: () => nudge(r.name) }, "Nudge the lead"),
-        nudgeMsg[r.name] ? el("span", {}, nudgeMsg[r.name]) : null));
-  } else if (c.state === "waiting") {
-    kind = "waiting"; label = [icon("pause"), `Waiting on ${c.detail.replace(/^waiting on /, "")}`];
   }
   if (!kind) return slot;
   const open = !!body && slotOpen;
@@ -1061,7 +1034,7 @@ function draw(top) {
       el("button", { class: "palbtn", "aria-label": "Search", "aria-haspopup": "dialog", onclick: palOpenSheet }, "🔍")));
     app.append(el("nav", { class: "rooms" }, ordered.filter(x => !isClosed(x)).map(x =>
       el("button", { "aria-pressed": String(x.name === current), onclick: () => pick(x.name) },
-        x.paused ? icon("pause") : null, isStalled(x) && !x.paused ? el("span", { class: "stall", "aria-label": "stalled" }, icon("warn")) : null,
+        x.paused ? icon("pause") : null,
         el("span", { class: "name" }, x.title),
         needN(x) ? el("span", { class: "n" + (x.paused ? " paused" : ""), "aria-label": `${needN(x)} need you` }, needN(x)) : null)),
       settled.length ? el("select", { class: "settled" + (settled.some(x => x.name === current) ? " on" : ""), "aria-label": "Settled rooms",
@@ -1081,11 +1054,11 @@ function draw(top) {
     el("p", { class: "phase" }, linked(r.phase || "")),
     el("div", { class: "counts" },
       el("span", { class: "count" + (needN(r) ? " hot" : "") }, el("b", {}, needN(r)), "need you"),
-      el("span", { class: "count" }, el("b", {}, c.doing || 0), "doing"),
+      el("span", { class: "count" }, el("b", {}, c.doing || 0), "running"),
+      el("span", { class: "count" + (c.blocked ? " hot" : "") }, el("b", {}, c.blocked || 0), "blocked"),
+      el("span", { class: "count" }, el("b", {}, ((r.autostart || {}).ready || []).length), "ready"),
       el("span", { class: "count" }, el("b", {}, c.review || 0), "review"),
-      el("span", { class: "count" }, el("b", {}, (c.todo || 0) + (c.blocked || 0)), "queued"),
-      el("span", { class: "count" }, el("b", {}, c.done || 0), "done")),
-    statusCard(r)));
+      el("span", { class: "count" }, el("b", {}, c.done || 0), "done"))));
 
   const kinds = { all: "All", goal: "Goal", decision: "Decisions", ask: "Asks", premise: "Premises" };
   const present = new Set(r.asks.map(d => d.type));
@@ -1178,8 +1151,7 @@ function planBox(x) {
     el("span", { class: "i" }, `${x.state === "todo" && x.ready ? "○" : icon} ${x.id}`), el("span", { class: "t" }, x.title),
     el("span", { class: "m" }, x.ready ? el("span", {}, "ready") : null, x.cap_h ? el("span", {}, `${x.cap_h}h`) : null,
       ...(x.locks || []).map(l => el("span", { class: "lk", title: "lock" }, l))),
-    x.need ? el("span", { class: "need" }, `needs: ${x.need}`) : null,
-    flagChips({ unstaffed: x.unstaffed }).length ? el("span", { class: "m" }, ...flagEls({ unstaffed: x.unstaffed })) : null);
+    x.need ? el("span", { class: "need" }, `needs: ${x.need}`) : null);
 }
 function planArrows(box) {
   const svg = box.querySelector("svg");

@@ -32,7 +32,7 @@ class AskWithoutOptions(unittest.TestCase):
         (d / "decisions" / "X01-q.md").write_text(
             f"---\nid: X01\ntitle: q\ntype: {typ}\ndoor: two\ndecider: owner\nstatus: open\n"
             f"opened: 2026-10-27T10:00Z\nupdated: 2026-10-27T10:00Z\n---\n## Options\n{options}\n")
-        return [w for w in tr.problems(tr.Room("r"), False) if "fewer than 2 options" in w]
+        return [w for w in tr.problems(tr.Room("r")) if "fewer than 2 options" in w]
 
     def test_ask_without_options_is_quiet(self):
         self.assertEqual(self.warnings("ask"), [])

@@ -39,7 +39,7 @@ Don't create a second room for a thread that already leads one, and don't add ne
 
 ## Take over a room
 
-To lead an existing room, run `lead ROOM YOUR_THREAD_ID`, then `inbox ROOM` and `check ROOM --yield`, and carry on.
+To lead an existing room, run `lead ROOM YOUR_THREAD_ID`, then `inbox ROOM` and `status ROOM`, and carry on.
 
 ## Titles, links and paths
 
@@ -51,7 +51,7 @@ To lead an existing room, run `lead ROOM YOUR_THREAD_ID`, then `inbox ROOM` and 
 
 ## Pin while the owner is needed, settle on close
 
-`atr t3 organize ROOM` prints the `t3_thread_organize` calls your own thread needs (JSON; atr cannot call T3 tools): `pin` while an owner decision, ask or goal approval card is open, `unpin` then `settle` once the room is closed. Only the lead is pinned; nothing is snoozed. The standing process maintainer stays pinned even without an open owner card. Run it before `check ROOM --yield` and again when you close the room, then make the calls it lists (omit `threadId` for your own thread; settle last, it applies at turn end). Steps T3 already satisfies are skipped, and a repeat is harmless. If T3 facts are unavailable the steps are marked `unknown`: make them anyway. `atr status` and `check` hint when the pin state is out of line.
+`atr t3 organize ROOM` prints the `t3_thread_organize` calls your own thread needs (JSON; atr cannot call T3 tools): `pin` while an owner decision, ask or goal approval card is open, `unpin` then `settle` once the room is closed. Only the lead is pinned; nothing is snoozed. The standing process maintainer stays pinned even without an open owner card. Run it again when you close the room, then make the calls it lists (omit `threadId` for your own thread; settle last, it applies at turn end). Steps T3 already satisfies are skipped, and a repeat is harmless. If T3 facts are unavailable the steps are marked `unknown`: make them anyway. `atr status` and `check` hint when the pin state is out of line.
 
 ## Dispatching what atr offers
 
@@ -77,7 +77,7 @@ On each owner message or worker result, update the records and continue authoriz
 
 Before saying "waiting for you", "decision still open" or "building locked", and again before yielding, run `inbox ROOM` and reread the named decision plus the room's goal. Use the saved state, not the card seen earlier or remembered conversation. Pending notification does not invalidate an answer; an empty inbox delta is not proof of an unanswered decision. If agreement is already final, consume it, update now-head and advance eligible work. If an answer races the final report, correct the report on receipt rather than ask for acceptance again. Do not rewrite an approved goal while incorporating later evidence; a changed goal goes back to the owner as a new approval card.
 
-Before ending a turn, inspect `check ROOM --yield` output. Its default exit code can be zero despite warnings. A `STALLED` or ready-undispatched warning means the handoff failed: continue or dispatch work, then check again. A genuine owner question or external event can justify waiting only for the work it blocks; continue independent work. Name the actual wake mechanism. A consumed completion, a saved future time without a scheduled wake, or `resume: lead continues` cannot resume an idle lead. Do not create a cosmetic wait to silence the warning.
+Before ending a turn, run `check ROOM`: it lints the records (bad state, unknown dependency, cycle, lock clash, decision shape, no goal). Its exit code is zero despite warnings unless `--strict`, so read the output. atr messages you the ready items (max 3 running); dispatch them. A genuine owner question or external event can justify waiting only for the work it blocks; continue independent work.
 
 If `check` contradicts direct T3 evidence of a running worker, reconcile the recorded identity and facts source instead of dispatching duplicate work. Record the discrepancy and actual completion wake. Tell the owner what changed, who acts next and whether they need to do anything. Only describe work as running when execution evidence supports it. If work cannot continue, identify the concrete blocker and the exact input needed rather than ending with a promise to continue.
 
@@ -91,7 +91,7 @@ Always report back when the owner's answer or message reaches you, whether it wa
 
 Save records before communicating. A message to you or to a worker is one send plus one automatic retry. If neither is accepted the room page shows "Lead not notified", and `inbox ROOM` prints the unsent message, so run `inbox ROOM` mid-turn. A message T3 accepted is not proof that the agent received it or resumed work.
 
-The owner's taps on the web page reach you between turns; run `inbox ROOM` mid-turn to pick them up sooner. Review results, run appropriate checks, update now-head and advance the next eligible item while your turn lasts. Before yielding, run `status ROOM` and `check ROOM --yield`, and leave a concrete event, time or owner question that will resume the room.
+The owner's taps on the web page reach you between turns; run `inbox ROOM` mid-turn to pick them up sooner. Review results, run appropriate checks, update now-head and advance the next eligible item while your turn lasts. Before yielding, run `status ROOM` and `check ROOM`, and leave a concrete event, time or owner question that will resume the room.
 
 Main merges, releases, deployment and live store cut-over need the owner's authorization. Preserve unknown metadata, attachments, dirty or untracked code and branch history before cleanup. Follow the source's `docs/OPERATIONS.md` for restore. Never put credentials or private host paths in this skill.
 

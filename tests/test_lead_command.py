@@ -47,7 +47,7 @@ class LeadCommand(unittest.TestCase):
         c = mod.lead_commands("demo")
         self.assertTrue(c["terminal"].endswith(" lead demo THREAD_ID"))
         self.assertIn("lead demo <your-thread-id>", c["prompt"])
-        self.assertIn("check demo --yield", c["prompt"])
+        self.assertIn("status demo", c["prompt"])
 
     def test_page_wiring(self):
         self.assertIn("leadCmdBox(r)", HTML)

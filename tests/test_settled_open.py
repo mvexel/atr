@@ -49,13 +49,11 @@ class SettledOpen(unittest.TestCase):
         self.assertIn("lead settled with open items: T44, T45", e[0]["text"])
         self.assertIn("unsettle the lead", e[0]["text"])
         self.assertTrue(tr.attention_json(r)["attention_loud"])
-        self.assertTrue(any("lead settled with open items: T44, T45" in p for p in tr.problems(r, False)))
         self.assertEqual(self.sent, [])
 
     def test_no_open_items(self):
         r = self.room(states=("done", "dropped"))
         self.assertEqual(self.entries(r), [])
-        self.assertFalse(any("lead settled with open items" in p for p in tr.problems(r, False)))
 
     def test_not_settled(self):
         self.assertEqual(self.entries(self.room(settled=False)), [])

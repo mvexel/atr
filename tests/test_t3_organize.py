@@ -66,8 +66,6 @@ class Organize(Base):
         self.assertIn("t3 organize r1", tr.organize_warn(self.mk(ask=True)))
         self.facts = {"pinned": True}
         self.assertIsNone(tr.organize_warn(self.mk(ask=True)))
-        self.facts = {"pinned": False}
-        self.assertTrue([p for p in tr.problems(self.mk(ask=True)) if "t3 organize r1" in p])
 
 if __name__ == "__main__":
     unittest.main()

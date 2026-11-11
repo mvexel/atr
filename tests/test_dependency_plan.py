@@ -99,16 +99,15 @@ class Need(Base):
     def test_blocked_with_need_shows_in_attention_until_flipped(self):
         self.room([("T01", dict(state="doing"))])
         self.run_need(text="needs a fixture set")
-        a = [x for x in tr.bottlenecks(tr.Room("r1")) if x["rule"] == "need"]
+        a = [x for x in tr.needs_attention(tr.Room("r1")) if x["rule"] == "need"]
         self.assertEqual(len(a), 1)
         self.assertIn("needs a fixture set", a[0]["text"])
-        self.assertIsNone(a[0]["nudge"])           # the lead was already told by `need`
         self.set_("state=todo")
-        self.assertEqual([x for x in tr.bottlenecks(tr.Room("r1")) if x["rule"] == "need"], [])
+        self.assertEqual([x for x in tr.needs_attention(tr.Room("r1")) if x["rule"] == "need"], [])
 
     def test_blocked_without_needs_entry_not_in_attention(self):
         room = self.room([("T01", dict(state="blocked"))])
-        self.assertEqual([x for x in tr.bottlenecks(room) if x["rule"] == "need"], [])
+        self.assertEqual([x for x in tr.needs_attention(room) if x["rule"] == "need"], [])
 
 
 class Waves(Base):
@@ -166,21 +165,6 @@ class Checks(Base):
         room = self.room([("T01", dict(state="done")), ("T02", dict(state="doing", deps="T01"))])
         self.assertFalse(any("not done" in p for p in tr.problems(room)))
 
-    def test_four_open_items_without_plan_warn(self):
-        room = self.room([(f"T0{n}", {}) for n in range(1, 5)])
-        self.assertTrue(any("no dependency plan" in p for p in tr.problems(room)))
-
-    def test_three_items_or_any_edge_or_lock_is_quiet(self):
-        self.assertFalse(any("no dependency plan" in p for p in tr.problems(self.room([(f"T0{n}", {}) for n in range(1, 4)]))))
-        items = [(f"T0{n}", {}) for n in range(1, 5)]
-        items[1] = ("T02", dict(deps="T01"))
-        self.assertFalse(any("no dependency plan" in p for p in tr.problems(self.room(items))))
-        items[1] = ("T02", dict(locks="gradle"))
-        self.assertFalse(any("no dependency plan" in p for p in tr.problems(self.room(items))))
-
-    def test_doing_with_empty_brief_warns_for_existing_rooms(self):
-        room = self.room([("T01", dict(state="doing", body="## Acceptance\n- [ ] \n\n## Inputs\n- \n\n"))])
-        self.assertTrue(any("T01" in p and "Acceptance" in p for p in tr.problems(room)))
 
 
 class SetDoingBrief(Base):
