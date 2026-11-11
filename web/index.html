@@ -241,7 +241,7 @@
     .plan .wave { flex: 1 0 170px; min-width: 170px; }
     .plan svg { display: block; }
   }
-  button.chip, .addnote, .slotpill, .rtoggle, .prdpill, .filters button, .seg button, .pal .chips button, .pbox { min-height: 44px; }
+  button.chip, .addnote, .slotpill, .rtoggle, .goalpill, .filters button, .seg button, .pal .chips button, .pbox { min-height: 44px; }
   .rooms button { min-height: 44px; }
   button.chip { cursor: pointer; font: inherit; font-size: 13px; color: inherit; text-align: left; }
   .lane button.chip { width: 100%; }
@@ -304,10 +304,11 @@
             margin: 6px 0 4px; font-size: 14px; }
   nav.rooms .stall { color: var(--critical-text); display: inline-flex; }
   .banner b { display: flex; align-items: center; gap: 6px; font-size: 15px; }
-  .prdpill { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); background: var(--surface-1);
+  .goalpill { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); background: var(--surface-1);
              color: var(--text-primary); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 14px; cursor: pointer; margin: 0 0 8px; }
-  .prdpill.locked { border-color: var(--warning); }
-  .prdpill.agreed { border-color: var(--good); }
+  .goalpill.locked { border-color: var(--warning); }
+  .goalpill.agreed { border-color: var(--good); }
+  .goalblock p { margin: 2px 0; white-space: pre-wrap; }
   .card { background: var(--surface-1); border: 1px solid var(--line); border-radius: 14px; padding: 6px 12px 8px; margin: 8px 0 0; }
   .card .top .line { margin: 2px 0 0; }
   .card .line.warn { color: var(--text-primary); font-weight: 600; }
@@ -428,7 +429,7 @@ function inline(text) {
   const known = recs(current);
   const out = [];
   let last = 0;
-  for (const m of text.matchAll(/\*\*(.+?)\*\*|`([^`]+)`|\b(RF\d{2,3}|[TBDAPR]\d{2,3}|PRD)\b|\[([^\]]+)\]\(([^)]+)\)/g)) {
+  for (const m of text.matchAll(/\*\*(.+?)\*\*|`([^`]+)`|\b([TBDAP]\d{2,3}|GOAL)\b|\[([^\]]+)\]\(([^)]+)\)/g)) {
     if (m[3] && !known[m[3]]) continue;
     out.push(text.slice(last, m.index));
     if (m[1] != null) out.push(el("b", {}, inline(m[1])));
@@ -807,6 +808,15 @@ function showProcess(name) {
   load(true);
 }
 
+function goalBlock(r) {
+  const g = r.goal || { status: "none", locked: true };
+  const head = el("button", { class: "goalpill " + (g.locked ? "locked" : "agreed"), onclick: () => g.status === "none" ? null : openRecord("GOAL") },
+    g.locked ? "◐" : "✓", g.status === "none" ? " No goal yet · building locked" : ` Goal ${g.status}` + (g.locked ? " · building locked, waiting for your approval" : " · building open"));
+  if (g.status === "none") return el("div", { class: "goalblock" }, head, el("p", { class: "sub2" }, "The lead writes the goal (architecture, minimal viable result, definition of done), then asks you to approve it."));
+  return el("div", { class: "goalblock" }, head,
+    [["Architecture", g.architecture], ["Minimal viable result", g.result], ["Definition of done", g.done]].map(([h, t]) =>
+      el("p", { class: "sub2" }, el("b", {}, h + ": "), t || "")));
+}
 function statusCard(r) {
   return el("div", { class: "card", id: "statuscard" }, msgLine(r));
 }
@@ -992,7 +1002,7 @@ function receiptCard(key, s) {
 const rewriteQA = t => t.replace(/^- Q · owner · (\S+?):(?= )/gm, "You asked at $1:").replace(/^- A · ([^ ]+) · (\S+?):(?= )/gm, "$1 replied at $2:");
 // First-use definitions (ui-language 1 and 5): room, card, lead, record ids and the five card kinds, said once.
 const KIND_DEFS = [["Decision", "A card with lettered options; you pick one."], ["Ask", "A card for something only you can supply, such as a name or a choice outside the options."],
-  ["Premise", "An assumption the team is working under; you confirm it or correct it."], ["PRD", "The product requirements doc for a feature; you agree it before building starts."],
+  ["Premise", "An assumption the team is working under; you confirm it or correct it."], ["Goal", "What the room is for, in three parts; you approve it before any work starts."],
   ["Your task", "A card for a step only you can do, with the steps written out."]];
 function firstUse() {
   return el("details", { class: "why firstuse" }, el("summary", {}, "What these words mean"),
@@ -1007,7 +1017,7 @@ function askCard(roomName, d, maxImpact) {
   card.append(el("div", { class: "badges" },
     d.urgent ? el("span", { class: "badge urgent" }, icon("warn"), "Urgent") : null,
     el("span", { class: "badge" + (d.door === "one" ? " oneway" : "") }, d.door === "one" ? [icon("lock"), "Hard to undo"] : [icon("undo"), "Easy to undo"]),
-    el("span", { class: "badge" }, { ask: "Ask", premise: "Premise", decision: "Decision", prd: "PRD", todo: "Your task" }[d.type] || d.type)));
+    el("span", { class: "badge" }, { ask: "Ask", premise: "Premise", decision: "Decision", goal: "Goal", todo: "Your task" }[d.type] || d.type)));
   card.append(el("p", { class: "title" }, el("span", { class: "id" }, d.id), d.title));
   if (d.type === "todo" && d.steps) card.append(el("pre", { class: "note", style: "margin:6px 0 10px; white-space:pre-wrap; user-select:all" }, d.steps));
   if (d.urgent) card.append(el("div", { class: "why" }, linked(d.urgent)));
@@ -1256,10 +1266,7 @@ function draw(top) {
         el("span", { class: "count" }, el("b", {}, fbk[k] || 0), l)),
       ) : null,
     inStd ? el("div", { class: "sub2" }, `outcomes in the last ${fbk.week_days || 7} days`) : null,
-    !inStd && r.prd ? el("button", { class: "prdpill " + (r.prd.locked ? "locked" : "agreed"), onclick: () => openRecord("PRD") },
-      r.prd.locked ? "◐" : "✓", ` PRD${r.prd.version ? " v" + r.prd.version + " ·" : ""} ${r.prd.status}`, r.prd.locked ? " · building locked" : " · building open") : null,
-    !inStd && r.prd && (r.prd.refinements || []).length ? el("span", { class: "sub2" }, "Refinements: ",
-      r.prd.refinements.map(id => el("button", { class: "ref", onclick: () => openRecord(id) }, id))) : null,
+    inStd ? null : goalBlock(r),
     inStd ? null : el("p", { class: "phase" }, linked(r.phase || "")),
     inStd ? null : el("div", { class: "counts" },
       el("span", { class: "count" + (needN(r) ? " hot" : "") }, el("b", {}, needN(r)), "need you"),
@@ -1269,7 +1276,7 @@ function draw(top) {
       el("span", { class: "count" }, el("b", {}, c.done || 0), "done")),
     inStd ? null : statusCard(r)));
 
-  const kinds = { all: "All", prd: "PRD", decision: "Decisions", ask: "Asks", premise: "Premises" };
+  const kinds = { all: "All", goal: "Goal", decision: "Decisions", ask: "Asks", premise: "Premises" };
   const present = new Set(r.asks.map(d => d.type));
   if (filter !== "all" && !present.has(filter)) filter = "all";
   const shown = r.asks.filter(d => filter === "all" || d.type === filter);

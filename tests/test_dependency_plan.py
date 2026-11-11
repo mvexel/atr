@@ -5,6 +5,9 @@ import contextlib, importlib.machinery, importlib.util, io, tempfile, types, uni
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import goal_fixture
 spec = importlib.util.spec_from_loader("tr", importlib.machinery.SourceFileLoader("tr", str(REPO / "bin" / "atr")))
 tr = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tr)
@@ -31,11 +34,12 @@ class Base(unittest.TestCase):
         tr.ROOMS, tr.tell_lead_or_defer = self.saved
         self.tmp.cleanup()
 
-    def room(self, items, brief="---\ntitle: t\nprd: waived (test)\n---\n", name="r1"):
+    def room(self, items, brief="---\ntitle: t\n---\n", name="r1"):
         d = tr.ROOMS / name
         (d / "items").mkdir(parents=True, exist_ok=True)
         (d / "decisions").mkdir(exist_ok=True)
         (d / "BRIEF.md").write_text(brief)
+        goal_fixture.approve(d)
         for old in (d / "items").glob("*.md"):
             old.unlink()
         for iid, kw in items:
@@ -81,7 +85,7 @@ class Need(Base):
         self.assertEqual(self.told, [])
 
     def test_refuses_closed_room(self):
-        self.room([("T01", dict(state="doing"))], brief="---\ntitle: t\nclosed: 2026-10-27T09:00Z\nprd: waived (x)\n---\n")
+        self.room([("T01", dict(state="doing"))], brief="---\ntitle: t\nclosed: 2026-10-27T09:00Z\n---\n")
         with self.assertRaises(SystemExit):
             self.run_need()
         self.assertEqual(self.told, [])
@@ -199,11 +203,6 @@ class SetDoingBrief(Base):
     def test_force_overrides(self):
         self.room([("T01", dict(body=self.EMPTY_A))])
         self.set_("state=doing", force=True)
-        self.assertEqual(tr.Room("r1").find("T01")["state"], "doing")
-
-    def test_prd_phase_item_is_exempt(self):
-        self.room([("T01", dict(body=self.EMPTY_A, extra="phase: prd\n"))])
-        self.set_("state=doing")
         self.assertEqual(tr.Room("r1").find("T01")["state"], "doing")
 
     def test_item_already_doing_is_not_refused(self):

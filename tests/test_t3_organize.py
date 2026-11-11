@@ -21,7 +21,7 @@ class Organize(Base):
 
     def mk(self, ask=False, closed=False):
         extra = "closed: done\n" if closed else ""
-        room = self.room([("T01", {})], brief=f"---\ntitle: t\nprd: waived (test)\nlead_thread: {LEAD}\n{extra}---\n")
+        room = self.room([("T01", {})], brief=f"---\ntitle: t\nlead_thread: {LEAD}\n{extra}---\n")
         if ask:
             (room.dir / "decisions" / "D01-q.md").write_text(OPEN)
         return tr.Room("r1")

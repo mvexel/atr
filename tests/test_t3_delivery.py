@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -15,6 +16,8 @@ import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import goal_fixture
 
 
 def load():
@@ -35,6 +38,7 @@ class T3Delivery(unittest.TestCase):
         for part in ("items", "decisions", "notes"):
             (self.room / part).mkdir(parents=True)
         (self.room / "BRIEF.md").write_text("---\ntitle: Demo\ntz: UTC\nlead_thread: synthetic-thread\n---\n")
+        goal_fixture.approve(self.room)
         self.decision = self.room / "decisions/D01-choice.md"
         self.decision.write_text("---\nid: D01\ntitle: Choose\nstatus: open\ndecider: owner\n---\n## Options\na) First\nb) Second\n\n## Answer\n")
 

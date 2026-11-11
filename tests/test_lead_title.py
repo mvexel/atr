@@ -71,7 +71,7 @@ class LeadTitle(unittest.TestCase):
 
     def test_room_new_last_line(self):
         out = io.StringIO()
-        a = argparse.Namespace(name="newroom", title="New", lead_thread="fresh-thread-9", waive_prd="why", no_ux=False)
+        a = argparse.Namespace(name="newroom", title="New", lead_thread="fresh-thread-9")
         tr.ROOMS.mkdir(parents=True)
         saved = tr.create_room_files
         tr.create_room_files = lambda *x, **k: (tr.ROOMS / "newroom").mkdir()
@@ -85,7 +85,7 @@ class LeadTitle(unittest.TestCase):
 
     def test_room_new_without_lead_points_at_atr_lead(self):
         out = io.StringIO()
-        a = argparse.Namespace(name="newroom", title="New", lead_thread="", waive_prd="why", no_ux=False)
+        a = argparse.Namespace(name="newroom", title="New", lead_thread="")
         tr.ROOMS.mkdir(parents=True)
         saved = tr.create_room_files
         tr.create_room_files = lambda *x, **k: (tr.ROOMS / "newroom").mkdir()

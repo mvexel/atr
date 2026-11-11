@@ -22,8 +22,7 @@ class LeadCommand(unittest.TestCase):
         self.store = Path(self.tmp.name) / "store with space"
         env = {**os.environ, "ATR_DATA_DIR": str(self.store), "XDG_CONFIG_HOME": self.tmp.name + "/cfg", "CLAUDE_CONFIG_DIR": self.tmp.name + "/claude", "CODEX_HOME": self.tmp.name + "/codex", "ATR_SERVICE": "off", "T3CODE_CLI_PATH": "/nonexistent"}
         self.env = env
-        self.run_atr("setup", "--no-maintainer")
-        self.run_atr("rooms", "new", "demo", "Demo", "--waive-prd", "not a feature: test")
+        self.run_atr("rooms", "new", "demo", "Demo")
 
     def run_atr(self, *args):
         return subprocess.run([sys.executable, "-I", str(ATR), *args], capture_output=True, text=True, env=self.env)

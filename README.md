@@ -35,7 +35,7 @@ One room is one project or feature, led by one T3 thread.
 - **Your files, your folder.** Plans and decisions are plain Markdown in a folder you pick, separate from the code. Read them, grep them, put them in git.
 - **Keeps recording when T3 is down.** T3 is required, but if it is down or missing you can still read, search, and record decisions. They go out when it’s back.
 - **No wishful thinking about delivery.** atr won’t claim an agent got your message just because T3 accepted it. It shows saved, pending, uncertain, and accepted as separate states.
-- **Review before building.** Agents don’t start building until you’ve agreed to the plan.
+- **Review before building.** No worker starts until you’ve approved the room’s goal.
 
 ## Run from a checkout
 
@@ -60,7 +60,7 @@ python3 bin/atr serve --data-dir DIR
 
    From a terminal, `atr start "a settings page …"` does the same: it starts the thread in T3 for you, in the project of the folder you run it from.
 
-3. **Agree the plan.** The lead drafts a plan with you in the thread. When it’s ready, a card on the web page asks you to agree. Nothing gets built before you do.
+3. **Approve the goal.** The lead asks you a few questions in the thread (architecture, minimal viable result, definition of done) and writes them up as the room's goal. A card on the web page asks you to approve it. No worker starts before you do.
 
 From there, the lead splits the work into items and starts workers in T3.
 

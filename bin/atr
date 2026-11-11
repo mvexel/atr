@@ -20,10 +20,9 @@ Usage (ROOM is a folder name under rooms/):
   atr lead ROOM [THREAD]          hand the lead to a T3 thread; without THREAD, print text to copy and paste to take it
   atr room list                  every room: state, open items, open decisions, title
   atr room new ROOM "Feature title" --lead-thread ID [--no-ux]  start a feature (one room per thread)
-  atr prd ROOM review            product + tech lead signed: ask the owner to agree (opens a D card)
-  atr refinement ROOM new "title" --touches FR4 [--supersedes RF01]   change an agreed PRD (RFnn)
-  atr refinement ROOM RFnn review   signed: open an "Agree RFnn" card
-  atr brief ROOM                  print the binding: PRD.md + agreed refinements
+  atr goal ROOM new --architecture TEXT --result TEXT --done TEXT   write the room's goal (draft)
+  atr goal ROOM approve          ask the owner to approve the goal (opens a D card); no worker starts before
+  atr brief ROOM                  print the room's goal (every worker brief carries it)
   atr team [ROOM]                 show who is who
   atr feedback "text" --doc PROTOCOL|skill|charter --from ROOM [--cites REC] [--from-thread ID] [--blocks ROOM/ITEM,...]   file feedback
   atr inbox ROOM                  the owner's taps and pause changes since you last looked (run it mid-turn)
@@ -408,7 +407,7 @@ def store_command(function):
         print(output.getvalue(), end="")
         return result
     return wrapped
-OWNER = "owner"   # the person the team works for: decides cards, agrees PRDs, taps the page
+OWNER = "owner"   # the person the team works for: decides cards, approves goals, taps the page
 ITEM_STATES = {"todo", "doing", "blocked", "review", "done", "dropped"}
 DECISION_STATES = {"open", "provisional", "final", "superseded", "sent"}
 ACTIVE = ["blocked", "doing", "review", "todo"]
@@ -516,9 +515,8 @@ class Room:
         self.brief = Record(brief) if brief.exists() else None
         head = self.dir / "now-head.md"
         self.head = Record(head) if head.exists() else None
-        prd = self.dir / "PRD.md"
-        self.prd = Record(prd) if prd.exists() else None
-        self.refinements = sorted((Record(p) for p in (self.dir / "refinements").glob("RF*.md")), key=lambda r: idkey(r["id"]))
+        goal = self.dir / "GOAL.md"
+        self.goal = Record(goal) if goal.exists() else None
         self.items = sorted((Record(p) for p in (self.dir / "items").glob("*.md")), key=lambda r: idkey(r["id"]))
         self.decisions = sorted((Record(p) for p in (self.dir / "decisions").glob("*.md") if p.name != "INDEX.md"),
                                 key=lambda r: idkey(r["id"]))
@@ -536,8 +534,8 @@ class Room:
 
     @property
     def build_locked(self):
-        """Building waits for a PRD agreed by product lead, tech lead and the owner."""
-        return bool(self.prd) and self.prd["status"] != "agreed"
+        """No worker starts until the owner has approved the room's goal."""
+        return not (self.goal and self.goal["status"] == "approved")
 
     @property
     def paused(self):
@@ -557,7 +555,7 @@ class Room:
         return (self.brief and self.brief["title"]) or self.name
 
     def find(self, rid):
-        for r in self.items + self.decisions + self.refinements:
+        for r in self.items + self.decisions:
             if r["id"].lower() == rid.lower():
                 return r
         sys.exit(f"{self.name}: no record {rid}")
@@ -603,7 +601,7 @@ def refuse_closed(room, what):
     if room.closed:
         sys.exit(f"refused: {room.name} is closed ({room.brief['closed']}). Don't add {what} to a closed room: its lead "
                  "is gone, so a tap on it would wake the wrong thread. Follow-up work gets its own room and thread: "
-                 "atr room new <name> \"<title>\" --lead-thread <your thread id> [--waive-prd \"why\"]")
+                 "atr room new <name> \"<title>\" --lead-thread <your thread id>")
 
 def cmd_new(a):
     room = Room(a.room)
@@ -614,8 +612,6 @@ def cmd_new(a):
         text = (TEMPLATES / "item.md").read_text().format(
             id=rid, title=a.title, owner=a.owner or "", depends=", ".join(a.depends or []),
             locks=", ".join(a.locks or []), cap=a.cap or "", now=stamp(t), hhmm=logstamp(t), by=a.by)
-        if a.phase:
-            text = text.replace("cap_h:", f"phase: {a.phase}\ncap_h:", 1)
         path = room.dir / "items" / f"{rid}-{slug(a.title)}.md"
     else:
         rid = next_id(room.decisions, {"premise": "P", "ask": "A", "todo": "A"}.get(a.type, "D"))
@@ -626,7 +622,7 @@ def cmd_new(a):
             a.option = a.option or ["Done, I did this", "Can't do this yet (say why in the note)"]
         if a.type == "premise":
             a.option = a.option or ["Yes, that's right", "No, change it (say how in a note)"]
-        if a.type in ("decision", "prd", "refinement") and len(a.option or []) < 2:
+        if a.type in ("decision", "goal") and len(a.option or []) < 2:
             sys.exit(f"a {a.type} card needs at least two --option values: without them the owner's page shows no buttons")
         text = (TEMPLATES / "decision.md").read_text().format(
             id=rid, title=a.title, type=a.type, door=a.door, decider=a.decider,
@@ -685,21 +681,18 @@ def cmd_set(a):
     room = Room(a.room)
     r = room.find(a.id)
     r.expect_version(getattr(a, "expect_version", None))
-    if r in room.refinements and r["status"] == "agreed" and a.pairs != ["status=superseded"]:
-        sys.exit(f"refused: {r['id']} is agreed and never edited (only status=superseded is allowed). "
-                 "Write a new refinement that supersedes it: atr refinement ROOM new \"title\" --touches ID --supersedes " + r["id"])
     if room.paused and "state=doing" in a.pairs and not a.force:
         sys.exit(f"{room.name} is paused by the owner since {room.local(room.paused)}: don't start new work "
                  "(finish your current step, write the Result, then stop)")
-    if room.build_locked and "state=doing" in a.pairs and r["phase"] != "prd" and r["type"] == "" and not a.force:
-        sys.exit(f"{room.name}: the PRD is {room.prd['status']}{prd_v(room.prd)}. Only items with "
-                 "phase: prd can start until the owner agrees the PRD (atr prd ROOM review)")
+    if room.build_locked and "state=doing" in a.pairs and r["type"] == "" and not a.force:
+        sys.exit(f"{room.name}: {goal_state(room)}. No item can start until the owner approves the goal "
+                 "(atr goal ROOM new ..., then atr goal ROOM approve)")
     if ({"state=review", "state=done"} & set(a.pairs)
             and not re.search(r"set\b.*\bstate=doing\b", r.body.split("## Result")[0])):
         print(f"warn: {r['id']} goes to {next(p for p in a.pairs if p in ('state=review', 'state=done'))[6:]} with no "
               "'set state=doing' line in its Log: an item never claimed counts as zero working time "
               f"(bin/atr set {room.name} {r['id']} state=doing owner=<role> next time)", file=sys.stderr)
-    if ("state=doing" in a.pairs and r in room.items and r["state"] != "doing" and r["phase"] != "prd"
+    if ("state=doing" in a.pairs and r in room.items and r["state"] != "doing"
             and r["type"] == "" and not a.force and brief_gaps(r)):
         sys.exit(f"refused: {r['id']} has an empty {' and '.join(brief_gaps(r))}. Write the brief first "
                  "(testable Acceptance, Inputs with files and upstream Results), or --force")
@@ -863,7 +856,7 @@ def cmd_need(a):
     r.save()
     told = tell_lead_or_defer(room, f"{r['id']} ({r['title']}) in room {room.name} is blocked by {a.by}: {text}{tail}. "
                               "Decide in this turn: an existing item first (depends_on), a small new prerequisite inside "
-                              "the PRD, or a scope change (refinement or card). Then flip it back and tell the worker.")
+                              "the goal, or a scope change (a card for the owner). Then flip it back and tell the worker.")
     print(f"{r['id']} blocked; lead {'told' if told else 'not reachable (the page shows it under needs attention)'}")
 
 def cmd_log(a):
@@ -874,68 +867,73 @@ def cmd_log(a):
     r.save()
 
 def after_answer(room, d, choice):
-    """A PRD decision moves the PRD: a) agreed unlocks building, anything else sends it back to draft.
+    """A goal decision moves the goal: a) approved unlocks building, anything else sends it back to draft.
     Returns a sentence for the lead's message, or None."""
-    if d["type"] == "refinement":
-        rf = next((x for x in room.refinements if x["id"] == d["source"]), None)
-        if not rf:
-            return
-        if choice == "a":
-            rf.set("status", "agreed")
-            rf.set("agreed", stamp())
-            agree_line(rf, f"Owner: agreed at {room.local(now())} ({d['id']})")
-            for old in rf["supersedes"]:
-                prev = next((x for x in room.refinements if x["id"] == old), None)
-                if prev and prev["status"] == "agreed":
-                    prev.set("status", "superseded")
-                    prev.set("updated", stamp())
-                    prev.save()
-        else:
-            rf.set("status", "draft")
-        rf.set("updated", stamp())
-        rf.save()
-        sync_binding(Room(room.name))
-        return
-    if d["type"] != "prd" or not room.prd:
-        return
-    prd = room.prd
+    if d["type"] != "goal" or not room.goal:
+        return None
+    goal = room.goal
     if choice == "a":
-        prd.set("status", "agreed")
-        prd.set("agreed", stamp())
-        agree_line(prd, f"Owner: agreed{' v' + prd['version'] if prd['version'] else ''} at {room.local(now())} ({d['id']})")
+        goal.set("status", "approved")
+        goal.set("approved", stamp())
     else:
-        prd.set("status", "draft")
-        if prd["version"]:                      # PRDs written before the version header count versions; new ones have none
-            prd.set("version", str(int(prd["version"]) + 1))
-    prd.set("updated", stamp())
-    prd.save()
-    sync_binding(Room(room.name))
+        goal.set("status", "draft")
+        goal.set("approved", "")
+    goal.set("updated", stamp())
+    goal.save()
     return None
 
-def agree_line(rec, line):
-    if re.search(r"^Owner:[ \t]*$", rec.body, re.M):
-        rec.body = re.sub(r"^Owner:[ \t]*$", line, rec.body, count=1, flags=re.M)
-    else:
-        rec.append_to("Sign-off", line)
+GOAL_FIELDS = (("Architecture", "architecture"), ("Minimal viable result", "result"), ("Definition of done", "done"))
 
-def prd_v(prd):
-    return f" (v{prd['version']})" if prd["version"] else ""
+def goal_state(room):
+    return f"goal {room.goal['status']}" if room.goal else "no goal yet"
 
-def binding(room):
-    """What binds the work: PRD.md plus the agreed refinements (never drafts, reviews or superseded ones)."""
-    ids = [r["id"] for r in room.refinements if r["status"] == "agreed"]
-    return "PRD.md" + (" + " + ", ".join(ids) if ids else "")
+def goal_fields(room):
+    return {key: room.goal.section(h) for h, key in GOAL_FIELDS} if room.goal else {}
 
-def sync_binding(room):
-    """Keep BRIEF.md's generated `binding:` line right; writes only when it changed."""
-    if room.prd and room.brief and room.brief["binding"] != binding(room):
-        room.brief.set("binding", binding(room))
-        room.brief.save()
+def cmd_goal(a):
+    room = Room(a.room)
+    if a.verb == "new":
+        refuse_closed(room, "goals")
+        values = {"architecture": a.architecture, "result": a.result, "done": a.done}
+        empty = [h for h, k in GOAL_FIELDS if not (values[k] or "").strip()]
+        if empty:
+            sys.exit(f"a goal needs all three fields; empty: {', '.join(empty)} "
+                     "(--architecture, --result, --done; one line each is enough for a small room)")
+        if any(re.search(r"^## ", values[k], re.M) for _, k in GOAL_FIELDS):
+            sys.exit("a goal field is text, not a heading")
+        body = "".join(f"## {h}\n{values[k].strip()}\n\n" for h, k in GOAL_FIELDS).rstrip("\n") + "\n"
+        durable_write(room.dir / "GOAL.md", (TEMPLATES / "goal.md").read_text().format(
+            title=room.title, now=stamp()) + body)
+        print(f"{(room.dir / 'GOAL.md').relative_to(ROOT)}: goal saved as draft; next: atr goal {room.name} approve")
+        return
+    if not room.goal:
+        sys.exit(f"{room.name} has no goal: atr goal {room.name} new --architecture ... --result ... --done ...")
+    if room.goal["status"] == "approved":
+        sys.exit(f"{room.name}: the goal is already approved")
+    if any(d["type"] == "goal" and d["status"] == "open" for d in room.decisions):
+        sys.exit("a goal decision is already open")
+    refuse_closed(room, "goal cards")
+    rid = next_id(room.decisions, "D")
+    blocks = [i["id"] for i in room.items if i["state"] not in ("done", "dropped")]
+    text = (TEMPLATES / "decision.md").read_text().format(
+        id=rid, title=f"Approve goal: {room.title}?", type="goal", door="one", decider=OWNER,
+        source='"GOAL.md"', now=stamp())
+    text = text.replace("## Options\na) \nb) \n", "## Options\na) Approved: start work\n"
+                        "b) Changes needed (say what in the note)\n", 1)
+    text = text.replace("blocks: []", f"blocks: [{', '.join(blocks)}]", 1)
+    text = text.replace("## Why it matters\n", "## Why it matters\nNo worker starts until this is approved. "
+                        "Read the goal at the top of the page.\n", 1)
+    path = room.dir / "decisions" / f"{rid}-approve-goal.md"
+    durable_write(path, text)
+    publish_card(room, rid, f"{room.name}: goal to approve", path)
 
 def cmd_brief(a):
     room = Room(a.room)
-    sync_binding(room)
-    print(f"binding: {binding(room)}" if room.prd else f"binding: none ({room.name} has no PRD.md)")
+    print(f"goal: {goal_state(room)}")
+    fields = goal_fields(room)
+    for h, k in GOAL_FIELDS:
+        if fields.get(k):
+            print(f"{h}: {' '.join(fields[k].split())}")
     code = code_info(room)
     if code and code["branch"]:
         print(f"code: {code['branch']} at {code['path']}")
@@ -1026,8 +1024,7 @@ def render(room):
     if room.paused:
         out.append(f"⏸ PAUSED by {'the operator'} at {room.local(room.paused)}"
                    + (f", resumes {room.brief['paused_until']}" if room.brief["paused_until"] else ""))
-    if room.prd:
-        out.append(prd_chip(room) + (" · building locked" if room.build_locked else ""))
+    out.append(goal_state(room).capitalize() + (" · building locked" if room.build_locked else ""))
     if head and head["phase"]:
         out += wrap(head["phase"])
     if head and parse_time(head["updated"]):
@@ -1106,14 +1103,8 @@ def render_index(room):
                     f"| {d['decider']} | {d['status']} |")
     return "\n".join(rows) + "\n"
 
-def prd_chip(room):
-    agreed = [r["id"] for r in room.refinements if r["status"] == "agreed"]
-    return ("PRD" + (f" v{room.prd['version']} ·" if room.prd["version"] else "") + f" {room.prd['status']}"
-            + "".join(f" · {x}" for x in agreed))
-
 def cmd_status(a):
     for room in rooms_from(a.rooms):
-        sync_binding(room)
         md, lines = render(room)
         durable_write(room.dir / "README.md", md)
         durable_write(room.dir / "decisions" / "INDEX.md", render_index(room))
@@ -1519,7 +1510,7 @@ def continuity(room, yielding=False):
 
 # Items finished before the continuity rule aren't held to it.
 NEXT_RULE_SINCE = "2026-10-23T17:15Z"
-NEXT_OK = re.compile(r"\b(?:[TDAP]\d{2,}|PRD)\b|^(?:none|nothing)\b", re.I)
+NEXT_OK = re.compile(r"\b[TDAP]\d{2,}\b|^(?:none|nothing)\b", re.I)
 
 # ---------- bottleneck checks ----------
 # `check --yield` counts any live agent as moving, so a slow agent or a forgotten review never trips it.
@@ -1659,35 +1650,6 @@ def ensure_standing(d):
     rec.save()
     return True
 
-PRD_MAX_LINES = 120
-REFINEMENT_CAP = 5
-
-def refinement_problems(room):
-    p = []
-    if room.prd and room.prd["status"] in ("draft", "review"):
-        n = len(room.prd.path.read_text().splitlines())
-        if n > PRD_MAX_LINES:
-            p.append(f"{room.name}/PRD: {n} lines, over {PRD_MAX_LINES}; move the technical approach and UX research to notes/")
-    for r in room.refinements:
-        if r["status"] != "superseded" and not r["touches"]:
-            p.append(f"{room.name}/{r['id']}: touches nothing; name the PRD ids it changes (touches: [FR4]) or drop it")
-    live = [r for r in room.refinements if r["status"] != "superseded"]
-    if len(live) >= REFINEMENT_CAP:
-        p.append(f"{room.name}: {len(live)} refinements; consolidate or confirm pivot (ask the owner: fold them into a new PRD, "
-                 "or agree they still fit this one)")
-    agreed = [r for r in room.refinements if r["status"] == "agreed"]
-    for i in room.items:
-        if i["state"] in ("done", "dropped"):
-            continue
-        text = i.path.read_text()
-        for r in agreed:
-            when, upd = parse_time(r["agreed"]), parse_time(i["updated"])
-            hit = [t for t in r["touches"] if re.search(rf"\b{re.escape(t)}\b", text)]
-            if hit and when and upd and upd < when:
-                p.append(f"{room.name}/{i['id']}: cites {', '.join(hit)}, which {r['id']} overrides (agreed after this item "
-                         "was last touched); re-read it against the refinement")
-    return p
-
 def t3_thread_link(thread):
     """Portable HTTPS tracker link; custom desktop protocols are not available in every browser."""
     thread = (thread or "").strip()
@@ -1738,7 +1700,7 @@ def problems(room, yielding=False):
                      and next(x for x in room.items if x["id"] == d)["state"] != "dropped"]
             if unmet:
                 p.append(f"{tag}: doing, but depends_on {', '.join(unmet)} not done")
-            if i["phase"] != "prd" and brief_gaps(i):
+            if brief_gaps(i):
                 p.append(f"{tag}: doing with an empty {' and '.join(brief_gaps(i))}; the brief belongs in the item before work starts")
         if i["state"] == "done" or i["outcome"]:
             for s in open_successors(room, i) if room.name == PROCESS_ROOM else []:
@@ -1778,13 +1740,10 @@ def problems(room, yielding=False):
         role = i["owner"].split(" ")[0]
         if i["state"] in ("doing", "review") and role and role not in room.team:
             p.append(f"{room.name}/{i['id']}: owner {role} has no name yet (atr name)")
-    if not room.prd and not (room.brief and room.brief["prd"]):
-        p.append(f"{room.name}: no PRD.md; every feature starts with a PRD (atr room new), "
-                 "or set 'prd: waived (reason)' in BRIEF.md")
     if room.build_locked:
         for i in room.items:
-            if i["state"] == "doing" and i["phase"] != "prd":
-                p.append(f"{room.name}/{i['id']}: building while the PRD is {room.prd['status']}")
+            if i["state"] == "doing":
+                p.append(f"{room.name}/{i['id']}: building while {goal_state(room)}")
     tmp = [str(f.relative_to(room.dir)) for f in sorted(room.dir.rglob("*.md"))
            if f.name not in ("README.md", "INDEX.md") and re.search(r"(?<![\w.])/tmp/\S", f.read_text())]
     if tmp:
@@ -1807,13 +1766,6 @@ def problems(room, yielding=False):
                 if not nxt or not NEXT_OK.search(nxt.group(1).strip()):
                     p.append(f"{room.name}/{i['id']}: done, but Next names no record; point it at the successor "
                              "T/D/A id, or write 'none (why)'")
-        if room.prd and room.prd["status"] != "agreed":
-            loose = [l for l in room.prd.section("Open questions").splitlines()
-                     if re.match(r"\s*(?:[-*]|\d+[.)])\s+\S", l) and not re.search(r"\b[TDA]\d{2,}\b", l)]
-            if loose:
-                p.append(f"{room.name}/PRD: {len(loose)} open question(s) with no owner record; "
-                         "each becomes a D/A for the owner or a bounded T for the team")
-    p += refinement_problems(room)
     p += (code_info(room) or {"warn": []})["warn"]
     if (w := lead_title_warn(room)):
         p.append(w)
@@ -2016,11 +1968,10 @@ def room_json(room, with_records=False):
             "lanes": lane_list, "plan": plan(room), "counts": counts, "locks": [{"name": n, "holder": h} for n, h in held_locks()],
             "code": code_info(room), "lead_thread": bool(room.brief and room.brief["lead_thread"]), "lead_link": t3_thread_link(active_lead(room)) or "", "lead_commands": lead_commands(room.name),
             "team": [{"role": r, "name": n, "pronoun": pr} for r, (n, pr) in room.team.items()],
-            "records": {r["id"]: record_json(room, r) for r in room.items + room.decisions + room.refinements + ([room.prd] if room.prd else [])}
+            "records": {r["id"]: record_json(room, r) for r in room.items + room.decisions + ([room.goal] if room.goal else [])}
                        if with_records else {}, "records_included": with_records,
-            "prd": {"status": room.prd["status"], "version": room.prd["version"], "locked": room.build_locked,
-                    "refinements": [r["id"] for r in room.refinements if r["status"] == "agreed"]}
-                   if room.prd else None,
+            "goal": {"status": room.goal["status"], "locked": room.build_locked, **goal_fields(room)}
+                   if room.goal else {"status": "none", "locked": True},
             "members": members_json(room), "activity": acts, "activity_min": span,
             "continuity": dict(zip(("state", "detail"), continuity(room))),
             "lead_status": thread_status(active_lead(room)),
@@ -2275,8 +2226,8 @@ def _delivery_block(action, actions=None):
             return "Room paused; pending until resumed and revalidated."
         if action["kind"] == "launch" and action["options"].get("item"):
             item = room.find(action["options"]["item"])
-            if room.closed or (room.build_locked and item["phase"] != "prd"):
-                return "Launch blocked by the room's closure or PRD agreement gate."
+            if room.closed or room.build_locked:
+                return "Launch blocked by the room's closure or goal approval gate."
             if any(room.find(dependency)["state"] != "done" for dependency in item["depends_on"]):
                 return "Launch blocked by incomplete dependencies."
         if action["kind"] == "message" and not action["allow_paused"]:
@@ -2417,7 +2368,7 @@ def cmd_migrate(a):
 
 def organize_wanted(room):
     """The lead's desired T3 organize state from room state (pure): pin while the owner is needed (an open owner
-    decision, ask, or PRD/refinement agree card), unpin and settle once the room is closed, else leave it alone.
+    decision, ask, or goal approval card), unpin and settle once the room is closed, else leave it alone.
     {'pinned': True|False|None, 'settled': True|None, 'reason': str}; None means unchanged."""
     if room.closed:
         return {"pinned": False, "settled": True, "reason": "room closed"}
@@ -2489,8 +2440,8 @@ def cmd_t3(a):
                                     room=room.name, source=room.brief)
         else:
             item = room.find(a.item)
-            if room.paused or (room.build_locked and item["phase"] != "prd"):
-                raise StoreConflict("dispatch blocked by pause or PRD agreement")
+            if room.paused or room.build_locked:
+                raise StoreConflict("dispatch blocked by pause or goal approval")
             if item["state"] not in ("todo", "doing") or item["agent"]:
                 raise StoreConflict("item is not available for a new dispatch; reconcile its existing thread first")
             if any(room.find(dependency)["state"] != "done" for dependency in item["depends_on"]):
@@ -2660,8 +2611,8 @@ def web_nudge(room, note):
                 + " Read the room and advance eligible work after checking its current gates.", room=room.name, source=room.brief)
     return {"ok": True, "action": action["id"], "told_lead": False}
 
-def create_room_files(d, title, thread, waive_prd, t):
-    """The room directory, BRIEF and now-head (PRD waived when `waive_prd` is a reason). Shared by `room new` and `setup`."""
+def create_room_files(d, title, thread, t):
+    """The room directory, BRIEF and now-head."""
     durable_mkdir(d / "items", parents=True)
     durable_mkdir(d / "decisions")
     durable_mkdir(d / "notes")
@@ -2669,11 +2620,8 @@ def create_room_files(d, title, thread, waive_prd, t):
     brief = re.sub(r"^title:", f"created: {stamp(t)}\ntitle:", brief, count=1, flags=re.M)
     brief = re.sub(r"^lead_thread:[ \t]*", f"lead_thread: {thread}  ", brief, count=1, flags=re.M)
     durable_write(d / "BRIEF.md", brief)
-    if waive_prd:
-        durable_write(d / "now-head.md", (TEMPLATES / "now-head.md").read_text().format(phase="starting", now=stamp(t)))
-        brief_record = Record(d / "BRIEF.md")
-        brief_record.set("prd", f"waived ({waive_prd})")
-        brief_record.save()
+    durable_write(d / "now-head.md", (TEMPLATES / "now-head.md").read_text().format(
+        phase="Goal: not written yet, building locked", now=stamp(t)))
 
 RENAME_HINT = "Next: rename your thread to 'Room · {room} · lead' (t3_thread_update, action rename)"
 NO_LEAD_HINT = "Next: give the room a lead. Run `atr lead {room}` and paste what it prints into a T3 thread"
@@ -2692,68 +2640,10 @@ def cmd_room(a):
         sys.exit(f"refused: thread {thread} already leads rooms/{taken[0]}. One thread is one room: a new feature or "
                  "project needs a new T3 thread and a new team. Ask the owner to start one; don't reuse this thread.")
     t = now()
-    create_room_files(d, a.title, thread, a.waive_prd, t)
-    if a.waive_prd:
-        print(f"rooms/{a.name}: BRIEF created, PRD waived ({a.waive_prd}); create items with atr new item")
-        print(next_hint(a.name, thread))
-        return
-    durable_write(d / "now-head.md", (TEMPLATES / "now-head.md").read_text().format(
-        phase="PRD: product lead drafting, building locked", now=stamp(t)))
-    durable_write(d / "PRD.md", (TEMPLATES / "prd.md").read_text().format(
-        title=a.title, ux="none" if a.no_ux else "ux", now=stamp(t)))
-    room = Room(a.name)
-    def item(title, owner, accept, depends=()):
-        rid = next_id(room.items, "T")
-        text = (TEMPLATES / "item.md").read_text().format(
-            id=rid, title=title, owner=owner, depends=", ".join(depends), locks="", cap="", now=stamp(t),
-            hhmm=logstamp(t), by="lead").replace("cap_h:", "phase: prd\ncap_h:", 1)
-        text = text.replace("## Acceptance\n- [ ] ", "## Acceptance\n" + "\n".join(f"- [ ] {x}" for x in accept), 1)
-        durable_write(room.dir / "items" / f"{rid}-{slug(title)}.md", text)
-        room.items.append(Record(room.dir / "items" / f"{rid}-{slug(title)}.md"))
-        return rid
-    ux = None if a.no_ux else item("UX research for the PRD", "ux",
-        ["research questions agreed with the product lead", "findings written in notes/ux-research.md, linked from the PRD"])
-    context = item("Context: what exists", "techlead",
-        ["related prior work read; owner answers and relevant constraints recorded with sources",
-         "repo AGENTS.md, .agents/skills and the docs/architecture pages that apply linked at a commit in notes/context.md",
-         "code owners and source provenance recorded",
-         "required execution and data boundaries documented with evidence"])
-    draft = item("Draft the PRD", "product", ["every PRD.md section filled", "open questions are D/A records",
-                 "Product lead line signed in Sign-off"], [ux] if ux else [])
-    item("Tech review of the PRD", "techlead", ["notes/tech-approach.md written (riskiest assumption has a first test, one-way doors listed)",
-         "each FR/NFR is testable (a test can be written for it)", "Tech lead line signed in Sign-off"], [draft, context])
-    print(f"rooms/{a.name}: BRIEF, PRD draft and PRD items created; building stays locked until the owner agrees the PRD")
+    create_room_files(d, a.title, thread, t)
+    print(f"rooms/{a.name}: BRIEF created; building stays locked until the owner approves a goal "
+          f"(atr goal {a.name} new ..., then atr goal {a.name} approve)")
     print(next_hint(a.name, thread))
-
-def cmd_prd(a):
-    room = Room(a.room)
-    prd = room.prd
-    if not prd:
-        sys.exit(f"{room.name} has no PRD.md")
-    if a.action == "review":
-        signoff = prd.section("Sign-off")
-        missing = [who for who in ("Product lead", "Tech lead")
-                   if not re.search(rf"^{who}:[ \t]*\S", signoff, re.M)]
-        if missing:
-            sys.exit(f"PRD not signed by: {', '.join(missing)} (Sign-off section)")
-        if any(d["type"] == "prd" and d["status"] == "open" for d in room.decisions):
-            sys.exit("a PRD decision is already open")
-        prd.set("status", "review")
-        prd.set("updated", stamp())
-        prd.save()
-        rid = next_id(room.decisions, "D")
-        blocks = [i["id"] for i in room.items if i["phase"] != "prd" and i["state"] not in ("done", "dropped")]
-        text = (TEMPLATES / "decision.md").read_text().format(
-            id=rid, title=f"Agree PRD: {prd['title']}?", type="prd", door="one", decider=OWNER,
-            source='"PRD.md"', now=stamp())
-        text = text.replace("## Options\na) \nb) \n", "## Options\na) Agreed: start building\n"
-                            "b) Changes needed (say what in the note)\n", 1)
-        text = text.replace("blocks: []", f"blocks: [{', '.join(blocks)}]", 1)
-        text = text.replace("## Why it matters\n", "## Why it matters\nBuilding is locked until this is agreed. "
-                            "Read the PRD: tap PRD at the top of the page.\n", 1)
-        path = room.dir / "decisions" / f"{rid}-agree-prd.md"
-        durable_write(path, text)
-        publish_card(room, rid, f"{room.name}: PRD to review", path)
 
 def publish_card(room, rid, msg, path):
     """Open a locally readable review card after its records are durable."""
@@ -2762,59 +2652,6 @@ def publish_card(room, rid, msg, path):
     durable_write(room.dir / "decisions" / "INDEX.md", render_index(Room(room.name)))
     print(path.relative_to(ROOT))
     print(f"{rid} saved locally and available for review")
-def cmd_refinement(a):
-    room = Room(a.room)
-    if not room.prd:
-        sys.exit(f"{room.name} has no PRD.md; refinements change an agreed PRD")
-    if a.what == "new":
-        if not a.title:
-            sys.exit('usage: atr refinement ROOM new "title" --touches FR4 [--supersedes RF01]')
-        refuse_closed(room, "refinements")
-        touches = [x.strip() for t in a.touches or [] for x in t.split(",") if x.strip()]
-        sup = [x.strip().upper() for t in a.supersedes or [] for x in t.split(",") if x.strip()]
-        if not touches:
-            sys.exit("a refinement changes something: name the PRD ids it touches (--touches FR4). No id to name means it is a pivot")
-        known = {r["id"] for r in room.refinements}
-        if set(sup) - known:
-            sys.exit(f"no such refinement to supersede: {', '.join(sorted(set(sup) - known))}")
-        rid = next_id(room.refinements, "RF")
-        text = (TEMPLATES / "refinement.md").read_text().format(
-            id=rid, title=a.title, touches=", ".join(touches), supersedes=", ".join(sup), now=stamp())
-        durable_mkdir(room.dir / "refinements", exist_ok=True)
-        path = room.dir / "refinements" / f"{rid}-{slug(a.title)}.md"
-        durable_write(path, text)
-        print(path.relative_to(ROOT))
-        return
-    rf = next((r for r in room.refinements if r["id"].lower() == a.what.lower()), None)
-    if not rf or a.title != "review":
-        sys.exit(f"usage: atr refinement {room.name} new \"title\" --touches FR4 | atr refinement {room.name} RFnn review")
-    if rf["status"] not in ("draft", "review"):
-        sys.exit(f"{rf['id']} is {rf['status']}; only a draft goes to review")
-    signoff = rf.section("Sign-off")
-    missing = [who for who in ("Product lead", "Tech lead") if not re.search(rf"^{who}:[ \t]*[^\s(]", signoff, re.M)]
-    if missing:
-        sys.exit(f"{rf['id']} not signed by: {', '.join(missing)} (Sign-off section; Tech lead may say n/a)")
-    if any(d["type"] == "refinement" and d["source"] == rf["id"] and d["status"] == "open" for d in room.decisions):
-        sys.exit(f"an Agree {rf['id']} card is already open")
-    rf.set("status", "review")
-    rf.set("updated", stamp())
-    rf.save()
-    rid = next_id(room.decisions, "D")
-    blocks = [i["id"] for i in room.items if i["state"] not in ("done", "dropped")
-              and re.search(rf"\b{rf['id']}\b", i.path.read_text())]
-    text = (TEMPLATES / "decision.md").read_text().format(
-        id=rid, title=f"Agree {rf['id']}: {rf['title']}?", type="refinement", door="two", decider=OWNER,
-        source=f'"{rf["id"]}"', now=stamp())
-    text = text.replace("## Options\na) \nb) \n", "## Options\na) Agreed: this is now binding\n"
-                        "b) Changes needed (say what in the note)\n", 1)
-    text = text.replace("blocks: []", f"blocks: [{', '.join(blocks)}]", 1)
-    text = text.replace("## Why it matters\n", "## Why it matters\nIt changes " + ", ".join(rf["touches"]) +
-                        f" ({rf['kind']}) inside the agreed PRD. Nothing waits on it unless an item cites {rf['id']}. "
-                        "Read it through the RF chip at the top of the page.\n", 1)
-    path = room.dir / "decisions" / f"{rid}-agree-{rf['id'].lower()}.md"
-    durable_write(path, text)
-    publish_card(room, rid, f"{room.name}: {rf['id']} to review", path)
-
 def set_team(room, team):
     room.brief.set("team", [f"{r}={n} ({pr})" for r, (n, pr) in team.items()])
     room.brief.save()
@@ -2993,7 +2830,7 @@ def cmd_serve(a):
                 q = self.query()
                 try:
                     room = known_room(q.get("room", ""))
-                    rec = next(x for x in room.items + room.decisions + room.refinements + ([room.prd] if room.prd else [])
+                    rec = next(x for x in room.items + room.decisions + ([room.goal] if room.goal else [])
                                if x["id"] == q.get("id"))
                     return self.send(200, json.dumps(record_json(room, rec)).encode())
                 except (SystemExit, OSError):
@@ -3299,7 +3136,7 @@ def main():
         ap.error("a command is required")
     {"new": cmd_new, "set": cmd_set, "need": cmd_need, "log": cmd_log, "answer": cmd_answer, "reply": cmd_reply, "status": cmd_status,
      "check": cmd_check, "serve": cmd_serve,
-     "name": cmd_name, "team": cmd_team, "rooms": cmd_rooms, "room": cmd_rooms, "prd": cmd_prd, "refinement": cmd_refinement, "brief": cmd_brief, "inbox": cmd_inbox, "lead": cmd_lead, "start": cmd_start,
+     "name": cmd_name, "team": cmd_team, "rooms": cmd_rooms, "room": cmd_rooms, "goal": cmd_goal, "brief": cmd_brief, "inbox": cmd_inbox, "lead": cmd_lead, "start": cmd_start,
      "feedback": cmd_feedback, "delivery": cmd_delivery, "migrate": cmd_migrate, "t3": cmd_t3}[a.cmd](a)
 
 def build_parser():
@@ -3330,10 +3167,9 @@ def build_parser():
     n.add_argument("room"); n.add_argument("title")
     n.add_argument("--owner"); n.add_argument("--cap")
     n.add_argument("--depends", type=lambda s: s.split(",")); n.add_argument("--locks", type=lambda s: s.split(","))
-    n.add_argument("--type", default="decision", choices=["decision", "premise", "ask", "prd", "refinement", "todo"])
+    n.add_argument("--type", default="decision", choices=["decision", "premise", "ask", "goal", "todo"])
     n.add_argument("--blocks", help="decisions: item ids this blocks, e.g. T07,T08")
     n.add_argument("--steps", help="todo cards: what the owner has to do, commands included")
-    n.add_argument("--phase", choices=["prd", "build"], help="items: prd work may start before the PRD is agreed")
     n.add_argument("--door", default="two", choices=["one", "two"])
     n.add_argument("--decider", default=OWNER); n.add_argument("--source")
     n.add_argument("--option", action="append", help="one per option, in order; becomes a), b), …")
@@ -3361,18 +3197,13 @@ def build_parser():
     rms_sub = rms.add_subparsers(dest="verb", required=True)
     rms_sub.add_parser("list", help="every room: state, open items, open decisions, title")
     rm = rms_sub.add_parser("new", help="start a feature (one room per thread)"); rm.add_argument("name"); rm.add_argument("title")
-    rm.add_argument("--no-ux", action="store_true", help="skip the UX research item (say why in the PRD notes)")
-    rm.add_argument("--waive-prd", metavar="WHY", help="work that isn't a feature (publishing, a fix): no PRD or PRD items; "
-                    "say why, and the owner's go-ahead in words is the gate")
     rm.add_argument("--lead-thread", default="",
                     help="your own T3 thread id (t3_thread_configuration); a thread can lead only one room")
     ib = sub.add_parser("inbox"); ib.add_argument("room")
-    rf = sub.add_parser("refinement", help="change an agreed PRD: new \"title\" --touches FR4 | RFnn review")
-    rf.add_argument("room"); rf.add_argument("what", help='"new" or an RF id'); rf.add_argument("title", nargs="?")
-    rf.add_argument("--touches", action="append", help="PRD ids changed, e.g. FR4 (repeat or comma-separate)")
-    rf.add_argument("--supersedes", action="append", help="RF id this replaces")
-    br = sub.add_parser("brief", help="print the binding: line (PRD.md + agreed refinements)"); br.add_argument("room")
-    pr = sub.add_parser("prd"); pr.add_argument("room"); pr.add_argument("action", choices=["review"])
+    br = sub.add_parser("brief", help="print the room's goal and code line"); br.add_argument("room")
+    gl = sub.add_parser("goal", help="write the room's goal (3 fields), then ask the owner to approve it")
+    gl.add_argument("room"); gl.add_argument("verb", choices=["new", "approve"])
+    gl.add_argument("--architecture", default=""); gl.add_argument("--result", default=""); gl.add_argument("--done", default="")
     sv = sub.add_parser("serve"); sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8787)
     fb = sub.add_parser("feedback", help="file feedback on PROTOCOL.md, the lead skill or a charter")
@@ -3394,11 +3225,11 @@ def build_parser():
 # All canonical entry points participate in the same lock/recovery boundary, including calls made
 # directly by the web server and its background loops. CLI commands acquire before reading Room.
 for _name in ("cmd_new", "cmd_set", "cmd_need", "cmd_log", "cmd_answer", "cmd_reply", "cmd_status",
-              "cmd_name", "cmd_room", "cmd_prd", "cmd_refinement", "cmd_brief",
+              "cmd_name", "cmd_room", "cmd_goal", "cmd_brief",
               "cmd_inbox", "cmd_feedback"):
     globals()[_name] = store_command(globals()[_name])
 
-for _name in ("web_pause", "web_question", "web_answer", "web_nudge", "after_answer", "sync_binding", "set_team",
+for _name in ("web_pause", "web_question", "web_answer", "web_nudge", "after_answer", "set_team",
               "create_room_files",
               "ensure_standing",
               "search_data"):

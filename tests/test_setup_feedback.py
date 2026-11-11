@@ -65,8 +65,7 @@ class Base(unittest.TestCase):
     def bootstrap(self, maintainer=True):
         """The process room and the saved maintainer choice, as `atr setup` used to leave them."""
         d = tr.ROOMS / tr.PROCESS_ROOM
-        tr.create_room_files(d, "Maintain the protocol, lead skill and charters from feedback", "",
-                             "standing room: feedback items, not a feature, so no PRD", tr.now())
+        tr.create_room_files(d, "Maintain the protocol, lead skill and charters from feedback", "", tr.now())
         tr.ensure_standing(d)
         tr.write_setup({"maintainer": maintainer})
         if maintainer:

@@ -31,7 +31,7 @@ class PageCopy(unittest.TestCase):
         self.assertIn('["Agents", false]', HTML)
         self.assertNotIn("next checkpoint", HTML)
         self.assertNotIn("lead_thread in BRIEF", HTML)
-        for kind in ("Decision", "Ask", "Premise", "PRD", "Your task"):
+        for kind in ("Decision", "Ask", "Premise", "Goal", "Your task"):
             self.assertRegex(HTML, r'\["%s", "[^"]+"\]' % kind)
         for needle in ("a lead, the agent that runs", "T item, D decision, A ask, P premise"):
             self.assertIn(needle, HTML)

@@ -9,7 +9,7 @@ The page uses the same words as the local records. Delivery status reports evide
 | Decision | **Decision** | A card with lettered options; you pick one. |
 | Ask | **Ask** | A card for something only you can supply, such as a name or a choice outside the options. |
 | Premise | **Premise** | An assumption the team is working under; you confirm it or correct it. |
-| PRD | **PRD** | The product requirements doc for a feature; you agree it before building starts. |
+| Goal | **Goal** | What the room is for, in three parts; you approve it before any work starts. |
 | Your task | **Your task** | A card for a step only you can do, with the steps written out. |
 
 ## Interaction

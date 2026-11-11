@@ -47,7 +47,7 @@ class Ready(Base):
         self.assertFalse([p for p in tr.problems(room) if "ready (wave 0" in p and "STALLED" not in p])
 
     def test_paused_room(self):
-        room = self.room([("T06", {}), ("T07", {})], brief="---\ntitle: t\nprd: waived (test)\npaused: 2026-10-27T10:00Z\n---\n")
+        room = self.room([("T06", {}), ("T07", {})], brief="---\ntitle: t\npaused: 2026-10-27T10:00Z\n---\n")
         self.assertEqual(self.msgs(room), [])
 
     def test_locked_item_not_ready(self):

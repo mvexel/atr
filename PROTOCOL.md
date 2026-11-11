@@ -4,9 +4,9 @@ Atr coordinates work on required T3. The selected local Markdown store is canoni
 
 ## Start or resume a room
 
-Read the room's `BRIEF.md`, `now-head.md`, binding PRD/refinements, and assigned item before work. A thread leads one room. Follow-up maintenance gets a separate room and thread; use `rooms new ... --waive-prd "not a feature: reason"` for authorized work that needs no product design. Quote the owner's request in a premise or decision before implementation.
+Read the room's `BRIEF.md`, `now-head.md`, goal (`atr brief ROOM`), and assigned item before work. A thread leads one room. Follow-up maintenance gets a separate room and thread. A small room gets a one-line goal. Quote the owner's request in a premise or decision before implementation.
 
-New features start with a PRD. Record purpose, stakeholders, scope, testable requirements and definition of done. Product and technical sign-off precede `prd ROOM review`; the owner's explicit agreement opens building. Do not bypass the gate. Preserve agreed PRDs; record an authorized refinement for a bounded change and seek owner agreement for a pivot or changed acceptance.
+Every room has a goal with three fields: architecture, minimal viable result, definition of done (`goal ROOM new`). The owner's approval card (`goal ROOM approve`) opens building: no item starts and no worker is dispatched before it. Do not bypass the gate. An approved goal is not rewritten silently; a changed goal goes back to the owner as a new card.
 
 ## Plan and execute
 
@@ -21,6 +21,16 @@ Decisions carry lettered options, a named decider and whether they are easy or h
 Use the concrete T3 commands for launches, thread facts and communication. Link store files in messages and records by absolute path, since T3 resolves relative links against the workspace, not the store. Leads always report back after an owner answer or message, even when no action follows. A saved record is not delivery. Inspect `delivery list` and reconcile uncertain acceptance using actual T3 evidence before retrying. Never invent a thread, receipt or completed execution. During outages keep the durable obligation and continue independent local work.
 
 ## Checkpoints and handoffs
+
+An acknowledgement or progress report does not end authorized work. After an owner message or worker completion, reconcile the result and continue the next eligible step in the same turn. If the lead owns that step, do it; if a worker owns it, dispatch it before yielding. The goal gate blocks starting items, not the interview and drafting needed to reach owner approval.
+
+Before reporting an owner wait or ending a turn, read `inbox ROOM` and reread the specific decision and goal behind the claimed gate. Saved answers are authoritative even when their notification is pending. A previous turn's open card, an empty inbox delta or delivery status alone does not prove the gate is still closed. Consume existing approval, update the room handoff and continue eligible work without requesting the answer again. If an answer arrives during the final check/report race, reconcile it on receipt; never describe notification acceptance as completed execution.
+
+Treat a `STALLED` or ready-undispatched warning from `check ROOM --yield` as a failed handoff: repair it and check again before ending the turn. A zero exit code from non-strict `check` is not a pass; inspect its output. An open owner question permits a wait only for work it actually blocks. Do not invent a question or waiting note to suppress a stall. `resume: lead continues` and already-consumed worker completions are not future triggers. A future time in a note does not itself schedule a wake.
+
+If the check contradicts direct T3 execution evidence, reconcile the worker identity and facts source; do not launch duplicate work to silence it. Record the discrepancy and the verified completion wake before yielding.
+
+The standing maintainer owns recurring workflow failures through diagnosis, a bounded correction, verification and successor tracking. Restarting a stalled lead is recovery, not resolution. Inspect T3 history to distinguish missed delivery from a lead that received the event and stopped. Record what the correction enforces and what still depends on agent compliance; do not promise runtime prevention from instructions or a diagnostic check alone.
 
 Keep `BRIEF.md` repository/branch/checkouts and `now-head.md` phase, waiting owner and resume event current. Run `status ROOM` and `check ROOM`; before yielding run `check ROOM --yield`. A moving room needs active work, a real owner question, or an external event/time that can resume it. Native helper completion alone does not promise a new T3 turn. A worker's `set state=review|done` queues a notice to the lead thread (delivery rules apply), and `check` flags a room stalled when its free-text `resume:` awaits only finished items and the lead is idle; still keep the turn open on `inbox` as the fallback.
 
