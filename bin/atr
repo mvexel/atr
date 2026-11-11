@@ -1259,9 +1259,9 @@ def thread_refresher(every=20):
             retry_lead_flags()
             if time.time() - last_offer_check >= OFFER_CHECK_S:
                 last_offer_check = time.time()
-                for d in sorted(ROOMS.iterdir()):
-                    if (d / "BRIEF.md").exists():
-                        offer_ready(d.name)
+                for room in rooms_from([]):
+                    if room.brief:
+                        offer_ready(room.name)
         except (Exception, SystemExit) as e:  # keep the refresher alive whatever one room or lookup does
             print(f"atr: thread refresher: {e}", file=sys.stderr)
             print("atr error:", str(e), file=sys.stderr)
@@ -1429,12 +1429,7 @@ def lead_rooms(thread):
     thread = (thread or "").strip()
     if not thread:
         return []
-    found = []
-    for d in sorted(ROOMS.iterdir()) if ROOMS.exists() else []:
-        b = d / "BRIEF.md"
-        if b.exists() and (Record(b)["lead_thread"] or "").strip() == thread:
-            found.append(d.name)
-    return found
+    return [r.name for r in rooms_from([]) if r.brief and (r.brief["lead_thread"] or "").strip() == thread]
 
 def continuity(room):
     """What the overview needs: (state, detail). state is one of closed, paused, running, waiting_owner, blocked, idle."""
@@ -1908,6 +1903,27 @@ def delegate_task_text(room, item, text):
             "Keep all atr updates in that store; source resources are separate. You are a child thread and take no "
             "messages: report to the lead via your final answer and `atr need`.")
 
+def write_views(room):
+    """Regenerate the room's derived README.md and decisions/INDEX.md; the one place that writes them."""
+    md, _ = render(room)
+    durable_write(room.dir / "README.md", md)
+    durable_write(room.dir / "decisions" / "INDEX.md", render_index(room))
+
+def web_state(want=""):
+    """The /api/state body, read in one store transaction; None when `want` names no room."""
+    with store_transaction():
+        rooms = rooms_from([])
+        if want and want not in {room.name for room in rooms}:
+            return None
+        return {"rooms": [room_json(x, x.name == want) for x in rooms], "now": stamp(), "t3": t3_status()}
+
+def web_record(room_name, rid):
+    """The /api/record body; SystemExit for an unknown room, StopIteration for an unknown record."""
+    with store_transaction():
+        room = known_room(room_name)
+        rec = next(x for x in room.items + room.decisions + ([room.goal] if room.goal else []) if x["id"] == rid)
+        return record_json(room, rec)
+
 def web_question(room, d, note, push):
     """A follow-up question in place of an answer: the card stays open, the lead is woken to reply."""
     note = re.sub(r"\s+", " ", note or "").strip()[:1000]
@@ -1973,9 +1989,7 @@ def _web_answer(room, rid, choice, note, push, by=OWNER, quote="", source="", ex
     d.save()
     extra = after_answer(room, d, choice)
     room = Room(room.name)
-    md, _ = render(room)
-    durable_write(room.dir / "README.md", md)
-    durable_write(room.dir / "decisions" / "INDEX.md", render_index(room))
+    write_views(room)
     unblocks = ", ".join(i["id"] for i in blocked["items"]) or "nothing listed"
     notify_lead(room, f"The owner answered {rid} ({d['title']}): {choice}) {label}"
                      + (f'. Note: "{note}"' if note else "")
@@ -2054,9 +2068,7 @@ def cmd_room(a):
 
 def publish_card(room, rid, msg, path):
     """Open a locally readable review card after its records are durable."""
-    md, _ = render(Room(room.name))
-    durable_write(room.dir / "README.md", md)
-    durable_write(room.dir / "decisions" / "INDEX.md", render_index(Room(room.name)))
+    write_views(Room(room.name))
     print(path.relative_to(ROOT))
     print(f"{rid} saved locally and available for review")
 def cmd_rooms(a):
@@ -2098,8 +2110,7 @@ def web_pause(room, pause, note, push, by="", until="", expected_revision=None):
         room.brief.set("paused_until", until if pause else "")
     room.brief.save()
     room = Room(room.name)
-    md, _ = render(room)
-    durable_write(room.dir / "README.md", md)
+    write_views(room)
     note = re.sub(r"\s+", " ", note or "").strip()[:500]
     how = "tapped on the atr page"
     if pause:
@@ -2193,20 +2204,16 @@ def cmd_serve(a):
                 return self.send(200, page, "text/html; charset=utf-8", "no-cache", True)
             if r == "/api/state":
                 want = self.query().get("room", "")
-                rooms = rooms_from([])
-                if want and want not in {room.name for room in rooms}:
+                body = web_state(want)
+                if body is None:
                     return self.send(404, b'{"error":"no such room"}')
-                body = {"rooms": [room_json(x, x.name == want) for x in rooms], "now": stamp(), "t3": t3_status()}
                 return self.send(200, json.dumps(body).encode(), cache="no-cache", etag=True)
             if r == "/api/search":      # only q is read; files come from the fixed globs in _search_sources
                 return self.send(200, json.dumps(search_data(self.query().get("q", ""))).encode())
             if r == "/api/record":
                 q = self.query()
                 try:
-                    room = known_room(q.get("room", ""))
-                    rec = next(x for x in room.items + room.decisions + ([room.goal] if room.goal else [])
-                               if x["id"] == q.get("id"))
-                    return self.send(200, json.dumps(record_json(room, rec)).encode())
+                    return self.send(200, json.dumps(web_record(q.get("room", ""), q.get("id"))).encode())
                 except (SystemExit, OSError):
                     return self.send(404, b'{"error":"no such room"}')
                 except StopIteration:
