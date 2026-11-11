@@ -63,8 +63,7 @@ class SettledOpen(unittest.TestCase):
     def test_closed_room(self):
         self.assertEqual(self.entries(self.room(extra="closed: 2026-10-27 done\n")), [])
 
-    def test_standing_and_paused(self):
-        self.assertEqual(self.entries(self.room(extra="standing: true\n")), [])
+    def test_paused(self):
         self.assertEqual(self.entries(self.room(extra="paused: 2026-10-27T10:00Z\n")), [])
 
 

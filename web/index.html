@@ -78,16 +78,7 @@
   .pal mark { background: color-mix(in srgb, var(--accent) 25%, transparent); color: inherit; border-radius: 2px; }
   .pal .empty { padding: 16px 12px; }
   .pal .foot { display: flex; gap: 14px; padding: 8px 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--text-muted); }
-  .pin { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; margin: 0 0 8px; border: 1px dashed var(--text-muted); background: var(--track);
          color: var(--text-primary); border-radius: 14px; padding: 6px 12px; font: inherit; text-align: left; cursor: pointer; }
-  .pin b { flex: 1; min-width: 0; font-size: 15px; }
-  .pin small { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pin .pill { flex: none; font-size: 12px; border-radius: 999px; padding: 2px 8px; background: var(--surface-1); color: var(--text-secondary); white-space: nowrap; }
-  .pin .pill.g { color: var(--good); }
-  .pin.on { border: 1px solid var(--text-primary); background: var(--text-primary); color: var(--surface-1); }
-  .pin.on small { color: inherit; opacity: .75; }
-  .pin.on .pill { background: transparent; color: inherit; }
-  .counts.four { grid-template-columns: repeat(4, 1fr); }
   .sub2 { color: var(--text-secondary); font-size: 13px; margin: 2px 4px 6px; }
   .newpill { position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 20; border: 0;
              background: var(--accent-fill); color: var(--accent-ink); border-radius: 999px; padding: 10px 16px; font: inherit; font-size: 14px; font-weight: 600;
@@ -159,7 +150,6 @@
   .chip .flags { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; }
   .flag { border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; font-size: 12px; color: var(--text-muted); white-space: nowrap; }
   .flag.unstaffed { border-color: var(--good); color: var(--text-secondary); }
-  .flag.loud { border-color: var(--critical); background: var(--critical-soft); color: var(--critical-text); font-weight: 600; }
   .why { font-size: 14px; color: var(--text-secondary); margin: 4px 0 10px; }
   .why summary { cursor: pointer; color: var(--text-muted); }
   .opts { display: grid; gap: 8px; }
@@ -266,26 +256,7 @@
   .chart .legend { display: inline-flex; gap: 2px; align-items: center; }
   .chart .legend i { width: 12px; height: 10px; border-radius: 2px; display: inline-block; }
   .chart svg.ico { display: inline-block; width: 14px; height: 14px; }
-  .chart.members { padding: 6px 12px 10px; }
-  .mrow { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; padding: 7px 0; border-top: 1px solid var(--line); }
-  .mrow:first-child { border-top: 0; }
-  .mrow .top { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 20px; }
-  .mrow .mk { flex: none; display: inline-flex; }
-  .mrow .nm { flex: none; width: 84px; font-size: 14px; line-height: 1.25; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mrow .task { flex: 1; min-width: 0; font-size: 13px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mrow .nm small { display: block; font-size: 12px; font-weight: 400; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; }
-  .mrow.retired .nm, .mrow.retired .task { color: var(--text-muted); font-weight: 400; }
-  .mrow.retired .heat { opacity: .55; }
-  .heat { display: grid; gap: 2px; height: 10px; }
-  .heat i { display: block; border-radius: 2px; background: var(--track); }
-  .axisrow { padding: 2px 0 0; border-top: 0; }
-  .axis { position: relative; height: 16px; font-size: 12px; color: var(--text-muted); }
-  .axis span { position: absolute; top: 0; white-space: nowrap; }
-  .rtoggle { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 44px; border: 0; border-top: 1px solid var(--line);
              background: none; color: var(--text-secondary); font: inherit; font-size: 13px; padding: 0; cursor: pointer; text-align: left; }
-  .chart.members > .rtoggle:first-child { border-top: 0; }
-  .rtoggle .chev { width: 14px; text-align: center; }
-  .retired[hidden] { display: none; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   @media (min-width: 700px) {
     .mrow { grid-template-columns: minmax(0, 1fr) 280px; align-items: center; gap: 16px; }
@@ -337,7 +308,6 @@ const base = location.pathname.endsWith("/") ? location.pathname : location.path
 const params = new URLSearchParams(location.search);
 let lastRoom = params.get("room") || localStorage.getItem("room") || null;   // the last selected tracker room
 let state = null, current = params.get("room") || lastRoom;
-let processView = params.get("room") === "process"; // Only an explicit process link opens How we work.
 let filter = localStorage.getItem("filter") || "all";
 const armed = {};                                              // one-way door waiting for a confirming tap
 const dkey = d => `${current}/${d.id}`;                        // ids repeat across rooms (every room has a D07)
@@ -345,7 +315,6 @@ const sent = {};                                               // decision id ->
 const drafts = JSON.parse(localStorage.getItem("drafts") || "{}");  // decision id -> unsent note
 const openWhy = new Set();                                     // "Why it matters" panels left open
 let sheetStack = [];                                           // record ids shown in the pop-out
-const tips = {};                                              // room -> last tapped chart cell
 let pauseArmed = false, pauseMsg = "";
 const sending = {};                                            // decision key -> option key (or "question") while a POST is in flight
 const armedAt = {}, cardFns = {}, cardMeta = {}, noteOpen = new Set();
@@ -372,7 +341,6 @@ const ICONS = {
 function icon(name) {
   return svg("svg", { class: "ico", viewBox: "0 0 20 20", "aria-hidden": "true" }, svg("path", { d: ICONS[name], fill: "currentColor" }));
 }
-const RAMP = ["#cde2fb", "#86b6ef", "#3987e5", "#1c5cab"];    // sequential blue, light -> dark
 
 function el(tag, attrs = {}, ...kids) {
   const n = document.createElement(tag);
@@ -456,16 +424,11 @@ function linked(text) {
   });
 }
 
-// flags:begin  the plan JSON's `unstaffed` and `blocks`/`blocks_open` as chip text; a blocking chip is loud while its target is open
+// flags:begin  the plan JSON's `unstaffed` as chip text
 function flagChips(x) {
   const out = [];
   if (x.unstaffed) out.push({ text: "ready, no agent", cls: "unstaffed" });
-  for (const t of x.blocks || []) out.push({ text: `blocks ${t}`, cls: (x.blocks_open || []).includes(t) ? "blocks loud" : "blocks" });
   return out;
-}
-function feedbackFirst(items, flags) {      // stable: blockers of an open item first, the caller's order otherwise
-  const loud = i => ((flags[i.id] || {}).blocks_open || []).length ? 0 : 1;
-  return items.map((i, n) => [i, n]).sort((a, b) => loud(a[0]) - loud(b[0]) || a[1] - b[1]).map(x => x[0]);
 }
 // flags:end
 function flagEls(x) { return flagChips(x).map(f => el("span", { class: `flag ${f.cls}` }, f.text)); }
@@ -598,10 +561,9 @@ function palFetch() {
 }
 const palRecent = () => { try { return JSON.parse(localStorage.getItem("palRecent") || "[]"); } catch (_) { return []; } };
 function palCorpus() {
-  const out = [], strip = (id, t) => t.startsWith(id + " ") ? t.slice(id.length + 1) : t, std = state.rooms.find(x => x.standing);
+  const out = [], strip = (id, t) => t.startsWith(id + " ") ? t.slice(id.length + 1) : t;
   for (const x of state.rooms) {
-    if (x.standing) out.push({ kind: "room", id: "", title: "How we work", room: x.name, sub: needN(x) ? `${needN(x)} need you` : "agent-rooms' own improvements", need: needN(x) });
-    else out.push({ kind: "room", id: "", title: x.title, room: x.name, sub: needN(x) ? `${needN(x)} need you` : roomWord(x), need: needN(x) });
+    out.push({ kind: "room", id: "", title: x.title, room: x.name, sub: needN(x) ? `${needN(x)} need you` : roomWord(x), need: needN(x) });
     for (const d of x.asks) out.push({ kind: "decision", id: d.id, title: strip(d.id, d.title), room: x.name, sub: x.title });
     for (const l of x.lanes) for (const i of l.items) out.push({ kind: "item", id: i.id, title: strip(i.id, i.title), room: x.name, sub: x.title });
     const rec = recs(x.name), have = new Set(out.filter(h => h.room === x.name).map(h => h.id));
@@ -630,10 +592,6 @@ function palHits() {
   }
   hits = all.map(h => ({ h, r: palRank(h, q) })).filter(x => x.r >= 0).sort((a, b) => a.r - b.r || (a.h.room === current ? -1 : 0) - (b.h.room === current ? -1 : 0))
     .map(x => ({ ...x.h, group: PAL_KINDS.find(k => k[0] === x.h.kind)[1] }));
-  if ("process".startsWith(q) || "how we work".includes(q)) { /* the process room is already a Rooms hit by title; match its word too */
-    const p = all.find(h => h.kind === "room" && state.rooms.find(x => x.name === h.room)?.standing);
-    if (p && !hits.includes(p) && palChip !== "item") hits.unshift({ ...p, group: "Rooms" });
-  }
   if (palSrv.q === q) {
     const have = new Set(hits.map(h => h.room + "/" + h.id));
     for (const h of palSrv.hits) if (!h.id || !have.has(h.room + "/" + h.id)) hits.push({ ...h, group: PAL_KINDS.find(k => k[0] === h.kind)[1] });
@@ -731,7 +689,7 @@ const isStalled = x => x.continuity && x.continuity.state === "stalled";
 const needN = x => x.asks.length;
 const roomScore = x => x.asks.reduce((n, d) => n + d.impact.agents.length * 100 + d.impact.items.length * 10 + d.impact.hours, 0);
 function lastActive(x) {
-  const v = [x.lead_note_min, ...(x.activity || []).map(a => a.ago), ...x.lanes.flatMap(l => l.items.map(i => i.updated_min))].filter(n => n != null);
+  const v = [x.lead_note_min, ...x.lanes.flatMap(l => l.items.map(i => i.updated_min))].filter(n => n != null);
   return v.length ? Math.min(...v) : null;
 }
 function roomWord(x) {
@@ -739,7 +697,7 @@ function roomWord(x) {
     : x.continuity && x.continuity.state === "waiting" ? "waiting" : x.continuity?.state === "unavailable" ? "T3 state unknown" : "moving";
 }
 function computeOrder(mode) {
-  const rooms = state.rooms.filter(x => !x.standing), live = rooms.filter(x => !isClosed(x)), dead = rooms.filter(isClosed);
+  const rooms = state.rooms, live = rooms.filter(x => !isClosed(x)), dead = rooms.filter(isClosed);
   const recent = (a, b) => (lastActive(a) ?? 1e9) - (lastActive(b) ?? 1e9);
   const tier = x => needN(x) ? 0 : isStalled(x) ? 1 : 2;
   const needs = (a, b) => {
@@ -755,7 +713,7 @@ function computeOrder(mode) {
 }
 // Rooms in the current order; names the order has not seen yet go last.
 function orderedRooms() {
-  const reg = state.rooms.filter(x => !x.standing), byName = new Map(reg.map(x => [x.name, x]));
+  const reg = state.rooms, byName = new Map(reg.map(x => [x.name, x]));
   const known = roomOrder.filter(n => byName.has(n)).map(n => byName.get(n));
   return [...known, ...reg.filter(x => !roomOrder.includes(x.name))];
 }
@@ -765,8 +723,8 @@ function openRoomSheet() {
 }
 function drawRoomSheet(host) {
   const rooms = orderedRooms(), live = rooms.filter(x => !isClosed(x)), dead = rooms.filter(isClosed);
-  const need = state.rooms.reduce((n, x) => n + needN(x), 0);   // the process room's cards still count
-  const row = x => el("button", { class: "roomrow", "aria-current": String(x.name === (room()?.standing ? lastRoom : current)), onclick: () => { roomsOpen = false; drawSheet(); pick(x.name); } },
+  const need = state.rooms.reduce((n, x) => n + needN(x), 0);   
+  const row = x => el("button", { class: "roomrow", "aria-current": String(x.name === current), onclick: () => { roomsOpen = false; drawSheet(); pick(x.name); } },
     el("span", { class: "nm" }, el("b", {}, x.title),
       el("small", { class: isStalled(x) && !x.paused ? "stalled" : "" }, roomWord(x), lastActive(x) != null ? ` · active ${age(lastActive(x))} ago` : "")),
     needN(x) ? el("span", { class: "n" + (x.paused ? " paused" : ""), "aria-label": `${needN(x)} need you` }, needN(x)) : null);
@@ -782,10 +740,7 @@ function drawRoomSheet(host) {
   host.append(el("div", { class: "sheet-bg", onclick: e => { if (e.target === e.currentTarget) closeSheet(); } }, sheet));
 }
 function pick(name) {
-  if (state?.rooms.find(x => x.name === name)?.standing) return showProcess(name);
-  const wasProcess = processView;
-  processView = false;
-  if (name !== current || wasProcess) {
+  if (name !== current) {
     for (const k of Object.keys(sent)) if (k.startsWith(current + "/")) delete sent[k];   // receipts end when you leave the room
     lastRoom = name; localStorage.setItem("room", name); localStorage.removeItem("view");
     current = name;
@@ -793,34 +748,6 @@ function pick(name) {
     draw(true);
     load(true);                                // the other room's records come with its own fetch
   }
-}
-
-function leaveProcess() {
-  processView = false;
-  const reg = (state?.rooms || []).filter(x => !x.standing);
-  current = (reg.find(x => x.name === lastRoom) || reg.find(x => !isClosed(x)) || reg[0])?.name || null;
-  localStorage.removeItem("view");
-  draw(true);
-  load(true);
-}
-function showProcess(name) {
-  current = name;
-  processView = true;
-  draw(true);
-  load(true);
-}
-
-function goalBlock(r) {
-  const g = r.goal || { status: "none", locked: true };
-  const head = el("button", { class: "goalpill " + (g.locked ? "locked" : "agreed"), onclick: () => g.status === "none" ? null : openRecord("GOAL") },
-    g.locked ? "◐" : "✓", g.status === "none" ? " No goal yet · building locked" : ` Goal ${g.status}` + (g.locked ? " · building locked, waiting for your approval" : " · building open"));
-  if (g.status === "none") return el("div", { class: "goalblock" }, head, el("p", { class: "sub2" }, "The lead writes the goal (architecture, minimal viable result, definition of done), then asks you to approve it."));
-  return el("div", { class: "goalblock" }, head,
-    [["Architecture", g.architecture], ["Minimal viable result", g.result], ["Definition of done", g.done]].map(([h, t]) =>
-      el("p", { class: "sub2" }, el("b", {}, h + ": "), t || "")));
-}
-function statusCard(r) {
-  return el("div", { class: "card", id: "statuscard" }, msgLine(r));
 }
 
 // ---------- pause / resume the whole team ----------
@@ -1077,73 +1004,6 @@ function askCard(roomName, d, maxImpact) {
   return card;
 }
 
-// ---------- activity chart: who logged work, in 30-minute bins ----------
-const retiredOpen = {};   // room -> whether the Retired group is expanded; closed by default, survives redraws
-const MARK = { working: ["play", "working", "var(--accent)"], waiting: ["clock", "waiting", "var(--serious)"], retired: ["check", "retired", "var(--text-muted)"] };
-function activityChart(r) {
-  const BIN = 30, bins = Math.round(r.activity_min / BIN), H = r.activity_min / 60;
-  const count = {}, items = {}, has = new Set();
-  for (const a of r.activity) {
-    has.add(a.who);
-    const b = bins - 1 - Math.floor(a.ago / BIN);
-    if (b < 0) continue;
-    const k = `${a.who}|${b}`;
-    count[k] = (count[k] || 0) + 1;
-    (items[k] ||= new Set()).add(a.item);
-  }
-  const max = Math.max(1, ...Object.values(count));
-  // Team members: working, then waiting, then retired; roster order within each. Skip people who have nothing on record.
-  const rank = { working: 0, waiting: 1, retired: 2 };
-  const people = (r.members || []).filter(m => m.total || has.has(m.name))
-    .map((m, i) => ({ ...m, i })).sort((a, b) => rank[a.state] - rank[b.state] || a.i - b.i);
-  if (!people.length || !has.size) return null;
-  const tipEl = el("div", { class: "tip", "aria-live": "polite" }, tips[r.name] || "Tap a cell to see what happened.");
-  const row = m => {
-    const [ic, word, color] = MARK[m.state];
-    const task = m.state === "working" ? `${m.task.id} ${m.task.title}${m.more ? ` (+${m.more})` : ""}`
-               : m.state === "waiting" ? `waiting for ${m.waits.join(", ")}` : `${m.total} item${m.total === 1 ? "" : "s"} done`;
-    const heat = el("div", { class: "heat", style: `grid-template-columns:repeat(${bins},1fr)` });
-    for (let b = 0; b < bins; b++) {
-      const c = count[`${m.name}|${b}`] || 0, from = (bins - b) * BIN, to = from - BIN;
-      const label = c ? `${m.name}: ${c} log entr${c > 1 ? "ies" : "y"}, ${age(from)}–${to ? age(to) : "now"} ago (${[...items[`${m.name}|${b}`]].join(", ")})`
-                      : `${m.name}: nothing logged ${age(from)}–${to ? age(to) : "now"} ago`;
-      heat.append(el("i", { role: "img", title: label, "aria-label": label,
-        style: c ? `background:${RAMP[Math.min(RAMP.length - 1, Math.floor((c / max) * RAMP.length - 1e-9))]}` : "",
-        onclick: () => { tips[r.name] = label; tipEl.textContent = label; } }));
-    }
-    const role = m.role.toLowerCase() === m.name.toLowerCase() ? "" : m.role;
-    const who = role ? `${m.name} (${role})` : m.name;
-    const full = m.state === "working" ? `${who}, working on ${task}` : m.state === "waiting" ? `${who}, ${task}` : `${who}, retired, ${task}`;
-    return el("div", { class: `mrow ${m.state}`, role: "group", "aria-label": full },
-      el("div", { class: "top", title: full },
-        el("span", { class: "mk", style: `color:${color}` }, icon(ic), el("span", { class: "sr" }, word)),
-        el("span", { class: "nm" }, m.name, role ? el("small", {}, role) : null), el("span", { class: "task" }, task)), heat);
-  };
-  const live = people.filter(m => m.state !== "retired"), gone = people.filter(m => m.state === "retired");
-  const box = el("div", { class: "chart members" }, live.map(row));
-  if (gone.length) {
-    const list = el("div", { class: "retired", hidden: !retiredOpen[r.name] }, gone.map(row));
-    const tog = el("button", { class: "rtoggle", "aria-expanded": String(!!retiredOpen[r.name]) },
-      el("span", { class: "chev" }, retiredOpen[r.name] ? "▾" : "▸"), `Retired · ${gone.length}`);
-    tog.addEventListener("click", () => {
-      retiredOpen[r.name] = !retiredOpen[r.name];
-      list.hidden = !retiredOpen[r.name];
-      tog.setAttribute("aria-expanded", String(!!retiredOpen[r.name]));
-      tog.firstChild.textContent = retiredOpen[r.name] ? "▾" : "▸";
-    });
-    box.append(tog, list);
-  }
-  const step = H > 6 ? 2 : 1, axis = el("div", { class: "axis", "aria-hidden": "true" });
-  for (let h = Math.floor(H / step) * step; h >= 0; h -= step) {
-    const f = (bins - h * 60 / BIN) / bins * 100;
-    axis.append(el("span", { style: `left:${f}%;${h ? "transform:translateX(-50%)" : "transform:translateX(-100%)"}` }, h ? `−${h}h` : "now"));
-  }
-  box.append(el("div", { class: "mrow axisrow" }, el("div", { class: "top" }), axis), tipEl,
-    el("div", { class: "cap" }, el("span", {}, "Log entries on this room's items, per 30 min"),
-      el("span", { class: "legend" }, "fewer ", RAMP.map(c => el("i", { style: `background:${c}` })), " more")));
-  return box;
-}
-
 // ---------- page ----------
 // Remember the first thing on screen and where it sat, so a redraw can put it back there.
 function anchorPoint() {
@@ -1167,43 +1027,6 @@ function structDiff(r, was, now) {
            changed: was.names !== now.names || wa.map(x => x.id + x.sig).join() !== na.map(x => x.id + x.sig).join() };
 }
 
-// The process room's own sections. Rules changed (docs/CHANGELOG.md), Watching (notes/watching.md) and the docs chips
-// come from the server's process_docs (r.changelog, r.watching, r.docs); each block hides while its data is empty.
-function processBlocks(r) {
-  const out = [], rec = recs(r.name), lanes = r.lanes.flatMap(l => l.items.map(i => ({ ...i, owner: l.owner })));
-  const live = i => i.state !== "done" && i.state !== "dropped";
-  const upd = i => (rec[i.id] && rec[i.id].updated) || "";
-  const fromRoom = id => {
-    const sec = ((rec[id] && rec[id].sections) || []).find(x => x.h === "Inputs"), m = sec && sec.text.match(/^- from:\s*(\S+)/m);
-    return m ? `from ${m[1]}` : "";
-  };
-  const feedback = lanes.filter(i => live(i) && rec[i.id] && (rec[i.id].sections || []).some(x => x.h === "Feedback"))
-    .sort((a, b) => upd(b).localeCompare(upd(a)));
-  const feedbackSorted = feedbackFirst(feedback, Object.fromEntries(((r.plan || {}).items || []).map(x => [x.id, x])));
-  const fids = new Set(feedback.map(i => i.id));
-  const tooling = lanes.filter(i => live(i) && i.owner === "Tooling" && !fids.has(i.id));
-  const pf = Object.fromEntries(((r.plan || {}).items || []).map(x => [x.id, x]));
-  const list = (items, extra) => el("div", { class: "lanes" }, el("div", { class: "lane" }, el("div", { class: "chips" },
-    items.map(i => chip(i, extra(i), pf[i.id] && { blocks: pf[i.id].blocks, blocks_open: pf[i.id].blocks_open })))));
-  out.push(el("h2", {}, el("span", {}, `Feedback waiting · ${feedback.length}`), el("span", {}, "newest first")));
-  out.push(feedback.length ? list(feedbackSorted, i => fromRoom(i.id) || STATE[i.state][1]) : el("p", { class: "empty" }, "No feedback waiting."));
-  out.push(el("h2", {}, el("span", {}, `Tooling being built · ${tooling.length}`), el("span", {}, "state · cap · age")));
-  out.push(tooling.length ? list(tooling, i => `${STATE[i.state][1]}${i.cap_h ? " · cap " + i.cap_h + "h" : ""}${i.agent ? " · agent" : ""}${i.updated_min != null ? " · " + age(i.updated_min) : ""}`)
-    : el("p", { class: "empty" }, "Nothing queued."));
-  const lines = (title, sub, arr) => { if (!arr || !arr.length) return;
-    out.push(el("h2", {}, el("span", {}, title), el("span", {}, sub)));
-    arr.forEach(t => out.push(el("div", { class: "row" }, String(t)))); };
-  lines("Rules changed", "changelog tail", r.changelog && r.changelog.slice(-5).reverse());
-  lines("Watching", "1 more room and it becomes a rule", r.watching);
-  if ((r.docs || []).length) {
-    out.push(el("h2", {}, el("span", {}, "Docs"), el("span", {}, "local documents")));
-    out.push(el("div", { class: "lanes" }, el("div", { class: "lane" }, el("div", { class: "chips" },
-      r.docs.map(d => el("a", { class: "chip", href: docURL(d.file, d.anchor), target: "_blank", rel: "noopener" },
-        el("span", { class: "t" }, d.label)))))));
-  }
-  return out;
-}
-
 function draw(top) {
   const y = window.scrollY, anchor = top ? null : anchorPoint();
   const app = $("app");
@@ -1212,42 +1035,30 @@ function draw(top) {
   if (!state) { app.style.minHeight = ""; return; }
   const rooms = state.rooms;
   // Rooms whose lead thread is settled in T3 leave the tabs for the "Settled" dropdown.
-  const reg = rooms.filter(x => !x.standing), std = rooms.find(x => x.standing);
+  const reg = rooms;
   const open = reg.filter(x => !isClosed(x)), settled = reg.filter(isClosed);
-  if (!processView && !reg.some(r => r.name === current)) current = (open[0] || reg[0])?.name || null;
-  if (processView && !rooms.some(r => r.name === current)) processView = false;
+  if (!reg.some(r => r.name === current)) current = (open[0] || reg[0])?.name || null;
   const r = room();
   const settledAsks = settled.reduce((n, x) => n + needN(x), 0);
   const ordered = orderedRooms();
-  const inStd = processView && !!r?.standing, shell = inStd ? (reg.find(x => x.name === lastRoom) || open[0] || reg[0]) : r;
-  if (std) {
-    const fb = std.feedback || {}, need = needN(std);
-    app.append(el("button", { class: "pin" + (inStd ? " on" : ""), "aria-pressed": String(inStd), "aria-label": "How we work",
-        onclick: inStd ? leaveProcess : () => showProcess(std.name) },
-      el("span", { "aria-hidden": "true" }, "⚙"), el("b", {}, "How we work"),
-      inStd ? el("small", {}, "agent-rooms' own improvements")
-        : [need ? el("span", { class: "n", "aria-label": `${need} need you` }, need) : null,
-           el("span", { class: "pill" }, `${fb.open || 0} open`), el("span", { class: "pill g" }, `${fb.accepted || 0} accepted`)],
-      el("span", { "aria-hidden": "true" }, inStd ? "✕" : "›")));
-  }
   app.append(el("div", { class: "palkey" }, el("button", { onclick: palOpenSheet }, "Search · Ctrl-K")));
   if (!r) { app.append(el("p", { class: "empty" }, "No rooms yet. A room is one project with its own team of agents and a lead that runs it. Start the first one from a T3 thread or with atr start, then answer its first card here.")); app.style.minHeight = ""; return; }
   if (!roomOrder.length) roomOrder = computeOrder(roomSort);
   shownStruct = structOf(r); pending = false; $("newpill").hidden = true;
-  if (!(reg.length > 1 || (std && reg.length))) app.append(el("div", { class: "rowtop" }, el("span", { style: "flex:1" }), el("button", { class: "palbtn", "aria-label": "Search", onclick: palOpenSheet }, "🔍")));
-  if (reg.length > 1 || (std && reg.length)) {
+  if (!(reg.length > 1)) app.append(el("div", { class: "rowtop" }, el("span", { style: "flex:1" }), el("button", { class: "palbtn", "aria-label": "Search", onclick: palOpenSheet }, "🔍")));
+  if (reg.length > 1) {
     const need = rooms.reduce((n, x) => n + needN(x), 0);
     app.append(el("div", { class: "rowtop" },
       el("button", { class: "roombtn", "aria-haspopup": "dialog", onclick: openRoomSheet },
-        el("span", { class: "nm" }, el("b", {}, shell.title), el("small", {}, inStd ? "tap to switch room" : `${reg.length} rooms · ${need} need you`)),
-        !inStd && needN(r) ? el("span", { class: "n" + (r.paused ? " paused" : ""), "aria-label": `${needN(r)} need you here` }, needN(r)) : null, "▾"),
+        el("span", { class: "nm" }, el("b", {}, r.title), el("small", {}, `${reg.length} rooms · ${need} need you`)),
+        needN(r) ? el("span", { class: "n" + (r.paused ? " paused" : ""), "aria-label": `${needN(r)} need you here` }, needN(r)) : null, "▾"),
       el("button", { class: "palbtn", "aria-label": "Search", "aria-haspopup": "dialog", onclick: palOpenSheet }, "🔍")));
     app.append(el("nav", { class: "rooms" }, ordered.filter(x => !isClosed(x)).map(x =>
-      el("button", { "aria-pressed": String(x.name === current && !inStd), onclick: () => pick(x.name) },
+      el("button", { "aria-pressed": String(x.name === current), onclick: () => pick(x.name) },
         x.paused ? icon("pause") : null, isStalled(x) && !x.paused ? el("span", { class: "stall", "aria-label": "stalled" }, icon("warn")) : null,
         el("span", { class: "name" }, x.title),
         needN(x) ? el("span", { class: "n" + (x.paused ? " paused" : ""), "aria-label": `${needN(x)} need you` }, needN(x)) : null)),
-      settled.length ? el("select", { class: "settled" + (!inStd && settled.some(x => x.name === current) ? " on" : ""), "aria-label": "Settled rooms",
+      settled.length ? el("select", { class: "settled" + (settled.some(x => x.name === current) ? " on" : ""), "aria-label": "Settled rooms",
           onchange: e => e.target.value && pick(e.target.value) },
         el("option", { value: "" }, `Settled · ${settled.length}` + (settledAsks ? ` · ${settledAsks} need you` : "")),
         settled.map(x => el("option", { value: x.name, selected: x.name === current ? "" : false },
@@ -1255,33 +1066,26 @@ function draw(top) {
   }
 
   const c = r.counts;
-  const fbk = r.feedback || {}, maint = (r.members || []).find(m => m.role === "maintainer"), lastMin = lastActive(r);
-  app.append(el("header", {}, el("div", { class: "titlebar" }, el("h1", {}, inStd ? "How we work" : r.title), pauseButton(r)),
+  app.append(el("header", {}, el("div", { class: "titlebar" }, el("h1", {}, r.title), pauseButton(r)),
     r.code && (r.code.branch || r.code.warn.length) ? el("div", { class: "codeline" },
       r.code.branch ? el("span", { class: "codetag", title: r.code.path || "no worktree path" }, `⎇ ${r.code.branch}`) : null,
       r.code.warn.length ? el("span", { class: "codewarn", title: r.code.warn.join("\n") }, "⚠ repo") : null) : null,
     statusSlot(r), othersLine(r), attnLine(r), leadFlagLine(r), leadCmdBox(r),
-    inStd ? el("p", { class: "sub2" }, "Where agent-rooms tracks its own improvements: feedback in, rules and tooling out." + (maint && maint.name !== "Maintainer" ? ` Maintainer: ${maint.name}` : "") + (lastMin != null ? ` · last change ${age(lastMin)}${lastMin < 1 ? "" : " ago"}` : "")) : null,
-    inStd ? el("div", { class: "counts four" },
-      [["open", "open"], ["accepted", "accepted"], ["rejected", "rejected"], ["deferred", "deferred"]].map(([k, l]) =>
-        el("span", { class: "count" }, el("b", {}, fbk[k] || 0), l)),
-      ) : null,
-    inStd ? el("div", { class: "sub2" }, `outcomes in the last ${fbk.week_days || 7} days`) : null,
-    inStd ? null : goalBlock(r),
-    inStd ? null : el("p", { class: "phase" }, linked(r.phase || "")),
-    inStd ? null : el("div", { class: "counts" },
+    goalBlock(r),
+    el("p", { class: "phase" }, linked(r.phase || "")),
+    el("div", { class: "counts" },
       el("span", { class: "count" + (needN(r) ? " hot" : "") }, el("b", {}, needN(r)), "need you"),
       el("span", { class: "count" }, el("b", {}, c.doing || 0), "doing"),
       el("span", { class: "count" }, el("b", {}, c.review || 0), "review"),
       el("span", { class: "count" }, el("b", {}, (c.todo || 0) + (c.blocked || 0)), "queued"),
       el("span", { class: "count" }, el("b", {}, c.done || 0), "done")),
-    inStd ? null : statusCard(r)));
+    statusCard(r)));
 
   const kinds = { all: "All", goal: "Goal", decision: "Decisions", ask: "Asks", premise: "Premises" };
   const present = new Set(r.asks.map(d => d.type));
   if (filter !== "all" && !present.has(filter)) filter = "all";
   const shown = r.asks.filter(d => filter === "all" || d.type === filter);
-  if (!inStd) app.append(firstUse());
+  app.append(firstUse());
   app.append(el("h2", {}, el("span", {}, `Needs you · ${needN(r)}`), el("span", {}, "most blocking first")));
   app.append(el("div", { class: "filters" }, present.size > 1 ? Object.entries(kinds)
     .filter(([k]) => k === "all" || present.has(k))
@@ -1314,8 +1118,7 @@ function draw(top) {
     r.provisional.forEach(d => app.append(el("div", { class: "row" }, el("button", { class: "ref", onclick: () => openRecord(d.id) }, d.id), " ", d.title, ` — ${d.default}`)));
   }
 
-  if (inStd) processBlocks(r).forEach(n => app.append(n));
-  else {
+  {
     const pl = r.plan || { items: [], waves: 0, critical: [], critical_h: 0, done: 0 };
     app.append(el("h2", {}, el("span", {}, planView ? "Plan" : "Who's doing what"), el("span", {}, `${r.lanes.length} agent${r.lanes.length === 1 ? "" : "s"}`)));
     app.append(el("div", { class: "planbar" },
@@ -1325,23 +1128,15 @@ function draw(top) {
       planView && pl.items.length ? el("span", { class: "sub2" },
         `${pl.items.length} open · ${pl.waves} wave${pl.waves === 1 ? "" : "s"} · critical path ${pl.critical.join(" → ")} (${+pl.critical_h.toFixed(1)}h)`) : null));
   }
-  if (!inStd && planView) app.append(planView_(r));
-  if (!inStd && !planView) r.lanes.forEach(l => app.append(el("div", { class: "lane", "data-a": "lane:" + l.owner },
-    el("div", { class: "who" }, el("span", {}, l.name || l.owner, l.name ? el("small", {}, ` · ${l.owner}`) : null),
+  if (planView) app.append(planView_(r));
+  if (!planView) r.lanes.forEach(l => app.append(el("div", { class: "lane", "data-a": "lane:" + l.owner },
+    el("div", { class: "who" }, el("span", {}, l.owner),
       el("small", {}, `${l.items.length} item${l.items.length > 1 ? "s" : ""}`)),
     el("div", { class: "chips" }, l.items.map(it => {
       const s = it.state === "todo" && it.waits.length ? "waits" : it.state;
       return chip(it, it.waits.length ? `waits ${it.waits.join(", ")}` : `${STATE[s][1]}${it.updated_min != null ? " · " + age(it.updated_min) : ""}`);
     })))));
 
-  const chart = activityChart(r);
-  if (chart) app.append(el("h2", {}, el("span", {}, "Team activity in this room"),
-    el("span", {}, r.activity_min >= 720 ? "last 12 h" : `since the room opened`)), chart);
-
-  if (r.team_open.length) {
-    app.append(el("h2", {}, "Team is deciding"));
-    r.team_open.forEach(d => app.append(el("div", { class: "row" }, el("button", { class: "ref", onclick: () => openRecord(d.id) }, d.id), " ", d.title, ` — ${d.decider}`)));
-  }
   if (r.recent.length) {
     app.append(el("h2", {}, "Decided since your last message"));
     r.recent.forEach(d => app.append(el("div", { class: "row" }, el("button", { class: "ref", onclick: () => openRecord(d.id) }, d.id), " ", d.title, ` — ${d.decider}`)));

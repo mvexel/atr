@@ -1,4 +1,4 @@
-"""Page copy: standing-room naming, public wording, duration and question formats in web/index.html.
+"""Page copy: public wording, duration and question formats in web/index.html.
 Static checks on web/index.html; age() and the question rewrite are evaluated with node when it is installed."""
 import json, re, shutil, subprocess, unittest
 from pathlib import Path
@@ -12,15 +12,6 @@ def js_fn(name):
 
 
 class PageCopy(unittest.TestCase):
-    def test_one_name_for_the_standing_room(self):
-        self.assertNotIn("Process: how we work", HTML)
-        self.assertNotIn('b", {}, "Process"', HTML)
-        self.assertIn('"aria-label": "How we work"', HTML)
-        self.assertNotIn('"the atr itself"', HTML)
-
-    def test_standing_room_explained(self):
-        self.assertIn("Where agent-rooms tracks its own improvements: feedback in, rules and tooling out.", HTML)
-
     def test_settled_label(self):
         self.assertNotIn("Closed / settled", HTML)
         self.assertIn("`Settled · ${dead.length}`", HTML)

@@ -49,7 +49,7 @@ class Bottlenecks(unittest.TestCase):
         (d / "decisions").mkdir(exist_ok=True)
         for old in list((d / "items").glob("*.md")) + list((d / "decisions").glob("*.md")):
             old.unlink()
-        (d / "BRIEF.md").write_text(f"---\ntitle: t\nlead_thread: {LEAD}\nteam: [lead=Nora (she)]\n{brief}---\n")
+        (d / "BRIEF.md").write_text(f"---\ntitle: t\nlead_thread: {LEAD}\n{brief}---\n")
         for it in items:
             iid = it.split("id: ")[1].split("\n")[0]
             (d / "items" / f"{iid}-x.md").write_text(it)
@@ -95,7 +95,7 @@ class Bottlenecks(unittest.TestCase):
         r = self.room([item("T1", "review", since_min=250)])
         b = tr.bottlenecks(r, NOW)[0]
         self.assertEqual(b["level"], "loud")
-        self.assertIn("Nora (the lead) flips it to done or dispatches a reviewer", b["text"])
+        self.assertIn("the lead flips it to done or dispatches a reviewer", b["text"])
 
     def test_review_with_running_reviewer_is_skipped(self):
         self.threads["thread:delegated-task:rev12345"] = {"status": "running"}

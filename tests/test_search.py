@@ -1,4 +1,4 @@
-"""GET /api/search and the process-room state fields.
+"""GET /api/search.
 search_data is exercised against a scratch root (tr.ROOT/ROOMS patched); the HTTP route is exercised in a scratch repo
 with a copy of bin/atr on a free port. No real room is read.
 Run: python3 -I -m unittest tests.test_search
@@ -29,7 +29,6 @@ def populate(root):
         "skills/lead/SKILL.md": "# Lead\n\n## Staffing\nzebra row\n",
         "skills/lead/other.md": "zebra not SKILL.md\n",
         "docs/CHANGELOG.md": "# Changelog\n\nOne line each.\n\n2026-10-27 PROTOCOL.md zebra rule\n2026-10-27 other line\n",
-        "rooms/process/notes/watching.md": "# Watching\n\n- First thing seen once.\n- Second thing.\nplain line\n",
     }.items():
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -121,27 +120,6 @@ class StateFields(unittest.TestCase):
     def tearDown(self):
         tr.ROOT, tr.ROOMS, tr.SOURCE_ROOT = self.saved
         self.tmp.cleanup()
-
-    def test_changelog_and_watching(self):
-        f = tr.process_docs()
-        self.assertEqual(f["changelog"], ["2026-10-27 PROTOCOL.md zebra rule", "2026-10-27 other line"])
-        self.assertEqual(f["watching"], ["First thing seen once.", "Second thing."])
-        self.assertEqual([d["file"] for d in f["docs"]], ["PROTOCOL.md", "skills/lead/SKILL.md", "PROTOCOL.md", "docs/CHANGELOG.md"])
-        self.assertEqual(f["docs"][2]["anchor"], "charters-and-staffing-rules")
-
-    def test_missing_files_give_empty_blocks(self):
-        (self.root / "docs/CHANGELOG.md").unlink()
-        (self.root / "rooms/process/notes/watching.md").unlink()
-        f = tr.process_docs()
-        self.assertEqual((f["changelog"], f["watching"]), ([], []))
-
-    def test_open_counts_only_feedback_items(self):
-        d = self.root / "rooms/process/items"
-        d.mkdir(parents=True, exist_ok=True)
-        (d / "T01-fb.md").write_text("---\nid: T01\ntitle: fb\nstate: todo\nowner: maintainer\nupdated: 2026-10-27T00:00Z\n---\n## Feedback\nx\n")
-        (d / "T02-build.md").write_text("---\nid: T02\ntitle: build\nstate: doing\nowner: Tooling\nupdated: 2026-10-27T00:00Z\n---\n## Acceptance\n- [ ] x\n")
-        c = tr.feedback_counts(tr.Room("process"))
-        self.assertEqual(c["open"], 1)
 
     def test_lane_items_carry_cap_and_agent(self):
         st = tr.room_json(tr.Room("alpha"))

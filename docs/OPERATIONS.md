@@ -26,13 +26,13 @@ The page reports a saved answer separately from T3 acceptance. Agent receipt and
 
 ## Backup and recovery
 
-Keep a private, coherent backup of the whole selected store, including `rooms/`, attachments, migration manifests, observations and operator state. Protect backup copies and their permissions as you would the original data.
+Keep a private, coherent backup of the whole selected store, including `rooms/`, attachments, observations and operator state. Protect backup copies and their permissions as you would the original data.
 
 Take a filesystem snapshot or copy only while atr writers and external editors are quiescent. Do not copy changing records independently and assume a coherent workflow transition. Back up source resources/version separately. Preserve T3 runtime data using T3's own procedure; an atr store backup does not contain T3 execution history.
 
 Canonical writes use a common advisory lock, atomic replacement, file/directory syncing and a recovery journal. Atr access recovers an interrupted destination transition before further reads/writes. An unacknowledged transition is undone; a committed transition is retained. Never remove `.atr/transaction.json` to silence an error. If recovery rejects a journal/path, keep the entire store and journal, avoid further edits, and have the maintainer inspect a copy.
 
-After restoring an older backup, do not immediately enable outbound automation: later T3 acceptance or destination writes may be missing from it. Check the room pages for "Lead not notified" flags first. Restoring an old directory or changing `ATR_DATA_DIR` alone cannot preserve writes made elsewhere. Migration rollback deliberately refuses such loss; see `docs/MIGRATION.md`.
+After restoring an older backup, do not immediately enable outbound automation: later T3 acceptance or destination writes may be missing from it. Check the room pages for "Lead not notified" flags first. Restoring an old directory or changing `ATR_DATA_DIR` alone cannot preserve writes made elsewhere.
 
 External editors do not take atr locks or send revision preconditions. Quiesce all writers and complete any recovery before editing. Keep a backup, preserve unknown frontmatter/Markdown, and reload after the edit. Atr-mediated stale saves compare byte revisions and refuse incompatible changes, but cannot guarantee concurrency safety against an uncooperative editor. Several processes may share one local store; this is not synchronization between independent machines.
 

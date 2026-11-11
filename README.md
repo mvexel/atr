@@ -89,15 +89,13 @@ The `atr` command is mainly for the lead and its workers. The ones you might use
 ## Documentation
 
 - [Operations](docs/OPERATIONS.md): telling the lead, backup, restore
-- [Migration](docs/MIGRATION.md): copy, verify, roll back, migration fences
 - [Dependencies](docs/DEPENDENCIES.md): runtime requirements and licensing notes
 - [Workflow](PROTOCOL.md) and [lead skill](skills/lead/SKILL.md): how agent work gets coordinated
 
 ## Good to know
 
-- **Existing stores aren’t migrated automatically.** Choosing a path or updating the source never copies or moves existing data.
-- **What it does:** local records, rooms, items and decisions, dependency tracking, review gates, the CLI and web view, the T3 bridge, and explicit migration tools.
-- **What it doesn’t, for now:** Git/PR tracking, third-party relay, usage and budget collection, scheduled runs, external notifications.
+- **What it does:** local records, rooms, items and decisions, dependency tracking, review gates, the CLI and web view, the T3 bridge.
+- **What it doesn’t, for now:** Git/PR tracking, usage and budget collection, scheduled runs, external notifications. To reach a teammate's agent, use `ari relay`.
 - **Licensing:** project licensing and any public release are separate decisions; see [Dependencies](docs/DEPENDENCIES.md).
 
 ## License

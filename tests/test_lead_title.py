@@ -56,10 +56,6 @@ class LeadTitle(unittest.TestCase):
     def test_closed_room(self):
         self.assertEqual(self.warns(self.room("x", extra="closed: 2026-10-27 done\n")), [])
 
-    def test_standing_room(self):
-        self.assertEqual(self.warns(self.room("Room · process · Maintainer", extra="standing: true\n")), [])
-        self.assertEqual(self.warns(self.room("Maintainer", extra="standing: true\n")), [])
-
     def test_fetch_thread_returns_title(self):
         import json, subprocess
         saved = subprocess.run

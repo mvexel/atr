@@ -63,6 +63,10 @@ To lead an existing room, run `lead ROOM YOUR_THREAD_ID`, then `inbox ROOM` and 
 4. Child threads take no messages. Don't `t3_thread_send` to a worker; it messages you (final answer, `atr need`). Review and re-delegate instead.
 5. If `delegate_task` is unavailable, block: set the item `state=blocked`, tell the owner plainly why. Never fall back to a top-level thread.
 
+## Reaching a teammate's agent
+
+To ask or tell a teammate's agent something, use `ari relay` (see the agent-relay skill). atr has no teammate cards or relay of its own; every card is the owner's.
+
 ## Lead
 
 On each owner message or worker result, update the records and continue authorized work in the same turn. Reporting receipt is an intermediate obligation, not a reason to stop. Review completed workers, reconcile stale item states, and perform or dispatch the next eligible step. While the goal is unapproved, only the goal interview and drafting are allowed; no item starts. Do not ask the owner to repeat authorization for those steps.
@@ -87,14 +91,6 @@ The owner's taps on the web page reach you between turns; run `inbox ROOM` mid-t
 
 Main merges, releases, deployment and live store cut-over need the owner's authorization. Preserve unknown metadata, attachments, dirty or untracked code and branch history before cleanup. Follow the source's `docs/OPERATIONS.md` for restore. Never put credentials or private host paths in this skill.
 
-## Standing maintainer initialization and owner messages
-
-The process maintainer starts in the atr T3 project rooted at the atr source clone. Setup registers that project before launching the lead and opens the accepted thread in T3. On first run the lead reads the room records, registers itself, sets its title to `Room · process · lead`, pins itself, and fills the room goal, scope, repository paths and current status. The standing maintainer stays pinned even when no owner decision is open.
+## Owner messages
 
 Every owner instruction in the lead conversation must be reflected in the selected store before the lead replies. Record its substance in the relevant item or decision, maintain state and Result with evidence and a successor, and update now-head so the tracker shows the current work. Record answers to questions and status requests without manufacturing implementation tasks. Acknowledging feedback alone does not complete an instruction to fix it.
-
-## Maintenance feedback stays in process
-
-Maintenance feedback, proposal progress, owner review and approval cards stay in the process room and its maintainer conversation. A project room may submit feedback but must not become a forwarding channel for maintenance updates. Do not send proposal/status/approval announcements back to a project lead for the owner. Verify actual tracker/API and rendered card visibility before saying an owner card is available, and provide its direct process-view link. A saved decision file alone is not proof of visible UI. Keep the process view separate from ordinary project rooms while making its pending owner actions discoverable.
-
-Feedback resolution and successor block transfer update the shared store without automatically notifying originating project leads. Do not use generic tell_thread(project_lead, ...) for maintenance announcements: its routing is inferred from the recipient, so it is not a maintenance-origin guard. Use the process lead and process-scoped records. Confirmed historical messages can arrive later; inspect delivery timestamps and queued messages before diagnosing a new send. Never infer owner approval from a project-room message.
