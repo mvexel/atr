@@ -52,7 +52,6 @@
   .roomrow .nm b { display: block; font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .roomrow .nm small { display: block; font-size: 13px; color: var(--text-secondary); }
   .roomrow[aria-current="true"] .nm b { color: var(--accent); }
-  .roomrow .nm small.stalled { color: var(--critical-text); }
   .palbtn { flex: none; width: 48px; min-height: 48px; margin: 0 0 4px; border: 1px solid var(--line); background: var(--surface-1); color: var(--text-primary); border-radius: 14px; font-size: 18px; cursor: pointer; }
   .rowtop { display: flex; gap: 6px; align-items: stretch; } .rowtop .roombtn { flex: 1; min-width: 0; width: auto; }
   .palkey { display: none; }
@@ -78,16 +77,6 @@
   .pal mark { background: color-mix(in srgb, var(--accent) 25%, transparent); color: inherit; border-radius: 2px; }
   .pal .empty { padding: 16px 12px; }
   .pal .foot { display: flex; gap: 14px; padding: 8px 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--text-muted); }
-  .pin { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; margin: 0 0 8px; border: 1px dashed var(--text-muted); background: var(--track);
-         color: var(--text-primary); border-radius: 14px; padding: 6px 12px; font: inherit; text-align: left; cursor: pointer; }
-  .pin b { flex: 1; min-width: 0; font-size: 15px; }
-  .pin small { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pin .pill { flex: none; font-size: 12px; border-radius: 999px; padding: 2px 8px; background: var(--surface-1); color: var(--text-secondary); white-space: nowrap; }
-  .pin .pill.g { color: var(--good); }
-  .pin.on { border: 1px solid var(--text-primary); background: var(--text-primary); color: var(--surface-1); }
-  .pin.on small { color: inherit; opacity: .75; }
-  .pin.on .pill { background: transparent; color: inherit; }
-  .counts.four { grid-template-columns: repeat(4, 1fr); }
   .sub2 { color: var(--text-secondary); font-size: 13px; margin: 2px 4px 6px; }
   .newpill { position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 20; border: 0;
              background: var(--accent-fill); color: var(--accent-ink); border-radius: 999px; padding: 10px 16px; font: inherit; font-size: 14px; font-weight: 600;
@@ -112,9 +101,8 @@
   .slotpill .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .slotpill .t .ico { margin-right: 6px; }
   .slotpill.paused { font-weight: 600; }
-  .slotpill.stalled { border-color: var(--critical); background: var(--critical-soft); font-weight: 600; }
   .slot .banner { margin: 4px 0 0; }
-  .line.attn { color: var(--text-secondary); }
+  .line.attn { color: var(--text-secondary); white-space: normal; overflow: visible; }
   .line.attn.loud { color: var(--critical-text); font-weight: 600; }
   .rooms button { border: 1px solid var(--line); background: var(--surface-1); color: var(--text-secondary);
                   border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 14px; }
@@ -126,16 +114,30 @@
                           border-radius: 999px; padding: 6px 10px; font: inherit; font-size: 14px; max-width: 240px; }
   .rooms select.settled.on { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--accent-ink); }
   .rooms button[aria-pressed="true"] { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--accent-ink); }
-  .counts { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 6px 0 4px; }
-  .count { background: var(--surface-1); border: 1px solid var(--line); border-radius: 10px; padding: 6px 4px;
-           font-size: 12px; color: var(--text-secondary); text-align: center; white-space: nowrap; }
-  .count b { display: block; color: var(--text-primary); font-size: 18px; line-height: 1.2; }
-  .count.hot { border-color: var(--critical); }
+  .counts { margin: 6px 0 0; font-size: 14px; color: var(--text-secondary); overflow-wrap: anywhere; }
+  .counts b { color: var(--text-primary); }
+  .counts .hot, .counts .hot b { color: var(--critical-text); }
+  .counts .sep { color: var(--text-muted); margin: 0 3px; }
+  .note { margin: 4px 0 0; font-size: 14px; color: var(--text-secondary); overflow-wrap: anywhere; }
+  .goalline { margin: 6px 0 0; font-size: 14px; font-weight: 600; color: var(--text-secondary); }
+  .goalline.draft { color: var(--critical-text); }
+  .goalline .ref { font-weight: 400; min-height: 32px; }
+  .banner .hint { display: block; margin-top: 2px; color: var(--text-secondary); }
+  .banner details { margin-top: 4px; } .banner summary { cursor: pointer; color: var(--text-muted); }
+  .details { margin: 24px 0 0; font-size: 14px; }
+  .details > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; color: var(--text-secondary); font-weight: 600; }
+  .details .phase { margin: 4px 4px 8px; }
+  .details h4 { margin: 12px 4px 4px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-secondary); }
+  .lane .chip .st.long { flex-basis: 100%; }
+  .card.receipt .titlebtn { display: inline; width: auto; }
+  .titlebtn { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; }
+  .titlebtn:hover .tt { text-decoration: underline; text-underline-offset: 2px; }
+  .age { font-size: 12px; color: var(--text-muted); }
   h2 { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-secondary);
        margin: 22px 4px 8px; display: flex; justify-content: space-between; }
   .card.urgent { border-color: var(--critical); }
   .card.done { opacity: .75; }
-  .badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+  .badges { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
   .badge { font-size: 12px; border-radius: 6px; padding: 2px 7px; border: 1px solid var(--line); color: var(--text-secondary); }
   .badge { display: inline-flex; align-items: center; gap: 4px; }
   .badge.urgent { background: var(--critical-soft); border-color: var(--critical); color: var(--text-primary); }
@@ -155,11 +157,9 @@
   .chip .i { font-weight: 600; }
   .s-doing { border-left-color: var(--accent); } .s-review { border-left-color: var(--warning); }
   .s-blocked { border-left-color: var(--critical); } .s-waits { border-left-color: var(--serious); }
-  .s-todo { border-left-color: var(--text-muted); } .s-done { border-left-color: var(--good); }
+  .s-done { border-left-color: var(--good); }
   .chip .flags { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; }
   .flag { border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; font-size: 12px; color: var(--text-muted); white-space: nowrap; }
-  .flag.unstaffed { border-color: var(--good); color: var(--text-secondary); }
-  .flag.loud { border-color: var(--critical); background: var(--critical-soft); color: var(--critical-text); font-weight: 600; }
   .why { font-size: 14px; color: var(--text-secondary); margin: 4px 0 10px; }
   .why summary { cursor: pointer; color: var(--text-muted); }
   .opts { display: grid; gap: 8px; }
@@ -195,9 +195,7 @@
   textarea { width: 100%; margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 8px;
              font: inherit; font-size: 15px; background: var(--surface-0); color: var(--text-primary); min-height: 44px; }
   .addnote { display: block; margin-top: 12px; border: 0; background: none; color: var(--accent); font: inherit; font-size: 14px; padding: 6px 0; min-height: 44px; cursor: pointer; }
-  .meta { font-size: 12px; color: var(--text-muted); margin-top: 8px; display: flex; justify-content: space-between; gap: 8px; }
   .result { margin-top: 8px; font-size: 14px; }
-  .divider { text-align: center; font-size: 13px; color: var(--text-muted); margin: 16px 0 10px; }
   .lane { background: var(--surface-1); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; margin-bottom: 8px; }
   .lane .who { font-weight: 600; margin-bottom: 6px; display: flex; justify-content: space-between; }
   .lane .who small { color: var(--text-muted); font-weight: 400; }
@@ -230,7 +228,7 @@
   .pbox .m { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 3px; font-size: 12px; color: var(--text-muted); }
   .pbox .lk { border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; }
   .pbox .need { display: block; margin-top: 3px; font-size: 12px; color: var(--critical-text); overflow-wrap: anywhere; }
-  .pbox.p-ready { border-left-color: var(--good); } .pbox.p-waits { border-left-color: var(--text-muted); }
+  .pbox.p-ready { border-left-color: var(--good); } .s-todo { border-left-color: var(--good); } .pbox.p-waits { border-left-color: var(--text-muted); }
   .pbox.p-doing { border-left-color: var(--accent); } .pbox.p-review { border-left-color: var(--warning); }
   .pbox.p-blocked { border-left-color: var(--critical); } .pbox.p-done { border-left-color: var(--good); opacity: .6; }
   .pbox.crit { box-shadow: 0 0 0 2px var(--text-primary); }
@@ -241,7 +239,7 @@
     .plan .wave { flex: 1 0 170px; min-width: 170px; }
     .plan svg { display: block; }
   }
-  button.chip, .addnote, .slotpill, .rtoggle, .prdpill, .filters button, .seg button, .pal .chips button, .pbox { min-height: 44px; }
+  button.chip, .addnote, .slotpill, .filters button, .seg button, .pal .chips button, .pbox { min-height: 44px; }
   .rooms button { min-height: 44px; }
   button.chip { cursor: pointer; font: inherit; font-size: 13px; color: inherit; text-align: left; }
   .lane button.chip { width: 100%; }
@@ -260,37 +258,6 @@
   .sheet .sub { font-size: 13px; color: var(--text-secondary); }
   .sheet .back { border: 0; background: none; color: var(--accent); font: inherit; font-size: 14px; padding: 0 0 8px; cursor: pointer; }
   a.ref, button.ref { color: var(--accent); background: none; border: 0; padding: 0; font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
-  .chart { background: var(--surface-1); border: 1px solid var(--line); border-radius: 14px; padding: 10px 8px 8px; }
-  .chart svg { display: block; width: 100%; height: auto; }
-  .chart .cap { font-size: 12px; color: var(--text-muted); margin: 6px 4px 0; display: flex; justify-content: space-between; gap: 8px; }
-  .chart .legend { display: inline-flex; gap: 2px; align-items: center; }
-  .chart .legend i { width: 12px; height: 10px; border-radius: 2px; display: inline-block; }
-  .chart svg.ico { display: inline-block; width: 14px; height: 14px; }
-  .chart.members { padding: 6px 12px 10px; }
-  .mrow { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; padding: 7px 0; border-top: 1px solid var(--line); }
-  .mrow:first-child { border-top: 0; }
-  .mrow .top { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 20px; }
-  .mrow .mk { flex: none; display: inline-flex; }
-  .mrow .nm { flex: none; width: 84px; font-size: 14px; line-height: 1.25; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mrow .task { flex: 1; min-width: 0; font-size: 13px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mrow .nm small { display: block; font-size: 12px; font-weight: 400; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; }
-  .mrow.retired .nm, .mrow.retired .task { color: var(--text-muted); font-weight: 400; }
-  .mrow.retired .heat { opacity: .55; }
-  .heat { display: grid; gap: 2px; height: 10px; }
-  .heat i { display: block; border-radius: 2px; background: var(--track); }
-  .axisrow { padding: 2px 0 0; border-top: 0; }
-  .axis { position: relative; height: 16px; font-size: 12px; color: var(--text-muted); }
-  .axis span { position: absolute; top: 0; white-space: nowrap; }
-  .rtoggle { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 44px; border: 0; border-top: 1px solid var(--line);
-             background: none; color: var(--text-secondary); font: inherit; font-size: 13px; padding: 0; cursor: pointer; text-align: left; }
-  .chart.members > .rtoggle:first-child { border-top: 0; }
-  .rtoggle .chev { width: 14px; text-align: center; }
-  .retired[hidden] { display: none; }
-  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  @media (min-width: 700px) {
-    .mrow { grid-template-columns: minmax(0, 1fr) 280px; align-items: center; gap: 16px; }
-    .mrow .nm { width: 110px; }
-  }
   .codeline { display: flex; gap: 6px; align-items: center; margin-top: 2px; font-size: 12px; }
   .codetag { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; color: var(--text-secondary); font-family: ui-monospace, monospace; }
   .codewarn { border-radius: 999px; padding: 1px 8px; background: var(--track); color: var(--text-primary); font-weight: 600; cursor: help; }
@@ -302,12 +269,8 @@
   .pause.resume { border-color: var(--good); }
   .banner { background: var(--critical-soft); border: 1px solid var(--critical); border-radius: 12px; padding: 10px 12px;
             margin: 6px 0 4px; font-size: 14px; }
-  nav.rooms .stall { color: var(--critical-text); display: inline-flex; }
   .banner b { display: flex; align-items: center; gap: 6px; font-size: 15px; }
-  .prdpill { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); background: var(--surface-1);
-             color: var(--text-primary); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 14px; cursor: pointer; margin: 0 0 8px; }
-  .prdpill.locked { border-color: var(--warning); }
-  .prdpill.agreed { border-color: var(--good); }
+  .goalblock p { margin: 2px 0; white-space: pre-wrap; }
   .card { background: var(--surface-1); border: 1px solid var(--line); border-radius: 14px; padding: 6px 12px 8px; margin: 8px 0 0; }
   .card .top .line { margin: 2px 0 0; }
   .card .line.warn { color: var(--text-primary); font-weight: 600; }
@@ -319,7 +282,6 @@
     .card .top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; }
     .card .top .line { margin: 0; }
   }
-  .tip { font-size: 13px; color: var(--text-secondary); min-height: 18px; margin: 4px 4px 0; }
 .chipwrap{display:inline-flex;align-items:center;gap:.3em}
 .t3link{font-size:.85em}
 </style>
@@ -336,7 +298,6 @@ const base = location.pathname.endsWith("/") ? location.pathname : location.path
 const params = new URLSearchParams(location.search);
 let lastRoom = params.get("room") || localStorage.getItem("room") || null;   // the last selected tracker room
 let state = null, current = params.get("room") || lastRoom;
-let processView = params.get("room") === "process"; // Only an explicit process link opens How we work.
 let filter = localStorage.getItem("filter") || "all";
 const armed = {};                                              // one-way door waiting for a confirming tap
 const dkey = d => `${current}/${d.id}`;                        // ids repeat across rooms (every room has a D07)
@@ -344,17 +305,16 @@ const sent = {};                                               // decision id ->
 const drafts = JSON.parse(localStorage.getItem("drafts") || "{}");  // decision id -> unsent note
 const openWhy = new Set();                                     // "Why it matters" panels left open
 let sheetStack = [];                                           // record ids shown in the pop-out
-const tips = {};                                              // room -> last tapped chart cell
 let pauseArmed = false, pauseMsg = "";
 const sending = {};                                            // decision key -> option key (or "question") while a POST is in flight
 const armedAt = {}, cardFns = {}, cardMeta = {}, noteOpen = new Set();
 let inflight = 0, lastTouch = 0, retryTimer = null;
 const recCache = {}, recErr = {}, bodies = {};                 // room -> {id: record}; room -> {tag, text}
 let stateRoom = null, lastSig = "", drawn = false, shownStruct = null, pending = false, slotOpen = false, leadOpen = false, leadThread = "";
-let roomsOpen = false, roomSort = localStorage.getItem("roomSort") === "recent" ? "recent" : "needs", roomOrder = [];
+let detailsOpen = false, roomsOpen = false, roomSort = localStorage.getItem("roomSort") === "recent" ? "recent" : "needs", roomOrder = [];
 const recs = n => recCache[n] || {};
 const STATE = {
-  doing: ["●", "doing"], review: ["◐", "review"], blocked: ["■", "blocked"], todo: ["○", "to do"],
+  doing: ["●", "running"], review: ["◐", "review"], blocked: ["■", "blocked"], todo: ["○", "ready"],
   waits: ["…", "waiting"], done: ["✓", "done"], dropped: ["–", "dropped"],
   open: ["○", "open"], provisional: ["◐", "provisional"], final: ["✓", "final"], superseded: ["–", "superseded"],
 };
@@ -371,7 +331,6 @@ const ICONS = {
 function icon(name) {
   return svg("svg", { class: "ico", viewBox: "0 0 20 20", "aria-hidden": "true" }, svg("path", { d: ICONS[name], fill: "currentColor" }));
 }
-const RAMP = ["#cde2fb", "#86b6ef", "#3987e5", "#1c5cab"];    // sequential blue, light -> dark
 
 function el(tag, attrs = {}, ...kids) {
   const n = document.createElement(tag);
@@ -403,14 +362,54 @@ function localTime(z) {
   const d = z ? new Date(z.replace(/Z$/, ":00Z")) : null;
   return d && !isNaN(d) ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
 }
+// "updated 2m ago", from the server's own clock stamp; kept fresh by a timer, not by redrawing the page.
+function updatedText() {
+  const t = state && state.now ? new Date(state.now.replace(/Z$/, ":00Z")) : null;
+  if (!t || isNaN(t)) return "";
+  const m = Math.max(0, Math.floor((Date.now() - t) / 60000));
+  return "updated " + (m < 1 ? "just now" : age(m) + " ago");
+}
+setInterval(() => { const u = document.getElementById("upd"); if (u) u.textContent = updatedText(); }, 30000);
 const room = () => state?.rooms.find(r => r.name === current);
 const docURL = (file, anchor = "") => base + "doc?file=" + encodeURIComponent(file) + (anchor ? "#" + anchor : "");
-function deliveryText(delivery) {
-  if (delivery?.state === "confirmed") return "T3 accepted · receipt and execution unverified";
-  if (delivery?.state === "uncertain") return "T3 acceptance uncertain · reconcile before retrying";
-  if (delivery?.state === "superseded") return "acknowledged locally · no T3 delivery attempted";
-  if (delivery?.state === "failed") return "T3 unavailable · delivery pending";
-  return "T3 delivery pending";
+const SENT_NOTE = "the lead is told; a flag shows here if T3 does not accept it";
+// One plain sentence about auto-start, or nothing when there is nothing to say.
+function autostartLine(r) {
+  const a = r.autostart;
+  if (!a) return null;
+  const blocked = r.lanes.flatMap(l => l.items).filter(i => i.state === "blocked").map(i => i.id);
+  const text = a.state === "locked" ? "Auto-start waits for goal approval"
+    : a.state === "paused-failure" ? `Auto-start paused: ${blocked.join(", ") || "an item"} ${blocked.length > 1 ? "are" : "is"} blocked (${a.running} of ${a.cap} slots busy)`
+    : a.state === "capped" ? `Auto-start waits for a free slot (${a.running} of ${a.cap} busy)`
+    : a.state === "ok" && a.offer.length ? `Offered to the lead: ${a.offer.join(", ")}`
+    : null;
+  return text ? el("div", { class: "note", role: "status" }, text) : null;
+}
+// The goal in one line: red with a link to the approval card until approved, muted after.
+function goalLine(r) {
+  const g = r.goal || { status: "none", locked: true };
+  if (!g.locked) return el("div", { class: "goalline" }, "Goal approved");
+  const card = r.asks.find(d => d.type === "goal");
+  const go = () => { const n = document.querySelector(`[data-a="card:${dkey(card)}"]`); if (n) n.scrollIntoView({ behavior: "smooth", block: "start" }); };
+  return el("div", { class: "goalline draft", role: "status" },
+    g.status === "none" ? "No goal yet: the lead writes one, you approve it, then work starts" : `Goal ${g.status}: approve to start work`,
+    card ? [" ", el("button", { class: "ref", onclick: go }, "Go to approval ↓")] : null);
+}
+// The goal text and the lead's phase line; the phase is dropped while it still says "not written yet" over an existing goal.
+function goalDetails(r) {
+  const g = r.goal || { status: "none" };
+  const fields = [["Architecture", g.architecture], ["Minimal viable result", g.result], ["Definition of done", g.done]].filter(f => f[1]);
+  const phase = (r.phase || "").trim(), stale = g.status !== "none" && /not written yet/i.test(phase);
+  return [phase && !stale ? el("p", { class: "phase" }, linked(phase)) : null,
+    fields.length ? el("div", { class: "goalblock" }, el("h4", {}, "Goal"), ...fields.map(([h, t]) => el("p", {}, el("b", {}, h + ": "), linked(t)))) : null];
+}
+function leadFlagLine(r) {
+  const f = r.lead_flag;
+  if (!f) return null;
+  return el("div", { class: "banner", role: "alert" },
+    el("b", {}, icon("warn"), `Lead not notified (${f.reason})`),
+    el("span", { class: "hint" }, f.retryable && !f.retried ? "atr retries once in about 60 s; the lead can also read it with atr inbox." : `The lead reads it with atr inbox ${r.name}.`),
+    el("details", {}, el("summary", {}, "Message"), el("div", {}, f.text)));
 }
 const $ = id => document.getElementById(id);
 const saveDrafts = () => localStorage.setItem("drafts", JSON.stringify(drafts));
@@ -428,7 +427,7 @@ function inline(text) {
   const known = recs(current);
   const out = [];
   let last = 0;
-  for (const m of text.matchAll(/\*\*(.+?)\*\*|`([^`]+)`|\b(RF\d{2,3}|[TBDAPR]\d{2,3}|PRD)\b|\[([^\]]+)\]\(([^)]+)\)/g)) {
+  for (const m of text.matchAll(/\*\*(.+?)\*\*|`([^`]+)`|\b([TBDAP]\d{2,3}|GOAL)\b|\[([^\]]+)\]\(([^)]+)\)/g)) {
     if (m[3] && !known[m[3]]) continue;
     out.push(text.slice(last, m.index));
     if (m[1] != null) out.push(el("b", {}, inline(m[1])));
@@ -453,26 +452,29 @@ function linked(text) {
   });
 }
 
-// flags:begin  the plan JSON's `unstaffed` and `blocks`/`blocks_open` as chip text; a blocking chip is loud while its target is open
-function flagChips(x) {
-  const out = [];
-  if (x.unstaffed) out.push({ text: "ready, no agent", cls: "unstaffed" });
-  for (const t of x.blocks || []) out.push({ text: `blocks ${t}`, cls: (x.blocks_open || []).includes(t) ? "blocks loud" : "blocks" });
-  return out;
+// One status for an item: running, review, blocked, waiting, ready, done. todo splits on its dependencies.
+const planItem = id => ((room() || {}).plan || { items: [] }).items.find(x => x.id === id);
+function skey(item) {
+  if (item.state !== "todo") return item.state;
+  const p = planItem(item.id);
+  return (item.waits && item.waits.length) || (p && !p.ready) ? "waits" : "todo";
 }
-function feedbackFirst(items, flags) {      // stable: blockers of an open item first, the caller's order otherwise
-  const loud = i => ((flags[i.id] || {}).blocks_open || []).length ? 0 : 1;
-  return items.map((i, n) => [i, n]).sort((a, b) => loud(a[0]) - loud(b[0]) || a[1] - b[1]).map(x => x[0]);
+// "waiting on T03", "blocked by T02 (needs: ...)": why an item is not running, from the plan.
+function whyLine(item) {
+  const p = planItem(item.id), k = skey(item);
+  if (k === "blocked") return `blocked${p && p.need ? ": " + p.need : ""}`;
+  if (k !== "waits") return "";
+  const deps = (item.waits && item.waits.length ? item.waits : p ? p.deps : []);
+  const out = deps.map(d => { const x = planItem(d); return x && x.state === "blocked" ? `blocked by ${d} (needs: ${x.need || "?"})` : `waiting on ${d}`; });
+  return out.length ? out.join("; ") : p && p.why_not ? `waiting: ${p.why_not}` : "waiting";
 }
-// flags:end
-function flagEls(x) { return flagChips(x).map(f => el("span", { class: `flag ${f.cls}` }, f.text)); }
-
-function chip(item, extra, flags) {
-  const s = item.state === "todo" && item.waits && item.waits.length ? "waits" : item.state;
+function chip(item, extra) {
+  const s = skey(item);
   const [icon, label] = STATE[s] || ["?", s];
-  const b = el("button", { class: `chip s-${s}`, title: `${item.id} ${item.title} · ${label}`, onclick: () => openRecord(item.id) },
+  const why = whyLine(item);
+  const b = el("button", { class: `chip s-${s}`, title: `${item.id} ${item.title} · ${why || label}`, onclick: () => openRecord(item.id) },
     el("span", { class: "i" }, `${icon} ${item.id}`), el("span", { class: "t" }, item.title),
-    extra ? el("span", { class: "st" }, extra) : null, flags && flagChips(flags).length ? el("span", { class: "flags" }, ...flagEls(flags)) : null);
+    extra ? el("span", { class: "st" + (why ? " long" : "") }, extra) : null);
   // A link next to the button, not inside it: the worker's thread in T3 where its id and environment are known.
   return item.agent_link ? el("span", { class: "chipwrap" }, b, el("a", { href: item.agent_link, target: "atr-t3", class: "t3link", title: "Open the worker's thread in T3" }, "T3")) : b;
 }
@@ -549,7 +551,7 @@ function drawSheetBody() {
     host.append(el("div", { class: "sheet-bg", onclick: e => { if (e.target === e.currentTarget) closeSheet(); } }, sheet));
     return;
   }
-  const [icon, label] = STATE[r.state] || ["", r.state];
+  const [icon, label] = STATE[/^T\d/.test(r.id) ? skey({ id: r.id, state: r.state, waits: [] }) : r.state] || ["", r.state];
   sheet = el("div", { class: "sheet", role: "dialog", "aria-modal": "true", "aria-label": `${r.id} ${r.title}` }, back,
     el("div", { class: "top" },
       el("div", {}, el("h3", {}, `${r.id} ${r.title}`),
@@ -595,10 +597,9 @@ function palFetch() {
 }
 const palRecent = () => { try { return JSON.parse(localStorage.getItem("palRecent") || "[]"); } catch (_) { return []; } };
 function palCorpus() {
-  const out = [], strip = (id, t) => t.startsWith(id + " ") ? t.slice(id.length + 1) : t, std = state.rooms.find(x => x.standing);
+  const out = [], strip = (id, t) => t.startsWith(id + " ") ? t.slice(id.length + 1) : t;
   for (const x of state.rooms) {
-    if (x.standing) out.push({ kind: "room", id: "", title: "How we work", room: x.name, sub: needN(x) ? `${needN(x)} need you` : "agent-rooms' own improvements", need: needN(x) });
-    else out.push({ kind: "room", id: "", title: x.title, room: x.name, sub: needN(x) ? `${needN(x)} need you` : roomWord(x), need: needN(x) });
+    out.push({ kind: "room", id: "", title: x.title, room: x.name, sub: needN(x) ? `${needN(x)} need you` : roomWord(x), need: needN(x) });
     for (const d of x.asks) out.push({ kind: "decision", id: d.id, title: strip(d.id, d.title), room: x.name, sub: x.title });
     for (const l of x.lanes) for (const i of l.items) out.push({ kind: "item", id: i.id, title: strip(i.id, i.title), room: x.name, sub: x.title });
     const rec = recs(x.name), have = new Set(out.filter(h => h.room === x.name).map(h => h.id));
@@ -627,10 +628,6 @@ function palHits() {
   }
   hits = all.map(h => ({ h, r: palRank(h, q) })).filter(x => x.r >= 0).sort((a, b) => a.r - b.r || (a.h.room === current ? -1 : 0) - (b.h.room === current ? -1 : 0))
     .map(x => ({ ...x.h, group: PAL_KINDS.find(k => k[0] === x.h.kind)[1] }));
-  if ("process".startsWith(q) || "how we work".includes(q)) { /* the process room is already a Rooms hit by title; match its word too */
-    const p = all.find(h => h.kind === "room" && state.rooms.find(x => x.name === h.room)?.standing);
-    if (p && !hits.includes(p) && palChip !== "item") hits.unshift({ ...p, group: "Rooms" });
-  }
   if (palSrv.q === q) {
     const have = new Set(hits.map(h => h.room + "/" + h.id));
     for (const h of palSrv.hits) if (!h.id || !have.has(h.room + "/" + h.id)) hits.push({ ...h, group: PAL_KINDS.find(k => k[0] === h.kind)[1] });
@@ -724,21 +721,20 @@ document.addEventListener("keydown", e => {
 
 // ---------- rooms: one button and a sheet on a phone, pills on a wide screen ----------
 const isClosed = x => x.lead_settled || x.closed;
-const isStalled = x => x.continuity && x.continuity.state === "stalled";
 const needN = x => x.asks.length;
 const roomScore = x => x.asks.reduce((n, d) => n + d.impact.agents.length * 100 + d.impact.items.length * 10 + d.impact.hours, 0);
 function lastActive(x) {
-  const v = [x.lead_note_min, ...(x.activity || []).map(a => a.ago), ...x.lanes.flatMap(l => l.items.map(i => i.updated_min))].filter(n => n != null);
+  const v = [x.lead_note_min, ...x.lanes.flatMap(l => l.items.map(i => i.updated_min))].filter(n => n != null);
   return v.length ? Math.min(...v) : null;
 }
 function roomWord(x) {
-  return isClosed(x) ? "settled" : x.paused ? "paused" : isStalled(x) ? "stalled" : needN(x) ? "waiting on you"
-    : x.continuity && x.continuity.state === "waiting" ? "waiting" : x.continuity?.state === "unavailable" ? "T3 state unknown" : "moving";
+  return isClosed(x) ? "settled" : x.paused ? "paused" : needN(x) ? "waiting on you"
+    : ({ running: "running", blocked: "blocked", idle: "idle" })[x.continuity && x.continuity.state] || "idle";
 }
 function computeOrder(mode) {
-  const rooms = state.rooms.filter(x => !x.standing), live = rooms.filter(x => !isClosed(x)), dead = rooms.filter(isClosed);
+  const rooms = state.rooms, live = rooms.filter(x => !isClosed(x)), dead = rooms.filter(isClosed);
   const recent = (a, b) => (lastActive(a) ?? 1e9) - (lastActive(b) ?? 1e9);
-  const tier = x => needN(x) ? 0 : isStalled(x) ? 1 : 2;
+  const tier = x => needN(x) ? 0 : 1;
   const needs = (a, b) => {
     if (tier(a) !== tier(b)) return tier(a) - tier(b);
     if (tier(a) === 0) {
@@ -752,7 +748,7 @@ function computeOrder(mode) {
 }
 // Rooms in the current order; names the order has not seen yet go last.
 function orderedRooms() {
-  const reg = state.rooms.filter(x => !x.standing), byName = new Map(reg.map(x => [x.name, x]));
+  const reg = state.rooms, byName = new Map(reg.map(x => [x.name, x]));
   const known = roomOrder.filter(n => byName.has(n)).map(n => byName.get(n));
   return [...known, ...reg.filter(x => !roomOrder.includes(x.name))];
 }
@@ -762,10 +758,10 @@ function openRoomSheet() {
 }
 function drawRoomSheet(host) {
   const rooms = orderedRooms(), live = rooms.filter(x => !isClosed(x)), dead = rooms.filter(isClosed);
-  const need = state.rooms.reduce((n, x) => n + needN(x), 0);   // the process room's cards still count
-  const row = x => el("button", { class: "roomrow", "aria-current": String(x.name === (room()?.standing ? lastRoom : current)), onclick: () => { roomsOpen = false; drawSheet(); pick(x.name); } },
+  const need = state.rooms.reduce((n, x) => n + needN(x), 0);   
+  const row = x => el("button", { class: "roomrow", "aria-current": String(x.name === current), onclick: () => { roomsOpen = false; drawSheet(); pick(x.name); } },
     el("span", { class: "nm" }, el("b", {}, x.title),
-      el("small", { class: isStalled(x) && !x.paused ? "stalled" : "" }, roomWord(x), lastActive(x) != null ? ` · active ${age(lastActive(x))} ago` : "")),
+      el("small", {}, roomWord(x), lastActive(x) != null ? ` · active ${age(lastActive(x))} ago` : "")),
     needN(x) ? el("span", { class: "n" + (x.paused ? " paused" : ""), "aria-label": `${needN(x)} need you` }, needN(x)) : null);
   const setSort = m => { roomSort = m; localStorage.setItem("roomSort", m); openRoomSheet(); };
   const sheet = el("div", { class: "sheet", role: "dialog", "aria-modal": "true", "aria-label": "Rooms" },
@@ -779,10 +775,7 @@ function drawRoomSheet(host) {
   host.append(el("div", { class: "sheet-bg", onclick: e => { if (e.target === e.currentTarget) closeSheet(); } }, sheet));
 }
 function pick(name) {
-  if (state?.rooms.find(x => x.name === name)?.standing) return showProcess(name);
-  const wasProcess = processView;
-  processView = false;
-  if (name !== current || wasProcess) {
+  if (name !== current) {
     for (const k of Object.keys(sent)) if (k.startsWith(current + "/")) delete sent[k];   // receipts end when you leave the room
     lastRoom = name; localStorage.setItem("room", name); localStorage.removeItem("view");
     current = name;
@@ -792,41 +785,9 @@ function pick(name) {
   }
 }
 
-function leaveProcess() {
-  processView = false;
-  const reg = (state?.rooms || []).filter(x => !x.standing);
-  current = (reg.find(x => x.name === lastRoom) || reg.find(x => !isClosed(x)) || reg[0])?.name || null;
-  localStorage.removeItem("view");
-  draw(true);
-  load(true);
-}
-function showProcess(name) {
-  current = name;
-  processView = true;
-  draw(true);
-  load(true);
-}
-
-function statusCard(r) {
-  return el("div", { class: "card", id: "statuscard" }, msgLine(r));
-}
-
 // ---------- pause / resume the whole team ----------
-function leadLine(r) {
-  if (!r.lead_thread) return [el("span", { class: "dot" }, "○"), "no T3 lead configured"];
-  const st = r.lead_status === "running" ? ["on", "●", "Lead running in T3"]
-    : r.lead_status === "interrupted" ? ["bad", "■", "interrupted"]
-    : r.lead_status === "unavailable" || !r.lead_status ? ["", "○", "T3 lead state unavailable"]
-    : ["", "○", ["completed", "idle"].includes(r.lead_status) ? "Lead idle" : `Lead ${r.lead_status}`];
-  return [el("span", { class: "dot " + st[0] }, st[1]), st[2], ...(r.lead_link ? [" · ", el("a", { href: r.lead_link, target: "atr-t3", class: "t3link" }, "open lead in T3")] : [])];
-}
-// One line each, always present, so nothing above the thumb changes height between reloads.
-function msgLine(r) {
-  const l = pauseMsg ? [pauseMsg] : leadLine(r);
-  return el("div", { class: "line", id: "msgline", role: "status", title: pauseMsg || l.map(x => x.textContent ?? x).join("") }, l);
-}
-function refreshMsg() { const r = room(), m = $("msgline"); if (r && m) m.replaceWith(msgLine(r)); }
-// One fixed-height 'needs attention' line from the bottleneck checks; loud ones are red, the rest muted.
+function refreshMsg() { if (room()) draw(); }
+// One 'needs attention' line from needs_attention; loud ones are red, the rest muted.
 function attnLine(r) {
   const a = r.attention || [];
   if (!a.length) return null;
@@ -857,7 +818,7 @@ function leadCmdBox(r) {
   box.addEventListener("toggle", () => { leadOpen = box.open; });
   return box;
 }
-function refreshSlot() { const r = room(), sl = document.querySelector(".slot"); if (r && sl) sl.replaceWith(statusSlot(r)); }
+function refreshSlot() { const r = room(), sl = document.querySelector(".slot"); if (r && sl) { const n = statusSlot(r); if (n) sl.replaceWith(n); else sl.remove(); } }
 async function setPaused(roomName, paused, revision) {
   pauseArmed = false;
   pauseMsg = paused ? "Pausing…" : "Resuming…";
@@ -867,7 +828,7 @@ async function setPaused(roomName, paused, revision) {
       body: JSON.stringify({ room: roomName, paused, revision }) })).json();
     pauseMsg = !res.ok ? `Not saved: ${res.error}`
       : res.already ? (paused ? "Already paused." : "Already running.")
-      : (paused ? "Paused locally" : "Resumed locally") + " · " + deliveryText(res.delivery);
+      : (paused ? "Paused locally" : "Resumed locally") + " · " + SENT_NOTE;
   } catch (e) { pauseMsg = `Not saved: ${e}`; }
   await load(true);
   refreshMsg();
@@ -881,38 +842,16 @@ function pauseButton(r) {
   } }, icon("pause"), pauseArmed ? "Tap to confirm" : "Pause");
 }
 
-// ---------- a room nothing will move ----------
-let nudgeMsg = {};
-async function nudge(roomName) {
-  nudgeMsg[roomName] = "Telling the lead…"; refreshSlot();
-  try {
-    const res = await (await fetch(base + "api/nudge", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ room: roomName }) })).json();
-    nudgeMsg[roomName] = !res.ok ? `Not sent: ${res.error}` : "Notice saved locally · " + deliveryText(res.delivery);
-  } catch (e) { nudgeMsg[roomName] = `Not sent: ${e}`; }
-  refreshSlot();
-}
-// Paused, stalled or waiting: one fixed-height line that expands on tap.
+// Paused: one fixed-height line that expands on tap.
 function statusSlot(r) {
-  const c = r.continuity || {}, slot = el("div", { class: "slot", role: "status" });
+  const slot = el("div", { class: "slot", role: "status" });
   let kind = null, label = null, body = null;
   if (r.paused) {
     kind = "paused";
     label = [icon("pause"), `Team paused by you at ${localTime(r.paused_at) || r.paused}`];
-    body = el("div", {}, "Pause saved locally. Stop instructions may still be pending with T3; agent receipt and execution are unverified. New atr dispatch is blocked until you resume.");
-  } else if (c.state === "unavailable") {
-    kind = "unavailable"; label = [icon("pause"), "T3 execution state unavailable"];
-    body = el("div", {}, c.detail, ". Saved decisions and pending delivery remain local; acceptance, receipt and resumed execution are separate.");
-  } else if (c.state === "stalled") {
-    kind = "stalled"; label = [icon("warn"), "Stalled: nothing will move by itself"];
-    body = el("div", {}, c.detail.charAt(0).toUpperCase() + c.detail.slice(1) + ".",
-      el("div", { style: "margin-top:8px; display:flex; gap:10px; align-items:center; flex-wrap:wrap" },
-        el("button", { class: "pause", onclick: () => nudge(r.name) }, "Nudge the lead"),
-        nudgeMsg[r.name] ? el("span", {}, nudgeMsg[r.name]) : null));
-  } else if (c.state === "waiting") {
-    kind = "waiting"; label = [icon("pause"), `Waiting on ${c.detail.replace(/^waiting on /, "")}`];
+    body = el("div", {}, "Pause saved locally. The stop message goes to the lead once; agent receipt and execution are unverified. New atr dispatch is blocked until you resume.");
   }
-  if (!kind) return slot;
+  if (!kind) return null;   // nothing to say, no gap
   const open = !!body && slotOpen;
   slot.append(el("button", { class: "slotpill " + kind, "aria-expanded": body ? String(open) : false,
     onclick: () => { if (body) { slotOpen = !slotOpen; refreshSlot(); } } }, el("span", { class: "t" }, label), body ? (open ? "▴" : "▾") : null));
@@ -949,8 +888,7 @@ async function answer(roomName, d, opt) {
   if (res.ok) {
     const rec = res.already ? (d.options.find(o => o.key === res.choice) || { key: res.choice, text: "" }) : opt;
     sent[key] = { ok: true, kind: "answer", room: roomName, id: d.id, title: d.title, opt: rec, at: new Date(), upd: d.updated, already: !!res.already,
-                  delivery: res.delivery, told: !!res.told_lead,
-                  group: (cardMeta[key] || {}).group, idx: (cardMeta[key] || {}).idx };
+                  idx: (cardMeta[key] || {}).idx };
     delete drafts[key]; saveDrafts();
   } else sent[key] = { ok: false, kind: "answer", opt, text: res.conflict ? "Not saved: this record changed. Refresh and review your draft before trying again." : `Not saved: ${res.error}` };
   swapCard(key);
@@ -963,7 +901,7 @@ async function askQuestion(roomName, d) {
   swapCard(key);
   const res = await post({ room: roomName, id: d.id, choice: "question", note: note.trim(), revision: d.revision });
   delete sending[key];
-  sent[key] = res.ok ? { ok: true, kind: "question", text: "✓ Question saved locally. The card stays open. " + deliveryText(res.delivery) }
+  sent[key] = res.ok ? { ok: true, kind: "question", text: "✓ Question saved locally. The card stays open. " + SENT_NOTE }
                      : { ok: false, kind: "question", text: res.conflict ? "Not saved: this record changed. Refresh and review your draft before trying again." : `Not saved: ${res.error}` };
   if (res.ok) { delete drafts[key]; noteOpen.delete(key); saveDrafts(); }
   swapCard(key);
@@ -980,25 +918,15 @@ function noteBox(d, locked) {
 // What was sent, in the card's own slot. It stays until you leave the room.
 function receiptCard(key, s) {
   return el("article", { class: "card receipt", "data-a": "card:" + key },
-    el("p", { class: "title" }, el("span", { class: "tick", "aria-hidden": "true" }, "✓"), el("span", { class: "id" }, s.id), s.title),
+    el("p", { class: "title" }, el("span", { class: "tick", "aria-hidden": "true" }, "✓"),
+      el("button", { class: "titlebtn", title: "Open record", onclick: () => openRecord(s.id) }, el("span", { class: "id" }, s.id), el("span", { class: "tt" }, s.title))),
     el("p", { class: "pick" }, `${s.opt.key}) ${s.opt.text}`),
-    el("div", { class: "meta", role: "status" },
-      el("span", {}, s.already ? `Already saved: ${s.opt.key})`
-        : `Your answer was saved at ${s.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${deliveryText(s.delivery)}`),
-      el("button", { class: "openrec", onclick: () => openRecord(s.id) }, "Open record")));
+    el("div", { class: "result", role: "status" }, s.already ? `Already saved: ${s.opt.key})`
+      : `Your answer was saved at ${s.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${SENT_NOTE}`));
 }
 
 // Stored "- Q · who · HH:MM: text" lines; the stamp is kept whole (it contains a colon itself).
 const rewriteQA = t => t.replace(/^- Q · owner · (\S+?):(?= )/gm, "You asked at $1:").replace(/^- A · ([^ ]+) · (\S+?):(?= )/gm, "$1 replied at $2:");
-// First-use definitions (ui-language 1 and 5): room, card, lead, record ids and the five card kinds, said once.
-const KIND_DEFS = [["Decision", "A card with lettered options; you pick one."], ["Ask", "A card for something only you can supply, such as a name or a choice outside the options."],
-  ["Premise", "An assumption the team is working under; you confirm it or correct it."], ["PRD", "The product requirements doc for a feature; you agree it before building starts."],
-  ["Your task", "A card for a step only you can do, with the steps written out."]];
-function firstUse() {
-  return el("details", { class: "why firstuse" }, el("summary", {}, "What these words mean"),
-    el("p", {}, "A room is one project with its own team of agents and a lead, the agent that runs it. A card is one question for you, answered with one tap. Records have ids: T item, D decision, A ask, P premise."),
-    el("ul", {}, KIND_DEFS.map(([k, t]) => el("li", {}, el("b", {}, k), ": " + t))));
-}
 function askCard(roomName, d, maxImpact) {
   const key = dkey(d), s = sent[key], busyNow = sending[key];
   if (s && s.ok && s.kind === "answer" && s.upd === d.updated) return receiptCard(key, s);   // re-opened since: answerable again
@@ -1007,8 +935,10 @@ function askCard(roomName, d, maxImpact) {
   card.append(el("div", { class: "badges" },
     d.urgent ? el("span", { class: "badge urgent" }, icon("warn"), "Urgent") : null,
     el("span", { class: "badge" + (d.door === "one" ? " oneway" : "") }, d.door === "one" ? [icon("lock"), "Hard to undo"] : [icon("undo"), "Easy to undo"]),
-    el("span", { class: "badge" }, { ask: "Ask", premise: "Premise", decision: "Decision", prd: "PRD", todo: "Your task" }[d.type] || d.type)));
-  card.append(el("p", { class: "title" }, el("span", { class: "id" }, d.id), d.title));
+    el("span", { class: "badge" }, { ask: "Ask", premise: "Premise", decision: "Decision", goal: "Goal", todo: "Your task" }[d.type] || d.type),
+    d.waiting_min >= 1 ? el("span", { class: "age" }, `waiting ${age(d.waiting_min)}`) : null));
+  card.append(el("p", { class: "title" }, el("button", { class: "titlebtn", title: "Open record", onclick: () => openRecord(d.id) },
+    el("span", { class: "id" }, d.id), el("span", { class: "tt" }, d.title))));
   if (d.type === "todo" && d.steps) card.append(el("pre", { class: "note", style: "margin:6px 0 10px; white-space:pre-wrap; user-select:all" }, d.steps));
   if (d.urgent) card.append(el("div", { class: "why" }, linked(d.urgent)));
   if (n) {
@@ -1061,76 +991,7 @@ function askCard(roomName, d, maxImpact) {
   if (busyNow) card.append(el("div", { class: "result", role: "status" }, busyNow === "question" ? "Sending your question…" : "Sending to the lead…"));
   else if (s) card.append(el("div", { class: "result" + (s.ok ? "" : " err"), role: "status" }, s.text,
     s.ok ? null : [" · ", el("button", { class: "openrec", onclick: () => s.kind === "question" ? askQuestion(roomName, d) : answer(roomName, d, s.opt) }, "Try again")]));
-  card.append(el("div", { class: "meta" }, el("span", {}, `Waiting ${age(d.waiting_min)}`),
-    el("button", { class: "openrec", onclick: () => openRecord(d.id) }, "Open record")));
   return card;
-}
-
-// ---------- activity chart: who logged work, in 30-minute bins ----------
-const retiredOpen = {};   // room -> whether the Retired group is expanded; closed by default, survives redraws
-const MARK = { working: ["play", "working", "var(--accent)"], waiting: ["clock", "waiting", "var(--serious)"], retired: ["check", "retired", "var(--text-muted)"] };
-function activityChart(r) {
-  const BIN = 30, bins = Math.round(r.activity_min / BIN), H = r.activity_min / 60;
-  const count = {}, items = {}, has = new Set();
-  for (const a of r.activity) {
-    has.add(a.who);
-    const b = bins - 1 - Math.floor(a.ago / BIN);
-    if (b < 0) continue;
-    const k = `${a.who}|${b}`;
-    count[k] = (count[k] || 0) + 1;
-    (items[k] ||= new Set()).add(a.item);
-  }
-  const max = Math.max(1, ...Object.values(count));
-  // Team members: working, then waiting, then retired; roster order within each. Skip people who have nothing on record.
-  const rank = { working: 0, waiting: 1, retired: 2 };
-  const people = (r.members || []).filter(m => m.total || has.has(m.name))
-    .map((m, i) => ({ ...m, i })).sort((a, b) => rank[a.state] - rank[b.state] || a.i - b.i);
-  if (!people.length || !has.size) return null;
-  const tipEl = el("div", { class: "tip", "aria-live": "polite" }, tips[r.name] || "Tap a cell to see what happened.");
-  const row = m => {
-    const [ic, word, color] = MARK[m.state];
-    const task = m.state === "working" ? `${m.task.id} ${m.task.title}${m.more ? ` (+${m.more})` : ""}`
-               : m.state === "waiting" ? `waiting for ${m.waits.join(", ")}` : `${m.total} item${m.total === 1 ? "" : "s"} done`;
-    const heat = el("div", { class: "heat", style: `grid-template-columns:repeat(${bins},1fr)` });
-    for (let b = 0; b < bins; b++) {
-      const c = count[`${m.name}|${b}`] || 0, from = (bins - b) * BIN, to = from - BIN;
-      const label = c ? `${m.name}: ${c} log entr${c > 1 ? "ies" : "y"}, ${age(from)}–${to ? age(to) : "now"} ago (${[...items[`${m.name}|${b}`]].join(", ")})`
-                      : `${m.name}: nothing logged ${age(from)}–${to ? age(to) : "now"} ago`;
-      heat.append(el("i", { role: "img", title: label, "aria-label": label,
-        style: c ? `background:${RAMP[Math.min(RAMP.length - 1, Math.floor((c / max) * RAMP.length - 1e-9))]}` : "",
-        onclick: () => { tips[r.name] = label; tipEl.textContent = label; } }));
-    }
-    const role = m.role.toLowerCase() === m.name.toLowerCase() ? "" : m.role;
-    const who = role ? `${m.name} (${role})` : m.name;
-    const full = m.state === "working" ? `${who}, working on ${task}` : m.state === "waiting" ? `${who}, ${task}` : `${who}, retired, ${task}`;
-    return el("div", { class: `mrow ${m.state}`, role: "group", "aria-label": full },
-      el("div", { class: "top", title: full },
-        el("span", { class: "mk", style: `color:${color}` }, icon(ic), el("span", { class: "sr" }, word)),
-        el("span", { class: "nm" }, m.name, role ? el("small", {}, role) : null), el("span", { class: "task" }, task)), heat);
-  };
-  const live = people.filter(m => m.state !== "retired"), gone = people.filter(m => m.state === "retired");
-  const box = el("div", { class: "chart members" }, live.map(row));
-  if (gone.length) {
-    const list = el("div", { class: "retired", hidden: !retiredOpen[r.name] }, gone.map(row));
-    const tog = el("button", { class: "rtoggle", "aria-expanded": String(!!retiredOpen[r.name]) },
-      el("span", { class: "chev" }, retiredOpen[r.name] ? "▾" : "▸"), `Retired · ${gone.length}`);
-    tog.addEventListener("click", () => {
-      retiredOpen[r.name] = !retiredOpen[r.name];
-      list.hidden = !retiredOpen[r.name];
-      tog.setAttribute("aria-expanded", String(!!retiredOpen[r.name]));
-      tog.firstChild.textContent = retiredOpen[r.name] ? "▾" : "▸";
-    });
-    box.append(tog, list);
-  }
-  const step = H > 6 ? 2 : 1, axis = el("div", { class: "axis", "aria-hidden": "true" });
-  for (let h = Math.floor(H / step) * step; h >= 0; h -= step) {
-    const f = (bins - h * 60 / BIN) / bins * 100;
-    axis.append(el("span", { style: `left:${f}%;${h ? "transform:translateX(-50%)" : "transform:translateX(-100%)"}` }, h ? `−${h}h` : "now"));
-  }
-  box.append(el("div", { class: "mrow axisrow" }, el("div", { class: "top" }), axis), tipEl,
-    el("div", { class: "cap" }, el("span", {}, "Log entries on this room's items, per 30 min"),
-      el("span", { class: "legend" }, "fewer ", RAMP.map(c => el("i", { style: `background:${c}` })), " more")));
-  return box;
 }
 
 // ---------- page ----------
@@ -1156,43 +1017,6 @@ function structDiff(r, was, now) {
            changed: was.names !== now.names || wa.map(x => x.id + x.sig).join() !== na.map(x => x.id + x.sig).join() };
 }
 
-// The process room's own sections. Rules changed (docs/CHANGELOG.md), Watching (notes/watching.md) and the docs chips
-// come from the server's process_docs (r.changelog, r.watching, r.docs); each block hides while its data is empty.
-function processBlocks(r) {
-  const out = [], rec = recs(r.name), lanes = r.lanes.flatMap(l => l.items.map(i => ({ ...i, owner: l.owner })));
-  const live = i => i.state !== "done" && i.state !== "dropped";
-  const upd = i => (rec[i.id] && rec[i.id].updated) || "";
-  const fromRoom = id => {
-    const sec = ((rec[id] && rec[id].sections) || []).find(x => x.h === "Inputs"), m = sec && sec.text.match(/^- from:\s*(\S+)/m);
-    return m ? `from ${m[1]}` : "";
-  };
-  const feedback = lanes.filter(i => live(i) && rec[i.id] && (rec[i.id].sections || []).some(x => x.h === "Feedback"))
-    .sort((a, b) => upd(b).localeCompare(upd(a)));
-  const feedbackSorted = feedbackFirst(feedback, Object.fromEntries(((r.plan || {}).items || []).map(x => [x.id, x])));
-  const fids = new Set(feedback.map(i => i.id));
-  const tooling = lanes.filter(i => live(i) && i.owner === "Tooling" && !fids.has(i.id));
-  const pf = Object.fromEntries(((r.plan || {}).items || []).map(x => [x.id, x]));
-  const list = (items, extra) => el("div", { class: "lanes" }, el("div", { class: "lane" }, el("div", { class: "chips" },
-    items.map(i => chip(i, extra(i), pf[i.id] && { blocks: pf[i.id].blocks, blocks_open: pf[i.id].blocks_open })))));
-  out.push(el("h2", {}, el("span", {}, `Feedback waiting · ${feedback.length}`), el("span", {}, "newest first")));
-  out.push(feedback.length ? list(feedbackSorted, i => fromRoom(i.id) || STATE[i.state][1]) : el("p", { class: "empty" }, "No feedback waiting."));
-  out.push(el("h2", {}, el("span", {}, `Tooling being built · ${tooling.length}`), el("span", {}, "state · cap · age")));
-  out.push(tooling.length ? list(tooling, i => `${STATE[i.state][1]}${i.cap_h ? " · cap " + i.cap_h + "h" : ""}${i.agent ? " · agent" : ""}${i.updated_min != null ? " · " + age(i.updated_min) : ""}`)
-    : el("p", { class: "empty" }, "Nothing queued."));
-  const lines = (title, sub, arr) => { if (!arr || !arr.length) return;
-    out.push(el("h2", {}, el("span", {}, title), el("span", {}, sub)));
-    arr.forEach(t => out.push(el("div", { class: "row" }, String(t)))); };
-  lines("Rules changed", "changelog tail", r.changelog && r.changelog.slice(-5).reverse());
-  lines("Watching", "1 more room and it becomes a rule", r.watching);
-  if ((r.docs || []).length) {
-    out.push(el("h2", {}, el("span", {}, "Docs"), el("span", {}, "local documents")));
-    out.push(el("div", { class: "lanes" }, el("div", { class: "lane" }, el("div", { class: "chips" },
-      r.docs.map(d => el("a", { class: "chip", href: docURL(d.file, d.anchor), target: "_blank", rel: "noopener" },
-        el("span", { class: "t" }, d.label)))))));
-  }
-  return out;
-}
-
 function draw(top) {
   const y = window.scrollY, anchor = top ? null : anchorPoint();
   const app = $("app");
@@ -1201,141 +1025,100 @@ function draw(top) {
   if (!state) { app.style.minHeight = ""; return; }
   const rooms = state.rooms;
   // Rooms whose lead thread is settled in T3 leave the tabs for the "Settled" dropdown.
-  const reg = rooms.filter(x => !x.standing), std = rooms.find(x => x.standing);
+  const reg = rooms;
   const open = reg.filter(x => !isClosed(x)), settled = reg.filter(isClosed);
-  if (!processView && !reg.some(r => r.name === current)) current = (open[0] || reg[0])?.name || null;
-  if (processView && !rooms.some(r => r.name === current)) processView = false;
+  if (!reg.some(r => r.name === current)) current = (open[0] || reg[0])?.name || null;
   const r = room();
   const settledAsks = settled.reduce((n, x) => n + needN(x), 0);
+  if (!roomOrder.length) roomOrder = computeOrder(roomSort);   // once per session; re-sorted only when the room sheet opens
   const ordered = orderedRooms();
-  const inStd = processView && !!r?.standing, shell = inStd ? (reg.find(x => x.name === lastRoom) || open[0] || reg[0]) : r;
-  if (std) {
-    const fb = std.feedback || {}, need = needN(std);
-    app.append(el("button", { class: "pin" + (inStd ? " on" : ""), "aria-pressed": String(inStd), "aria-label": "How we work",
-        onclick: inStd ? leaveProcess : () => showProcess(std.name) },
-      el("span", { "aria-hidden": "true" }, "⚙"), el("b", {}, "How we work"),
-      inStd ? el("small", {}, "agent-rooms' own improvements")
-        : [need ? el("span", { class: "n", "aria-label": `${need} need you` }, need) : null,
-           el("span", { class: "pill" }, `${fb.open || 0} open`), el("span", { class: "pill g" }, `${fb.accepted || 0} accepted`)],
-      el("span", { "aria-hidden": "true" }, inStd ? "✕" : "›")));
-  }
   app.append(el("div", { class: "palkey" }, el("button", { onclick: palOpenSheet }, "Search · Ctrl-K")));
-  if (!r) { app.append(el("p", { class: "empty" }, "No rooms yet. A room is one project with its own team of agents and a lead that runs it. Create the first one from the ",
-    el("a", { href: docURL("docs/SETUP.md"), target: "_blank", rel: "noopener" }, "setup guide"),
-    " (docs/SETUP.md in the repository), then answer its first card here.")); app.style.minHeight = ""; return; }
-  if (!roomOrder.length) roomOrder = computeOrder(roomSort);
+  if (!r) { app.append(el("p", { class: "empty" }, "No rooms yet. A room is one project with its own team of agents and a lead that runs it. Start the first one from a T3 thread or with atr start, then answer its first card here.")); app.style.minHeight = ""; return; }
   shownStruct = structOf(r); pending = false; $("newpill").hidden = true;
-  if (!(reg.length > 1 || (std && reg.length))) app.append(el("div", { class: "rowtop" }, el("span", { style: "flex:1" }), el("button", { class: "palbtn", "aria-label": "Search", onclick: palOpenSheet }, "🔍")));
-  if (reg.length > 1 || (std && reg.length)) {
+  if (!(reg.length > 1)) app.append(el("div", { class: "rowtop" }, el("span", { style: "flex:1" }), el("button", { class: "palbtn", "aria-label": "Search", onclick: palOpenSheet }, "🔍")));
+  if (reg.length > 1) {
     const need = rooms.reduce((n, x) => n + needN(x), 0);
     app.append(el("div", { class: "rowtop" },
       el("button", { class: "roombtn", "aria-haspopup": "dialog", onclick: openRoomSheet },
-        el("span", { class: "nm" }, el("b", {}, shell.title), el("small", {}, inStd ? "tap to switch room" : `${reg.length} rooms · ${need} need you`)),
-        !inStd && needN(r) ? el("span", { class: "n" + (r.paused ? " paused" : ""), "aria-label": `${needN(r)} need you here` }, needN(r)) : null, "▾"),
+        el("span", { class: "nm" }, el("b", {}, r.title), el("small", {}, `${reg.length} rooms · ${need} need you`)),
+        needN(r) ? el("span", { class: "n" + (r.paused ? " paused" : ""), "aria-label": `${needN(r)} need you here` }, needN(r)) : null, "▾"),
       el("button", { class: "palbtn", "aria-label": "Search", "aria-haspopup": "dialog", onclick: palOpenSheet }, "🔍")));
     app.append(el("nav", { class: "rooms" }, ordered.filter(x => !isClosed(x)).map(x =>
-      el("button", { "aria-pressed": String(x.name === current && !inStd), onclick: () => pick(x.name) },
-        x.paused ? icon("pause") : null, isStalled(x) && !x.paused ? el("span", { class: "stall", "aria-label": "stalled" }, icon("warn")) : null,
+      el("button", { "aria-pressed": String(x.name === current), onclick: () => pick(x.name) },
+        x.paused ? icon("pause") : null,
         el("span", { class: "name" }, x.title),
         needN(x) ? el("span", { class: "n" + (x.paused ? " paused" : ""), "aria-label": `${needN(x)} need you` }, needN(x)) : null)),
-      settled.length ? el("select", { class: "settled" + (!inStd && settled.some(x => x.name === current) ? " on" : ""), "aria-label": "Settled rooms",
+      settled.length ? el("select", { class: "settled" + (settled.some(x => x.name === current) ? " on" : ""), "aria-label": "Settled rooms",
           onchange: e => e.target.value && pick(e.target.value) },
         el("option", { value: "" }, `Settled · ${settled.length}` + (settledAsks ? ` · ${settledAsks} need you` : "")),
         settled.map(x => el("option", { value: x.name, selected: x.name === current ? "" : false },
           x.title + (needN(x) ? ` · ${needN(x)} need you` : "")))) : null));
   }
 
-  const c = r.counts;
-  const fbk = r.feedback || {}, maint = (r.members || []).find(m => m.role === "maintainer"), lastMin = lastActive(r);
-  app.append(el("header", {}, el("div", { class: "titlebar" }, el("h1", {}, inStd ? "How we work" : r.title), pauseButton(r)),
+  const c = r.counts, hot = (n, text) => el("span", { class: n ? "hot" : "" }, el("b", {}, n), " " + text);
+  const sep = () => el("span", { class: "sep", "aria-hidden": "true" }, "·");
+  app.append(el("header", {}, el("div", { class: "titlebar" }, el("h1", {}, r.title), pauseButton(r)),
     r.code && (r.code.branch || r.code.warn.length) ? el("div", { class: "codeline" },
       r.code.branch ? el("span", { class: "codetag", title: r.code.path || "no worktree path" }, `⎇ ${r.code.branch}`) : null,
       r.code.warn.length ? el("span", { class: "codewarn", title: r.code.warn.join("\n") }, "⚠ repo") : null) : null,
-    statusSlot(r), othersLine(r), attnLine(r), leadCmdBox(r),
-    inStd ? el("p", { class: "sub2" }, "Where agent-rooms tracks its own improvements: feedback in, rules and tooling out." + (maint && maint.name !== "Maintainer" ? ` Maintainer: ${maint.name}` : "") + (lastMin != null ? ` · last change ${age(lastMin)}${lastMin < 1 ? "" : " ago"}` : "")) : null,
-    inStd ? el("div", { class: "counts four" },
-      [["open", "open"], ["accepted", "accepted"], ["rejected", "rejected"], ["deferred", "deferred"]].map(([k, l]) =>
-        el("span", { class: "count" }, el("b", {}, fbk[k] || 0), l)),
-      ) : null,
-    inStd ? el("div", { class: "sub2" }, `outcomes in the last ${fbk.week_days || 7} days`) : null,
-    !inStd && r.prd ? el("button", { class: "prdpill " + (r.prd.locked ? "locked" : "agreed"), onclick: () => openRecord("PRD") },
-      r.prd.locked ? "◐" : "✓", ` PRD${r.prd.version ? " v" + r.prd.version + " ·" : ""} ${r.prd.status}`, r.prd.locked ? " · building locked" : " · building open") : null,
-    !inStd && r.prd && (r.prd.refinements || []).length ? el("span", { class: "sub2" }, "Refinements: ",
-      r.prd.refinements.map(id => el("button", { class: "ref", onclick: () => openRecord(id) }, id))) : null,
-    inStd ? null : el("p", { class: "phase" }, linked(r.phase || "")),
-    inStd ? null : el("div", { class: "counts" },
-      el("span", { class: "count" + (needN(r) ? " hot" : "") }, el("b", {}, needN(r)), "need you"),
-      el("span", { class: "count" }, el("b", {}, c.doing || 0), "doing"),
-      el("span", { class: "count" }, el("b", {}, c.review || 0), "review"),
-      el("span", { class: "count" }, el("b", {}, (c.todo || 0) + (c.blocked || 0)), "queued"),
-      el("span", { class: "count" }, el("b", {}, c.done || 0), "done")),
-    inStd ? null : statusCard(r)));
+    leadFlagLine(r), statusSlot(r),
+    pauseMsg ? el("div", { class: "note", role: "status" }, pauseMsg) : null,
+    goalLine(r),
+    el("div", { class: "counts", role: "status" }, hot(needN(r), "need you"), sep(), el("span", {}, el("b", {}, c.doing || 0), " running"), sep(),
+      hot(c.blocked || 0, "blocked"), sep(), el("span", {}, el("b", {}, ((r.autostart || {}).ready || []).length), " ready"), sep(),
+      el("span", {}, el("b", {}, c.review || 0), " review")),
+    autostartLine(r), othersLine(r), attnLine(r)));
 
-  const kinds = { all: "All", prd: "PRD", decision: "Decisions", ask: "Asks", premise: "Premises" };
+  const kinds = { all: "All", goal: "Goal", decision: "Decisions", ask: "Asks", premise: "Premises" };
   const present = new Set(r.asks.map(d => d.type));
   if (filter !== "all" && !present.has(filter)) filter = "all";
   const shown = r.asks.filter(d => filter === "all" || d.type === filter);
-  if (!inStd) app.append(firstUse());
-  app.append(el("h2", {}, el("span", {}, `Needs you · ${needN(r)}`), el("span", {}, "most blocking first")));
-  app.append(el("div", { class: "filters" }, present.size > 1 ? Object.entries(kinds)
+  app.append(el("h2", {}, el("span", {}, `Needs you · ${needN(r)}`), needN(r) > 1 ? el("span", {}, "most blocking first") : null));
+  if (present.size > 1) app.append(el("div", { class: "filters" }, Object.entries(kinds)
     .filter(([k]) => k === "all" || present.has(k))
     .map(([k, label]) => el("button", { "aria-pressed": String(filter === k), onclick: () => { filter = k; localStorage.setItem("filter", k); draw(); } },
-      k === "all" ? `${label} · ${r.asks.length}` : `${label} · ${r.asks.filter(d => d.type === k).length}`)) : null));
+      k === "all" ? `${label} · ${r.asks.length}` : `${label} · ${r.asks.filter(d => d.type === k).length}`))));
 
   const score = d => d.impact.agents.length * 100 + d.impact.items.length * 10 + d.impact.hours;
   const maxImpact = Math.max(1, ...r.asks.map(score));
   const askKeys = new Set(r.asks.map(dkey));
-  // A receipt keeps the slot its card had, even after the card has left the list.
+  // One list, most blocking first (the server's order). A receipt keeps the slot its card had, even after the card has left the list.
   const orphans = receiptKeys(r).filter(k => !askKeys.has(k)).map(k => sent[k]).sort((a, b) => (a.idx || 0) - (b.idx || 0));
-  const lists = { b: shown.filter(d => d.urgent || d.impact.items.length).map(d => ({ d })),
-                  l: shown.filter(d => !d.urgent && !d.impact.items.length).map(d => ({ d })) };
-  for (const o of orphans) { const L = lists[o.group] || lists.b; L.splice(Math.min(o.idx || 0, L.length), 0, { rec: o }); }
-  const cardNode = (g, e, i) => {
-    if (e.rec) return receiptCard(`${r.name}/${e.rec.id}`, e.rec);
+  const list = shown.map(d => ({ d }));
+  for (const o of orphans) list.splice(Math.min(o.idx || 0, list.length), 0, { rec: o });
+  if (!list.length) app.append(el("p", { class: "empty" }, needN(r) ? "Nothing of this kind." : "Nothing needs you."));
+  list.forEach((e, i) => {
+    if (e.rec) return app.append(receiptCard(`${r.name}/${e.rec.id}`, e.rec));
     const key = dkey(e.d);
-    cardMeta[key] = { group: g, idx: i };
+    cardMeta[key] = { idx: i };
     cardFns[key] = () => askCard(r.name, e.d, maxImpact);
-    return cardFns[key]();
-  };
-  if (!lists.b.length && !lists.l.length) if (!needN(r) || r.asks.length) app.append(el("p", { class: "empty" }, needN(r) ? "Nothing of this kind." : "Nothing needs you."));
-  lists.b.forEach((e, i) => app.append(cardNode("b", e, i)));
-  if (lists.l.length) {
-    app.append(el("div", { class: "divider" }, `Other decisions · ${lists.l.filter(e => e.d).length}`));
-    lists.l.forEach((e, i) => app.append(cardNode("l", e, i)));
-  }
+    app.append(cardFns[key]());
+  });
   if (r.provisional.length) {
     app.append(el("h2", {}, "Going ahead unless you say no"));
     r.provisional.forEach(d => app.append(el("div", { class: "row" }, el("button", { class: "ref", onclick: () => openRecord(d.id) }, d.id), " ", d.title, ` — ${d.default}`)));
   }
 
-  if (inStd) processBlocks(r).forEach(n => app.append(n));
-  else {
+  {
     const pl = r.plan || { items: [], waves: 0, critical: [], critical_h: 0, done: 0 };
+    const planView = planViewOn(r);
     app.append(el("h2", {}, el("span", {}, planView ? "Plan" : "Who's doing what"), el("span", {}, `${r.lanes.length} agent${r.lanes.length === 1 ? "" : "s"}`)));
     app.append(el("div", { class: "planbar" },
       el("div", { class: "filters", style: "margin:0;min-height:0" },
         [["Agents", false], ["Plan", true]].map(([label, on]) =>
-          el("button", { "aria-pressed": String(planView === on), onclick: () => { planView = on; localStorage.setItem("planview", on ? "1" : "0"); draw(); } }, label))),
+          el("button", { "aria-pressed": String(planView === on), onclick: () => { localStorage.setItem("planview", on ? "1" : "0"); draw(); } }, label))),
       planView && pl.items.length ? el("span", { class: "sub2" },
         `${pl.items.length} open · ${pl.waves} wave${pl.waves === 1 ? "" : "s"} · critical path ${pl.critical.join(" → ")} (${+pl.critical_h.toFixed(1)}h)`) : null));
   }
-  if (!inStd && planView) app.append(planView_(r));
-  if (!inStd && !planView) r.lanes.forEach(l => app.append(el("div", { class: "lane", "data-a": "lane:" + l.owner },
-    el("div", { class: "who" }, el("span", {}, l.name || l.owner, l.name ? el("small", {}, ` · ${l.owner}`) : null),
+  if (planViewOn(r)) app.append(planView_(r));
+  else r.lanes.forEach(l => app.append(el("div", { class: "lane", "data-a": "lane:" + l.owner },
+    el("div", { class: "who" }, el("span", {}, l.owner),
       el("small", {}, `${l.items.length} item${l.items.length > 1 ? "s" : ""}`)),
     el("div", { class: "chips" }, l.items.map(it => {
-      const s = it.state === "todo" && it.waits.length ? "waits" : it.state;
-      return chip(it, it.waits.length ? `waits ${it.waits.join(", ")}` : `${STATE[s][1]}${it.updated_min != null ? " · " + age(it.updated_min) : ""}`);
+      const s = skey(it), why = whyLine(it);
+      return chip(it, why || `${STATE[s][1]}${s !== "todo" && it.updated_min != null ? " · " + age(it.updated_min) : ""}`);
     })))));
 
-  const chart = activityChart(r);
-  if (chart) app.append(el("h2", {}, el("span", {}, "Team activity in this room"),
-    el("span", {}, r.activity_min >= 720 ? "last 12 h" : `since the room opened`)), chart);
-
-  if (r.team_open.length) {
-    app.append(el("h2", {}, "Team is deciding"));
-    r.team_open.forEach(d => app.append(el("div", { class: "row" }, el("button", { class: "ref", onclick: () => openRecord(d.id) }, d.id), " ", d.title, ` — ${d.decider}`)));
-  }
   if (r.recent.length) {
     app.append(el("h2", {}, "Decided since your last message"));
     r.recent.forEach(d => app.append(el("div", { class: "row" }, el("button", { class: "ref", onclick: () => openRecord(d.id) }, d.id), " ", d.title, ` — ${d.decider}`)));
@@ -1344,10 +1127,15 @@ function draw(top) {
     app.append(el("h2", {}, el("span", {}, "From the lead"), el("span", {}, r.lead_note_min != null ? age(r.lead_note_min) + " ago" : "")));
     app.append(el("pre", { class: "note" }, linked(r.lead_note)));
   }
-  // A lock holder is "<who> since <time>: <whole shell command>"; show the first part, keep the command in a tooltip.
+  // Room details, collapsed: the lead's phase and goal text, handing over the lead, who holds which lock.
   const lockLine = l => { const i = l.holder.indexOf(": "), short = i < 0 ? l.holder : l.holder.slice(0, i);
     return el("div", { title: l.holder }, `lock ${l.name}: ${short}`); };
-  app.append(el("div", { class: "bfoot" }, [...r.locks.map(lockLine), el("div", {}, `updated ${state.now}`)]));
+  const locks = r.locks.filter(l => l.name !== "store");   // the store's own lock is always there, say nothing
+  app.append(el("details", { class: "details", open: detailsOpen, ontoggle: e => { detailsOpen = e.target.open; } },
+    el("summary", {}, "Room details"), goalDetails(r), leadCmdBox(r),
+    r.lead_link ? el("p", { class: "sub2" }, el("a", { href: r.lead_link, target: "atr-t3", class: "t3link" }, "Open the lead in T3")) : null,
+    locks.length ? el("div", { class: "bfoot" }, locks.map(lockLine)) : null));
+  app.append(el("div", { class: "bfoot" }, el("div", { id: "upd" }, updatedText())));
 
   // Scroll: new room starts at the top; a redraw puts the first visible card back where it was.
   const strip = app.querySelector("nav.rooms"), tab = strip && strip.querySelector('button[aria-pressed="true"], select.on');
@@ -1362,17 +1150,20 @@ function draw(top) {
 }
 
 // ---------- plan view: waves of items, arrows for depends_on, critical path outlined ----------
-let planView = localStorage.getItem("planview") === "1";
+// Plan is the default view of a room with more than 3 open items; a tap on the toggle is remembered.
+function planViewOn(r) {
+  const v = localStorage.getItem("planview");
+  return v === null ? ((r.plan || { items: [] }).items.length > 3) : v === "1";
+}
 function planBox(x) {
   const st = x.state === "todo" ? (x.ready ? "ready" : "waits") : x.state;
-  const [icon, label] = STATE[x.state === "todo" && !x.ready ? "waits" : x.state] || ["?", x.state];
-  return el("button", { class: `pbox p-${st}${x.critical ? " crit" : ""}`, "data-pid": x.id, title: `${x.id} ${x.title} · ${x.ready ? "ready" : label}`,
+  const [icon, label] = STATE[x.state === "todo" ? (x.ready ? "todo" : "waits") : x.state] || ["?", x.state];
+  return el("button", { class: `pbox p-${st}${x.critical ? " crit" : ""}`, "data-pid": x.id, title: `${x.id} ${x.title} · ${label}`,
       onclick: () => openRecord(x.id) },
-    el("span", { class: "i" }, `${x.state === "todo" && x.ready ? "○" : icon} ${x.id}`), el("span", { class: "t" }, x.title),
-    el("span", { class: "m" }, x.ready ? el("span", {}, "ready") : null, x.cap_h ? el("span", {}, `${x.cap_h}h`) : null,
+    el("span", { class: "i" }, `${icon} ${x.id}`), el("span", { class: "t" }, x.title),
+    el("span", { class: "m" }, el("span", {}, label), x.cap_h ? el("span", {}, `${x.cap_h}h`) : null,
       ...(x.locks || []).map(l => el("span", { class: "lk", title: "lock" }, l))),
-    x.need ? el("span", { class: "need" }, `needs: ${x.need}`) : null,
-    flagChips({ unstaffed: x.unstaffed }).length ? el("span", { class: "m" }, ...flagEls({ unstaffed: x.unstaffed })) : null);
+    x.need ? el("span", { class: "need" }, `needs: ${x.need}`) : null);
 }
 function planArrows(box) {
   const svg = box.querySelector("svg");
@@ -1407,7 +1198,7 @@ function planView_(r) {
   for (const x of p.items) {
     const n = box.querySelector(`[data-pid="${x.id}"]`);
     n.dataset.deps = [...x.done_deps, ...x.deps].join(",");
-    if (x.deps.length || x.done_deps.length) n.querySelector(".m").append(el("span", {}, `after ${[...x.done_deps, ...x.deps].join(", ")}`));
+    if (x.deps.length || x.done_deps.length) n.querySelector(".m").append(el("span", {}, x.deps.length && x.state === "todo" ? `waiting on ${x.deps.join(", ")}` : `after ${[...x.done_deps, ...x.deps].join(", ")}`));
   }
   const svg = document.createElementNS(ns, "svg");
   svg.innerHTML = '<defs><marker id="parrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L8,4L0,8z"/></marker></defs>';
@@ -1465,7 +1256,7 @@ function showT3Note(st) {
   const n = $("t3note"), msg = t3NoteText(st);
   n.hidden = !msg;
   if (!msg) return n.replaceChildren();
-  n.replaceChildren(el("b", {}, msg[0]), msg[1] + " ", el("a", { href: base + "doc?file=docs/SETUP.md" }, "Setup guide"));
+  n.replaceChildren(el("b", {}, msg[0]), msg[1]);
 }
 // t3note:end
 // stale:begin

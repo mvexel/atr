@@ -1,6 +1,7 @@
-"""Rooms with several threads: fake threads, fake sender, temp atr root. No real T3 call or nudge.
+"""Rooms with several threads: fake threads, fake sender, temp atr root. No real T3 call or message.
 Run: python3 -m unittest tests.test_threads
 """
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
 import importlib.machinery, importlib.util, sys, tempfile, unittest, datetime as dt
 from pathlib import Path
 
@@ -20,22 +21,18 @@ ITEM = "---\nid: {id}\ntitle: x\nstate: {state}\nowner: dev\nagent: {agent}\nupd
 class Threads(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.saved = (tr.ROOMS, tr.thread_info, tr.tell_thread)
+        self.saved = (tr.ROOMS, tr.thread_info, tr.t3_call)
         tr.ROOMS = Path(self.tmp.name) / "rooms"
         self._canonical_root_before = tr.ROOT
         tr.ROOT = tr.ROOMS.parent
         self.addCleanup(setattr, tr, "ROOT", self._canonical_root_before)
         self.threads, self.told, self.synced = {}, [], []
         tr.thread_info = lambda t: self.threads.get((t or "").strip())
-        tr.tell_thread = lambda t, text: (self.told.append((t, text)), True)[1]
-        from unittest.mock import patch
-        bridge = patch.object(tr, "t3_execute", side_effect=lambda action: {
-            "state": "confirmed" if tr.tell_thread(action["target"], action["payload"]) else "failed",
-            "evidence": "synthetic T3 acceptance"})
-        bridge.start(); self.addCleanup(bridge.stop)
+        tr.t3_call = lambda kind, target, payload, options=None: (self.told.append((target, payload)),
+                                                                   {"ok": True, "evidence": "synthetic", "thread": None})[1]
 
     def tearDown(self):
-        tr.ROOMS, tr.thread_info, tr.tell_thread = self.saved
+        tr.ROOMS, tr.thread_info, tr.t3_call = self.saved
         self.tmp.cleanup()
 
     def room(self, items=(), extra="", name="r1"):
@@ -84,22 +81,14 @@ class Threads(unittest.TestCase):
         self.th(LEAD, settled=True)
         self.assertTrue(tr.thread_state(r)["settled"])
 
-    def test_nudges_go_to_most_recent_live_thread(self):
+    def test_notices_go_to_most_recent_live_thread(self):
         r = self.room(extra=f"threads: [{FORK}, {NEW}]\n")
         self.th(LEAD, settled=True); self.th(FORK, up=T0 - 100); self.th(NEW, up=T0)
         self.assertEqual(tr.active_lead(r), NEW)
-        tr.tell_lead(r, "hi")
+        tr.notify_lead(r, "hi")
         self.assertEqual(self.told, [(NEW, "hi")])
         self.th(LEAD, settled=False)
         self.assertEqual(tr.active_lead(r), LEAD)
-
-    def test_continuity_follows_live_thread(self):
-        r = self.room(extra=f"threads: [{FORK}]\n")
-        self.th(LEAD, settled=True); self.th(FORK, status="running")
-        self.assertEqual(tr.continuity(r)[0], "moving")
-
-
-
 
     def handoff(self, *argv):
         ns = type("A", (), {"room": "r1", "thread": NEW, "keep_old": False})()

@@ -1,4 +1,4 @@
-"""Page copy: standing-room naming, public wording, duration and question formats in web/index.html.
+"""Page copy: public wording, duration and question formats in web/index.html.
 Static checks on web/index.html; age() and the question rewrite are evaluated with node when it is installed."""
 import json, re, shutil, subprocess, unittest
 from pathlib import Path
@@ -12,15 +12,6 @@ def js_fn(name):
 
 
 class PageCopy(unittest.TestCase):
-    def test_one_name_for_the_standing_room(self):
-        self.assertNotIn("Process: how we work", HTML)
-        self.assertNotIn('b", {}, "Process"', HTML)
-        self.assertIn('"aria-label": "How we work"', HTML)
-        self.assertNotIn('"the atr itself"', HTML)
-
-    def test_standing_room_explained(self):
-        self.assertIn("Where agent-rooms tracks its own improvements: feedback in, rules and tooling out.", HTML)
-
     def test_settled_label(self):
         self.assertNotIn("Closed / settled", HTML)
         self.assertIn("`Settled · ${dead.length}`", HTML)
@@ -31,10 +22,30 @@ class PageCopy(unittest.TestCase):
         self.assertIn('["Agents", false]', HTML)
         self.assertNotIn("next checkpoint", HTML)
         self.assertNotIn("lead_thread in BRIEF", HTML)
-        for kind in ("Decision", "Ask", "Premise", "PRD", "Your task"):
-            self.assertRegex(HTML, r'\["%s", "[^"]+"\]' % kind)
-        for needle in ("a lead, the agent that runs", "T item, D decision, A ask, P premise"):
+        for gone in ("What these words mean", "KIND_DEFS", "lock store", "}, \"Open record\")", "Other decisions", "waits ${", '"to do"'):
+            self.assertNotIn(gone, HTML)
+
+    def test_one_status_vocabulary(self):
+        self.assertIn('doing: ["●", "running"]', HTML)
+        self.assertIn('todo: ["○", "ready"]', HTML)
+        self.assertNotIn('"doing"]', HTML)
+        for needle in ("waiting on ${d}", "blocked by ${d} (needs:"):
             self.assertIn(needle, HTML)
+
+    def test_plain_autostart_goal_and_lead_lines(self):
+        for needle in ("Auto-start waits for goal approval", "Auto-start paused:", "Offered to the lead:",
+                       "approve to start work", "Lead not notified (${f.reason})"):
+            self.assertIn(needle, HTML)
+        self.assertNotIn("Auto-start: ${a.state}", HTML)
+        self.assertNotIn("Goal: not written yet", HTML)
+
+    def test_cards_come_first_and_details_collapse(self):
+        self.assertLess(HTML.index("hot(needN(r), \"need you\")"), HTML.index("`Needs you · ${needN(r)}`"))
+        self.assertLess(HTML.index("`Needs you · ${needN(r)}`"), HTML.index('el("summary", {}, "Room details")'))
+        self.assertIn("Hand over the lead", HTML)
+
+    def test_room_order_is_computed_before_the_tabs(self):
+        self.assertLess(HTML.index("roomOrder = computeOrder(roomSort);   // once"), HTML.index("const ordered = orderedRooms();"))
 
     @unittest.skipUnless(NODE, "node not installed")
     def test_one_duration_format(self):
@@ -54,9 +65,8 @@ class PageCopy(unittest.TestCase):
         self.assertEqual(out, 'You asked at 16:15: "Why?"\nlead replied at 16:16: "Because."')
 
     def test_save_and_execution_claims_are_distinct(self):
-        self.assertIn('"Saved locally"', HTML)
-        self.assertIn("receipt and execution unverified", HTML)
-        self.assertIn("T3 lead state unavailable", HTML)
+        self.assertIn("Pause saved locally", HTML)
+        self.assertIn("agent receipt and execution are unverified", HTML)
 
 
 if __name__ == "__main__":

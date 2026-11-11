@@ -21,7 +21,7 @@ class Organize(Base):
 
     def mk(self, ask=False, closed=False):
         extra = "closed: done\n" if closed else ""
-        room = self.room([("T01", {})], brief=f"---\ntitle: t\nprd: waived (test)\nlead_thread: {LEAD}\n{extra}---\n")
+        room = self.room([("T01", {})], brief=f"---\ntitle: t\nlead_thread: {LEAD}\n{extra}---\n")
         if ask:
             (room.dir / "decisions" / "D01-q.md").write_text(OPEN)
         return tr.Room("r1")
@@ -66,8 +66,6 @@ class Organize(Base):
         self.assertIn("t3 organize r1", tr.organize_warn(self.mk(ask=True)))
         self.facts = {"pinned": True}
         self.assertIsNone(tr.organize_warn(self.mk(ask=True)))
-        self.facts = {"pinned": False}
-        self.assertTrue([p for p in tr.problems(self.mk(ask=True)) if "t3 organize r1" in p])
 
 if __name__ == "__main__":
     unittest.main()

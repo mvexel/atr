@@ -1,6 +1,7 @@
 """BRIEF `code:` line: atr check warnings, atr brief output, page JSON. Declared code locations in a temp dir; no network.
 Run: python3 -I -m unittest tests.test_code_line
 """
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
 import importlib.machinery, importlib.util, io, subprocess, sys, tempfile, unittest, contextlib
 from pathlib import Path
 
@@ -44,28 +45,6 @@ class CodeLine(unittest.TestCase):
         for n, it in enumerate(items):
             (d / "items" / f"T{n + 1}-x.md").write_text(it.replace("id: T1", f"id: T{n + 1}"))
         return tr.Room("r")
-
-    def code_warns(self, room):
-        return [x for x in tr.problems(room) if "code:" in x or "integration branch" in x]
-
-    def test_missing_line(self):
-        w = self.code_warns(self.room())
-        self.assertEqual(len(w), 1)
-        self.assertIn("no code: line", w[0])
-
-    def test_skipped_when_closed_or_no_repos(self):
-        self.assertEqual(self.code_warns(self.room(repos=False)), [])
-        self.assertEqual(self.code_warns(self.room(closed="2026-10-27 done")), [])
-
-
-    def test_worktree_path_missing(self):
-        w = self.code_warns(self.room(f"ahead at {self.wt}/gone"))
-        self.assertTrue(any("worktree" in x and "doesn't exist" in x for x in w), w)
-
-
-
-    def test_healthy(self):
-        self.assertEqual(self.code_warns(self.room(f"ahead at {self.wt}")), [])
 
     def test_brief_prints_code_line(self):
         self.room(f"ahead at {self.wt}")

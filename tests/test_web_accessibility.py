@@ -59,7 +59,7 @@ class Targets(unittest.TestCase):
     def test_small_controls_get_44px(self):
         for needle in ["font-size: 12px; padding: 0 6px; min-height: 44px", "height: 44px; }\n  .pause.armed",
                        ".sheet .close::after, .pal .in button::after",
-                       "button.chip, .addnote, .slotpill", "gap: 6px; width: 100%; min-height: 44px; border: 0; border-top"]:
+                       "button.chip, .addnote, .slotpill"]:
             self.assertIn(needle, HTML)
 
 

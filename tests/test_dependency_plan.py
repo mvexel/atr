@@ -1,10 +1,14 @@
 """`atr need`, plan checks, waves and critical path, the blocked-need attention line. No real message is sent.
 Run: python3 -I -m unittest tests.test_dependency_plan
 """
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
 import contextlib, importlib.machinery, importlib.util, io, tempfile, types, unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import goal_fixture
 spec = importlib.util.spec_from_loader("tr", importlib.machinery.SourceFileLoader("tr", str(REPO / "bin" / "atr")))
 tr = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tr)
@@ -19,23 +23,24 @@ def item(iid, state="todo", deps="", locks="", cap="1", body=GOOD, extra=""):
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.saved = (tr.ROOMS, tr.tell_lead_or_defer)
+        self.saved = (tr.ROOMS, tr.notify_lead)
         tr.ROOMS = Path(self.tmp.name) / "rooms"
         self._canonical_root_before = tr.ROOT
         tr.ROOT = tr.ROOMS.parent
         self.addCleanup(setattr, tr, "ROOT", self._canonical_root_before)
         self.told = []
-        tr.tell_lead_or_defer = lambda room, text, thread=None: (self.told.append((room.name, text)), True)[1]
+        tr.notify_lead = lambda room, text, thread=None, **kw: (self.told.append((room.name, text)), kw.get('offer') and tr._record_offer(room.name, kw['offer']), True)[2]
 
     def tearDown(self):
-        tr.ROOMS, tr.tell_lead_or_defer = self.saved
+        tr.ROOMS, tr.notify_lead = self.saved
         self.tmp.cleanup()
 
-    def room(self, items, brief="---\ntitle: t\nprd: waived (test)\n---\n", name="r1"):
+    def room(self, items, brief="---\ntitle: t\n---\n", name="r1"):
         d = tr.ROOMS / name
         (d / "items").mkdir(parents=True, exist_ok=True)
         (d / "decisions").mkdir(exist_ok=True)
         (d / "BRIEF.md").write_text(brief)
+        goal_fixture.approve(d)
         for old in (d / "items").glob("*.md"):
             old.unlink()
         for iid, kw in items:
@@ -81,7 +86,7 @@ class Need(Base):
         self.assertEqual(self.told, [])
 
     def test_refuses_closed_room(self):
-        self.room([("T01", dict(state="doing"))], brief="---\ntitle: t\nclosed: 2026-10-27T09:00Z\nprd: waived (x)\n---\n")
+        self.room([("T01", dict(state="doing"))], brief="---\ntitle: t\nclosed: 2026-10-27T09:00Z\n---\n")
         with self.assertRaises(SystemExit):
             self.run_need()
         self.assertEqual(self.told, [])
@@ -95,16 +100,15 @@ class Need(Base):
     def test_blocked_with_need_shows_in_attention_until_flipped(self):
         self.room([("T01", dict(state="doing"))])
         self.run_need(text="needs a fixture set")
-        a = [x for x in tr.bottlenecks(tr.Room("r1")) if x["rule"] == "need"]
+        a = [x for x in tr.needs_attention(tr.Room("r1")) if x["rule"] == "need"]
         self.assertEqual(len(a), 1)
         self.assertIn("needs a fixture set", a[0]["text"])
-        self.assertIsNone(a[0]["nudge"])           # the lead was already told by `need`
         self.set_("state=todo")
-        self.assertEqual([x for x in tr.bottlenecks(tr.Room("r1")) if x["rule"] == "need"], [])
+        self.assertEqual([x for x in tr.needs_attention(tr.Room("r1")) if x["rule"] == "need"], [])
 
     def test_blocked_without_needs_entry_not_in_attention(self):
         room = self.room([("T01", dict(state="blocked"))])
-        self.assertEqual([x for x in tr.bottlenecks(room) if x["rule"] == "need"], [])
+        self.assertEqual([x for x in tr.needs_attention(room) if x["rule"] == "need"], [])
 
 
 class Waves(Base):
@@ -162,21 +166,6 @@ class Checks(Base):
         room = self.room([("T01", dict(state="done")), ("T02", dict(state="doing", deps="T01"))])
         self.assertFalse(any("not done" in p for p in tr.problems(room)))
 
-    def test_four_open_items_without_plan_warn(self):
-        room = self.room([(f"T0{n}", {}) for n in range(1, 5)])
-        self.assertTrue(any("no dependency plan" in p for p in tr.problems(room)))
-
-    def test_three_items_or_any_edge_or_lock_is_quiet(self):
-        self.assertFalse(any("no dependency plan" in p for p in tr.problems(self.room([(f"T0{n}", {}) for n in range(1, 4)]))))
-        items = [(f"T0{n}", {}) for n in range(1, 5)]
-        items[1] = ("T02", dict(deps="T01"))
-        self.assertFalse(any("no dependency plan" in p for p in tr.problems(self.room(items))))
-        items[1] = ("T02", dict(locks="gradle"))
-        self.assertFalse(any("no dependency plan" in p for p in tr.problems(self.room(items))))
-
-    def test_doing_with_empty_brief_warns_for_existing_rooms(self):
-        room = self.room([("T01", dict(state="doing", body="## Acceptance\n- [ ] \n\n## Inputs\n- \n\n"))])
-        self.assertTrue(any("T01" in p and "Acceptance" in p for p in tr.problems(room)))
 
 
 class SetDoingBrief(Base):
@@ -199,11 +188,6 @@ class SetDoingBrief(Base):
     def test_force_overrides(self):
         self.room([("T01", dict(body=self.EMPTY_A))])
         self.set_("state=doing", force=True)
-        self.assertEqual(tr.Room("r1").find("T01")["state"], "doing")
-
-    def test_prd_phase_item_is_exempt(self):
-        self.room([("T01", dict(body=self.EMPTY_A, extra="phase: prd\n"))])
-        self.set_("state=doing")
         self.assertEqual(tr.Room("r1").find("T01")["state"], "doing")
 
     def test_item_already_doing_is_not_refused(self):

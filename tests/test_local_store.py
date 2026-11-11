@@ -1,4 +1,5 @@
 """Local stores select deterministically, serialize updates and recover interrupted transitions."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
 import concurrent.futures
 import contextlib
 import importlib.machinery
@@ -49,36 +50,19 @@ class LocalStore(unittest.TestCase):
         (room / "BRIEF.md").write_text("---\ntitle: Demo\ntz: UTC\n---\n")
         return room
 
-    def test_selection_order_and_legacy_protection(self):
+    def test_selection_order(self):
         tr = load()
         env = dict(self.env)
-        self.assertEqual(tr.select_data_dir(self.source, env=env)[0], self.base / "xdg/atr")
-        legacy = self.source / "rooms/legacy"
-        legacy.mkdir(parents=True)
-        self.assertEqual(tr.select_data_dir(self.source, env=env)[0], self.source)
-        config = self.base / "config/atr/config.json"
-        config.parent.mkdir(parents=True)
-        config.write_text(json.dumps({"data_dir": str(self.base / "configured")}))
-        self.assertEqual(tr.select_data_dir(self.source, env=env)[0], self.base / "configured")
+        self.assertEqual(tr.select_data_dir(env=env)[0], self.base / "home/.local/share/atr")
         env["ATR_DATA_DIR"] = str(self.base / "environment")
-        self.assertEqual(tr.select_data_dir(self.source, env=env)[0], self.base / "environment")
-        self.assertEqual(tr.select_data_dir(self.source, explicit=str(self.data), env=env)[0], self.data)
+        self.assertEqual(tr.select_data_dir(env=env)[0], self.base / "environment")
+        self.assertEqual(tr.select_data_dir(explicit=str(self.data), env=env)[0], self.data)
 
-    def test_invalid_config_does_not_silently_select_an_empty_store(self):
-        config = self.base / "config/atr/config.json"
-        config.parent.mkdir(parents=True)
-        config.write_text("{broken")
-        result = self.run_cli("team")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("config", result.stderr)
-
-    def test_relative_xdg_paths_are_ignored_and_relative_environment_store_is_rejected(self):
+    def test_relative_environment_store_is_rejected(self):
         tr = load()
-        env = dict(self.env, XDG_DATA_HOME="relative", XDG_CONFIG_HOME="relative")
-        self.assertEqual(tr.select_data_dir(self.source, env=env)[0], self.base / "home/.local/share/atr")
-        env["ATR_DATA_DIR"] = "relative"
+        env = dict(self.env, ATR_DATA_DIR="relative")
         with self.assertRaises(ValueError):
-            tr.select_data_dir(self.source, env=env)
+            tr.select_data_dir(env=env)
 
     def test_explicit_store_uses_bundled_templates_from_another_directory(self):
         self.init_room()
@@ -90,7 +74,7 @@ class LocalStore(unittest.TestCase):
 
     def test_room_creation_initializes_a_new_external_store_without_setup(self):
         result = self.run_cli("--data-dir", str(self.data), "rooms", "new", "demo", "Demo",
-                              "--lead-thread", "synthetic-lead-thread", "--waive-prd", "maintenance")
+                              "--lead-thread", "synthetic-lead-thread")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("synthetic-lead-thread", (self.data / "rooms/demo/BRIEF.md").read_text())
         self.assertFalse((self.source / "rooms").exists())
@@ -131,8 +115,8 @@ class LocalStore(unittest.TestCase):
 
     def test_interruption_rolls_back_all_files_before_read(self):
         room = self.init_room()
-        first, second = room / "PRD.md", room / "decisions/D01-review.md"
-        first.write_text("before-prd")
+        first, second = room / "NOTE.md", room / "decisions/D01-review.md"
+        first.write_text("before-note")
         second.write_text("before-decision")
         code = """
 import importlib.machinery as m, importlib.util as u, os, sys
@@ -141,7 +125,7 @@ s=u.spec_from_loader('tr', m.SourceFileLoader('tr', sys.argv[1])); t=u.module_fr
 t.ROOT=Path(sys.argv[2]); t.ROOMS=t.ROOT/'rooms'
 with t.store_transaction():
     t.durable_mkdir(t.ROOT/'rooms/new/items', parents=True)
-    t.durable_write(t.ROOT/'rooms/demo/PRD.md', 'after-prd')
+    t.durable_write(t.ROOT/'rooms/demo/NOTE.md', 'after-note')
     t.durable_write(t.ROOT/'rooms/demo/decisions/D01-review.md', 'after-decision')
     os._exit(9)
 """
@@ -150,7 +134,7 @@ with t.store_transaction():
         tr = load()
         tr.ROOT, tr.ROOMS = self.data, self.data / "rooms"
         self.assertEqual([room.name for room in tr.rooms_from([])], ["demo"])
-        self.assertEqual(first.read_text(), "before-prd")
+        self.assertEqual(first.read_text(), "before-note")
         self.assertEqual(second.read_text(), "before-decision")
         self.assertFalse((self.data / ".atr/transaction.json").exists())
 
@@ -173,10 +157,10 @@ with t.store_transaction():
     def test_interrupted_approval_is_always_a_coherent_workflow_transition(self):
         room = self.init_room()
         decision = room / "decisions/D01-review.md"
-        prd = room / "PRD.md"
+        goal = room / "GOAL.md"
         before = {
-            decision: "---\nid: D01\ntype: prd\nstatus: open\n---\n## Answer\n",
-            prd: "---\nid: PRD\nstatus: review\n---\n## Sign-off\nOwner:\n",
+            decision: "---\nid: D01\ntype: goal\ndecider: owner\nstatus: open\n---\n## Options\na) yes\nb) no\n\n## Answer\n",
+            goal: "---\nid: GOAL\nstatus: draft\ncard: D01\n---\n## Architecture\na\n",
             room / "BRIEF.md": "---\ntitle: Demo\ntz: UTC\n---\n",
         }
         code = """
@@ -204,10 +188,10 @@ t.cmd_answer(SimpleNamespace(room='demo',id='D01',choice='a',by='owner',quote=No
                                          str(self.data), str(crash_after)], env=self.env, capture_output=True, text=True)
                 self.assertIn(result.returncode, (0, 9), result.stderr)
                 recovered = tr.Room("demo")
-                states = (recovered.find("D01")["status"], recovered.prd["status"], recovered.brief["binding"])
-                self.assertIn(states, (("open", "review", ""), ("final", "agreed", "PRD.md")))
+                states = (recovered.find("D01")["status"], recovered.goal["status"])
+                self.assertIn(states, (("open", "draft"), ("final", "approved")))
                 if result.returncode == 0:
-                    self.assertEqual(states, ("final", "agreed", "PRD.md"))
+                    self.assertEqual(states, ("final", "approved"))
 
     def test_directory_creation_and_orphan_temporary_files_recover(self):
         self.init_room()
@@ -234,7 +218,7 @@ t.cmd_answer(SimpleNamespace(room='demo',id='D01',choice='a',by='owner',quote=No
     def test_concurrent_answers_do_not_overwrite_or_append_to_a_final_answer(self):
         room = self.init_room()
         decision = room / "decisions/D01-choice.md"
-        decision.write_text("---\nid: D01\nstatus: open\n---\n## Answer\n")
+        decision.write_text("---\nid: D01\ndecider: owner\nstatus: open\n---\n## Options\na) yes\nb) no\n\n## Answer\n")
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             results = list(pool.map(lambda choice: self.run_cli("--data-dir", str(self.data), "answer", "demo", "D01", choice), ("a", "b")))
         self.assertEqual(sorted(r.returncode for r in results), [0, 1])
@@ -314,7 +298,7 @@ t.cmd_answer(SimpleNamespace(room='demo',id='D01',choice='a',by='owner',quote=No
         from types import SimpleNamespace
         room = self.init_room()
         (room / "BRIEF.md").write_bytes(b"---\r\ntitle: Demo\r\ntz: UTC\r\n---\r\n")
-        (room / "PRD.md").write_bytes(b"---\r\nid: PRD\r\nstatus: review\r\n---\r\nPurpose.\r\n")
+        (room / "GOAL.md").write_bytes(b"---\r\nid: GOAL\r\nstatus: draft\r\n---\r\nArchitecture.\r\n")
         path = room / "items/T01-crlf.md"
         original = ("---\r\nid: T01\r\nstate: todo\r\nowner: first\r\nfuture-key: {opaque: true}\r\n"
                     "unknown: xyz # keep\r\n---\r\nCustom **Markdown**\r\n\r\n## Log\r\nexisting\r\n").encode()
@@ -325,7 +309,7 @@ t.cmd_answer(SimpleNamespace(room='demo',id='D01',choice='a',by='owner',quote=No
         self.assertEqual(record._version, hashlib.sha256(original).hexdigest())
         self.assertEqual(record["id"], "T01")
         self.assertTrue(tr.Room("demo").build_locked)
-        with self.assertRaisesRegex(SystemExit, "PRD is review"):
+        with self.assertRaisesRegex(SystemExit, "goal draft"):
             tr.cmd_set(SimpleNamespace(room="demo", id="T01", pairs=["state=doing"], force=False, by="tester"))
         self.assertEqual(path.read_bytes(), original)
         record.set("owner", "second")

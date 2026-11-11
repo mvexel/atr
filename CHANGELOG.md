@@ -2,6 +2,13 @@
 
 All notable changes to atr are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Removed
+
+- `atr feedback`, the `process` room and the maintainer thread; `atr team` and `atr name`; `atr migrate` and `docs/MIGRATION.md`. Use `ari relay` to reach a teammate's agent.
+- The team activity chart and "Team is deciding" list on the page.
+
 ## [0.3.0] - 2026-11-09
 
 T3 is now a stated prerequisite, and leads are woken when their workers finish.

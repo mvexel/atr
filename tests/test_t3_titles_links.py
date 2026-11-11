@@ -1,6 +1,7 @@
 """Worker title convention in `t3 launch`, t3-thread links on the page payload, skill guidance.
 Fake thread_info and queue; no T3 call. Run: python3 -I -m unittest tests.test_t3_titles_links
 """
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
 import argparse, contextlib, importlib.machinery, importlib.util, io, os, sys, tempfile, unittest
 from pathlib import Path
 

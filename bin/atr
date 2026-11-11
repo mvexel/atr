@@ -11,36 +11,20 @@ Usage (ROOM is a folder name under rooms/):
   atr reply ROOM ID TEXT            answer a question the owner asked on a card (card stays open)
   atr answer ROOM ID CHOICE [--by owner] [--quote "D05 b"]
   atr status [ROOM ...]          regenerate rooms/ROOM/README.md and decisions/INDEX.md
-  atr check [ROOM ...] [--strict] [--yield]   --yield: judge the room as if the lead's turn had ended
-  atr migrate preview|copy|verify|rollback|review --source COPY --destination COPY [--evidence TEXT]
-                                    explicit rehearsal only; never changes store selection or services
+  atr check [ROOM ...] [--strict]   data-integrity lint
   atr serve [--port 8787]  tap-to-decide web page (web/index.html), in the foreground
-  atr open                       open the web page, starting it if it isn't running
-  atr service install|uninstall|status|restart   keep the web page running from login
-  atr name ROOM ROLE NAME --pronoun she|he   give a role its first name (keeps he/she even)
   atr start "what you want" [--project DIR]   start a T3 thread that creates a room and leads it
   atr lead ROOM [THREAD]          hand the lead to a T3 thread; without THREAD, print text to copy and paste to take it
   atr room list                  every room: state, open items, open decisions, title
-  atr room new ROOM "Feature title" --lead-thread ID [--no-ux]  start a feature (one room per thread)
-  atr prd ROOM review            product + tech lead signed: ask the owner to agree (opens a D card)
-  atr refinement ROOM new "title" --touches FR4 [--supersedes RF01]   change an agreed PRD (RFnn)
-  atr refinement ROOM RFnn review   signed: open an "Agree RFnn" card
-  atr brief ROOM                  print the binding: PRD.md + agreed refinements
-  atr team [ROOM]                 show who is who
-  atr setup [--check] [--print-env [SHELL]] [--yes|--no-maintainer] [--recreate-maintainer]   first run: process room + maintainer thread
-  atr doctor                                               diagnose local setup without changing it
-  atr self-update                                          update this source installation
-  atr uninstall [--yes]                                     undo install.sh (keeps your data and T3)
-  atr completion bash|zsh|fish                              print the tab-completion script (install.sh loads it)
-  atr feedback "text" --doc PROTOCOL|skill|charter --from ROOM [--cites REC] [--from-thread ID] [--blocks ROOM/ITEM,...]   file feedback
+  atr room new ROOM "Feature title" --lead-thread ID start a feature (one room per thread)
+  atr goal ROOM new --architecture TEXT --result TEXT --done TEXT   write the room's goal (draft)
+  atr goal ROOM approve          ask the owner to approve the goal (opens a D card); no worker starts before
+  atr brief ROOM                  print the room's goal (every worker brief carries it)
   atr inbox ROOM                  the owner's taps and pause changes since you last looked (run it mid-turn)
 
 Local store:
   atr --data-dir PATH <command> selects a Markdown store independently of the source checkout.
-  Selection: --data-dir, ATR_DATA_DIR, $XDG_CONFIG_HOME/atr/config.json (data_dir),
-  then $XDG_DATA_HOME/atr (defaults: ~/.config and ~/.local/share).
-  Without an explicit selection, existing source/rooms keeps the legacy layout. If both legacy and
-  default stores exist, select explicitly. Selection never migrates, copies or deletes existing data.
+  Selection: --data-dir, then ATR_DATA_DIR, then ~/.local/share/atr.
   Templates, rules and web assets stay bundled with the source; .atr/ in the store holds locks,
   recovery and runtime state. ATR_LOCKDIR overrides named resource locks only, never the store lock.
   Atr readers recover interrupted transitions before access. External editors must stop atr
@@ -58,48 +42,22 @@ class StoreConflict(RuntimeError):
     """A stale edit cannot replace a newer saved record."""
 
 
-def select_data_dir(source=SOURCE_ROOT, explicit=None, env=None):
-    """Return (path, selection). Existing legacy rooms are never silently hidden by first-run defaults.
-
-    config.json contains an absolute data_dir. Explicit choices take precedence over a broken config,
-    allowing recovery. No probing of Git or external services is needed to select a store.
-    """
+def select_data_dir(explicit=None, env=None):
+    """Return (path, selection): --data-dir, else ATR_DATA_DIR, else ~/.local/share/atr."""
     env = os.environ if env is None else env
     home = Path(env.get("HOME", str(Path.home())))
-    def xdg_path(name, fallback):
-        value = Path(env.get(name, str(fallback)))
-        return value if value.is_absolute() else fallback
-    def absolute(value):
+    def absolute(value, what):
         if not isinstance(value, str) or not value.strip():
             raise ValueError("data directory must be a nonempty path")
+        if not (Path(value).is_absolute() or value.startswith("~/")):
+            raise ValueError(f"{what} must be absolute (or start with ~/)")
         value = str(home) + value[1:] if value.startswith("~/") else value
         return Path(value).absolute().resolve()
     if explicit is not None:
-        return absolute(str(explicit)), "--data-dir"
+        return absolute(str(explicit), "--data-dir"), "--data-dir"
     if env.get("ATR_DATA_DIR"):
-        if not Path(env["ATR_DATA_DIR"]).is_absolute() and not env["ATR_DATA_DIR"].startswith("~/"):
-            raise ValueError("ATR_DATA_DIR must be absolute (or start with ~/)")
-        return absolute(env["ATR_DATA_DIR"]), "ATR_DATA_DIR"
-    config = xdg_path("XDG_CONFIG_HOME", home / ".config") / "atr/config.json"
-    if config.exists():
-        try:
-            data = json.loads(config.read_text())
-            if not isinstance(data, dict):
-                raise ValueError("expected an object")
-            if "data_dir" in data:
-                value = absolute(data["data_dir"])
-                if not Path(data["data_dir"]).is_absolute() and not data["data_dir"].startswith("~/"):
-                    raise ValueError("data_dir must be absolute")
-                return value, str(config)
-        except (OSError, ValueError, TypeError) as e:
-            raise ValueError(f"invalid store config {config}: {e}") from e
-    default = xdg_path("XDG_DATA_HOME", home / ".local/share") / "atr"
-    legacy = Path(source).resolve()
-    if (legacy / "rooms").is_dir():
-        if (default / "rooms").exists() and default.resolve() != legacy:
-            raise ValueError(f"both legacy rooms at {legacy} and local rooms at {default}; select --data-dir explicitly")
-        return legacy, "legacy source layout (select --data-dir to use a separate store)"
-    return default.absolute().resolve(), "XDG default"
+        return absolute(env["ATR_DATA_DIR"], "ATR_DATA_DIR"), "ATR_DATA_DIR"
+    return (home / ".local/share/atr").absolute().resolve(), "default"
 
 
 # Selection on import is read-only; CLI selection is repeated after parsing --data-dir.
@@ -410,14 +368,8 @@ def store_guard(function):
         with store_transaction():
             args = tuple(Room(a.name) if isinstance(a, Room) and hasattr(a, "name") else a for a in args)
             result = function(*args, **kwargs)
-        if isinstance(result, dict) and result.get("ok") and function.__name__ in ("web_answer", "web_question", "web_pause", "web_nudge"):
+        if isinstance(result, dict) and result.get("ok") and function.__name__ in ("web_answer", "web_question", "web_pause"):
             result["saved"] = True
-            action_id = result.get("action")
-            if action_id:
-                result["delivery"] = delivery_actions().get(action_id, {"id": action_id, "state": "pending"})
-                if reason := migration_block(result["delivery"]):
-                    result["delivery"]["blocked"] = reason
-                result["told_lead"] = result["delivery"]["state"] == "confirmed"
         return result
     return wrapped
 
@@ -444,12 +396,11 @@ def store_command(function):
         print(output.getvalue(), end="")
         return result
     return wrapped
-OWNER = "owner"   # the person the team works for: decides cards, agrees PRDs, taps the page
+OWNER = "owner"   # the person the team works for: decides cards, approves goals, taps the page
 ITEM_STATES = {"todo", "doing", "blocked", "review", "done", "dropped"}
 DECISION_STATES = {"open", "provisional", "final", "superseded", "sent"}
 ACTIVE = ["blocked", "doing", "review", "todo"]
 W = 40  # status page width, so it reads on a phone
-STALE_H = 2
 
 
 # ---------- records ----------
@@ -552,18 +503,12 @@ class Room:
         self.brief = Record(brief) if brief.exists() else None
         head = self.dir / "now-head.md"
         self.head = Record(head) if head.exists() else None
-        prd = self.dir / "PRD.md"
-        self.prd = Record(prd) if prd.exists() else None
-        self.refinements = sorted((Record(p) for p in (self.dir / "refinements").glob("RF*.md")), key=lambda r: idkey(r["id"]))
+        goal = self.dir / "GOAL.md"
+        self.goal = Record(goal) if goal.exists() else None
         self.items = sorted((Record(p) for p in (self.dir / "items").glob("*.md")), key=lambda r: idkey(r["id"]))
         self.decisions = sorted((Record(p) for p in (self.dir / "decisions").glob("*.md") if p.name != "INDEX.md"),
                                 key=lambda r: idkey(r["id"]))
         self.tz = ZoneInfo((self.brief and self.brief["tz"]) or "UTC")
-        self.team = {}
-        for entry in (self.brief["team"] if self.brief else []) or []:
-            m = re.match(r"\s*([\w-]+)\s*=\s*([^()]+?)\s*(?:\((she|he)\))?\s*$", entry)
-            if m:
-                self.team[m.group(1)] = (m.group(2), m.group(3) or "")
 
     @property
     def created(self):
@@ -572,8 +517,8 @@ class Room:
 
     @property
     def build_locked(self):
-        """Building waits for a PRD agreed by product lead, tech lead and the owner."""
-        return bool(self.prd) and self.prd["status"] != "agreed"
+        """No worker starts until the owner has approved the room's goal."""
+        return not (self.goal and self.goal["status"] == "approved")
 
     @property
     def paused(self):
@@ -584,16 +529,15 @@ class Room:
         return bool(self.brief and self.brief["closed"])
 
     def who(self, owner):
-        """'Mira' for a named role, else the role itself."""
-        role = (owner or "").split(" ")[0]
-        return self.team[role][0] if role in self.team else role
+        """The role word of an owner field."""
+        return (owner or "").split(" ")[0]
 
     @property
     def title(self):
         return (self.brief and self.brief["title"]) or self.name
 
     def find(self, rid):
-        for r in self.items + self.decisions + self.refinements:
+        for r in self.items + self.decisions:
             if r["id"].lower() == rid.lower():
                 return r
         sys.exit(f"{self.name}: no record {rid}")
@@ -639,7 +583,7 @@ def refuse_closed(room, what):
     if room.closed:
         sys.exit(f"refused: {room.name} is closed ({room.brief['closed']}). Don't add {what} to a closed room: its lead "
                  "is gone, so a tap on it would wake the wrong thread. Follow-up work gets its own room and thread: "
-                 "atr room new <name> \"<title>\" --lead-thread <your thread id> [--waive-prd \"why\"]")
+                 "atr room new <name> \"<title>\" --lead-thread <your thread id>")
 
 def cmd_new(a):
     room = Room(a.room)
@@ -650,8 +594,6 @@ def cmd_new(a):
         text = (TEMPLATES / "item.md").read_text().format(
             id=rid, title=a.title, owner=a.owner or "", depends=", ".join(a.depends or []),
             locks=", ".join(a.locks or []), cap=a.cap or "", now=stamp(t), hhmm=logstamp(t), by=a.by)
-        if a.phase:
-            text = text.replace("cap_h:", f"phase: {a.phase}\ncap_h:", 1)
         path = room.dir / "items" / f"{rid}-{slug(a.title)}.md"
     else:
         rid = next_id(room.decisions, {"premise": "P", "ask": "A", "todo": "A"}.get(a.type, "D"))
@@ -662,7 +604,7 @@ def cmd_new(a):
             a.option = a.option or ["Done, I did this", "Can't do this yet (say why in the note)"]
         if a.type == "premise":
             a.option = a.option or ["Yes, that's right", "No, change it (say how in a note)"]
-        if a.type in ("decision", "prd", "refinement") and len(a.option or []) < 2:
+        if a.type == "decision" and len(a.option or []) < 2:
             sys.exit(f"a {a.type} card needs at least two --option values: without them the owner's page shows no buttons")
         text = (TEMPLATES / "decision.md").read_text().format(
             id=rid, title=a.title, type=a.type, door=a.door, decider=a.decider,
@@ -678,69 +620,29 @@ def cmd_new(a):
     durable_write(path, text)
     print(path.relative_to(ROOT))
 
-def blocked_open(i):
-    """The `room/item` targets a feedback item says it blocks, whose item is not yet done or dropped."""
-    out = []
-    for t in i["blocks"] or []:
-        rn, _, rid = t.partition("/")
-        try:
-            tgt = next((x for x in Room(rn).items if x["id"].lower() == rid.lower()), None) if rid and (ROOMS / rn / "BRIEF.md").exists() else None
-        except SystemExit:
-            tgt = None
-        if tgt and tgt["state"] not in ("done", "dropped"):
-            out.append(t)
-    return out
-
-def open_successors(room, r):
-    """Other open items of the room that the Result's `Next:` line names by id."""
-    nexts = re.findall(r"^Next:(.*)$", r.section("Result"), re.M)
-    ids = {x.upper() for x in re.findall(r"\bT\d+\b", nexts[-1], re.I)} if nexts else set()
-    return [x for x in room.items if x["id"].upper() in ids and x is not r and x["id"] != r["id"]
-            and x["state"] not in ("done", "dropped")]
-
-def tap_unblocked(room, r):
-    """Resolve maintenance blocks in the store without messaging project leads.
-    If its Result names an open successor, the block moves there instead."""
-    if room.name != PROCESS_ROOM or not r["blocks"] or r["unblocked_sent"] or not (r["state"] == "done" or r["outcome"]):
-        return
-    waiting = blocked_open(r)
-    succ = open_successors(room, r)
-    if succ:
-        for s in succ:
-            have = list(s["blocks"] or [])
-            new = [t for t in waiting if t not in have]
-            if not new:
-                continue
-            s.set("blocks", "[" + ", ".join(have + new) + "]")
-            s.save()
-        return
-    r.set("unblocked_sent", "yes")
-    r.save()
-
 def cmd_set(a):
     room = Room(a.room)
     r = room.find(a.id)
     r.expect_version(getattr(a, "expect_version", None))
-    if r in room.refinements and r["status"] == "agreed" and a.pairs != ["status=superseded"]:
-        sys.exit(f"refused: {r['id']} is agreed and never edited (only status=superseded is allowed). "
-                 "Write a new refinement that supersedes it: atr refinement ROOM new \"title\" --touches ID --supersedes " + r["id"])
     if room.paused and "state=doing" in a.pairs and not a.force:
         sys.exit(f"{room.name} is paused by the owner since {room.local(room.paused)}: don't start new work "
                  "(finish your current step, write the Result, then stop)")
-    if room.build_locked and "state=doing" in a.pairs and r["phase"] != "prd" and r["type"] == "" and not a.force:
-        sys.exit(f"{room.name}: the PRD is {room.prd['status']}{prd_v(room.prd)}. Only items with "
-                 "phase: prd can start until the owner agrees the PRD (atr prd ROOM review)")
+    if room.closed and "state=doing" in a.pairs:
+        sys.exit(f"refused: {room.name} is closed ({room.brief['closed']}); nothing starts in a closed room")
+    if room.build_locked and "state=doing" in a.pairs and r["type"] == "":
+        sys.exit(f"{room.name}: {goal_state(room)}. No item can start until the owner approves the goal "
+                 "(atr goal ROOM new ..., then atr goal ROOM approve)")
     if ({"state=review", "state=done"} & set(a.pairs)
             and not re.search(r"set\b.*\bstate=doing\b", r.body.split("## Result")[0])):
         print(f"warn: {r['id']} goes to {next(p for p in a.pairs if p in ('state=review', 'state=done'))[6:]} with no "
               "'set state=doing' line in its Log: an item never claimed counts as zero working time "
               f"(bin/atr set {room.name} {r['id']} state=doing owner=<role> next time)", file=sys.stderr)
-    if ("state=doing" in a.pairs and r in room.items and r["state"] != "doing" and r["phase"] != "prd"
+    if ("state=doing" in a.pairs and r in room.items and r["state"] != "doing"
             and r["type"] == "" and not a.force and brief_gaps(r)):
         sys.exit(f"refused: {r['id']} has an empty {' and '.join(brief_gaps(r))}. Write the brief first "
                  "(testable Acceptance, Inputs with files and upstream Results), or --force")
     if "state=doing" in a.pairs and not r["cap_h"] and not any(p.startswith("cap_h=") and p[6:] for p in a.pairs):
-        print(f"warn: {r['id']} goes to doing with no cap_h: an uncapped doing item nudges the room's lead "
+        print(f"warn: {r['id']} goes to doing with no cap_h: the critical path assumes 1h "
               f"(bin/atr set {room.name} {r['id']} cap_h=<hours>)", file=sys.stderr)
     before = r["state"]
     for kv in a.pairs:
@@ -750,10 +652,11 @@ def cmd_set(a):
     if "## Log" in r.body:
         r.append_to("Log", f"- {logstamp()} {a.by}: set {' '.join(a.pairs)}")
     r.save()
-    tap_unblocked(room, r)
     if r in room.items and r["state"] in ("review", "done") and r["state"] != before and a.by != "lead":
-        tell_lead_or_defer(room, f"{r['id']} ({r['title']}) in room {room.name} reached {r['state']} ({a.by}). "
+        notify_lead(room, f"{r['id']} ({r['title']}) in room {room.name} reached {r['state']} ({a.by}). "
                                  f"Review it: atr inbox {room.name}; atr check {room.name}")
+    if r in room.items and r["state"] in ("done", "dropped") and r["state"] != before:
+        trigger_offer(room.name)
 
 def open_items(room):
     return [i for i in room.items if i["state"] not in ("done", "dropped")]
@@ -793,13 +696,15 @@ def latest_need(i):
     return re.sub(r"^-\s*(?:\d\d:\d\dZ\s+)?[^:]*:\s*", "", lines[-1]).strip() if lines else ""
 
 def plan(room):
-    """Waves and critical path of the room's open items. Wave 0: no unmet dependency (every dependency done,
-    dropped or unknown); n: one more than the highest wave among its unmet dependencies. The critical path is the
+    """Waves and critical path of the room's open items. Wave 0: no unmet dependency (every dependency done
+    or dropped; an item in a cycle or with an unknown dependency is wave 0 but never ready); n: one more than the highest wave among its unmet dependencies. The critical path is the
     chain of unmet dependencies with the most cap_h (1 h where no cap is set). Edges inside a cycle are ignored."""
     items = {i["id"]: i for i in open_items(room)}
     cyc = {v for c in dependency_cycles(room) for v in c}
     deps = {v: [d for d in (i["depends_on"] or []) if d in items and d != v and not (v in cyc and d in cyc)]
             for v, i in items.items()}
+    allids = {i["id"] for i in room.items}
+    unknown = {v: [d for d in (i["depends_on"] or []) if d not in allids] for v, i in items.items()}
     wave, best = {}, {}
     def walk(v):
         if v in wave:
@@ -818,14 +723,11 @@ def plan(room):
     for v, i in items.items():
         out.append({"id": v, "title": i["title"], "state": i["state"], "owner": i["owner"].split(" ")[0] if i["owner"] else "",
                     "wave": wave[v], "deps": deps[v], "locks": i["locks"] or [], "cap_h": str(i["cap_h"] or ""),
-                    "ready": i["state"] == "todo" and wave[v] == 0,
+                    "ready": i["state"] == "todo" and wave[v] == 0 and v not in cyc and not unknown[v],
+                    "why_not": "dependency cycle" if v in cyc else f"unknown dependency {', '.join(unknown[v])}" if unknown[v] else "",
                     "need": latest_need(i) if i["state"] == "blocked" else "",
-                    "critical": v in top[1], "blocks": items[v]["blocks"] or [],
-                    "blocks_open": blocked_open(items[v])})
-    out.sort(key=lambda x: (x["wave"], not blocked_open(items[x["id"]]), idkey(x["id"])))
-    idle = set(ready_unstaffed(room))
-    for x in out:
-        x["unstaffed"] = x["id"] in idle
+                    "critical": v in top[1]})
+    out.sort(key=lambda x: (x["wave"], idkey(x["id"])))
     by_id = {i["id"]: i for i in room.items}
     for x in out:
         x["done_deps"] = [d for d in (items[x["id"]]["depends_on"] or []) if d in by_id and by_id[d]["state"] == "done"]
@@ -833,24 +735,110 @@ def plan(room):
     return {"done_items": [{"id": d, "title": by_id[d]["title"]} for d in sorted(seen, key=idkey)], "items": out, "waves": 1 + max(wave.values(), default=-1), "critical": top[1], "critical_h": top[0],
             "done": sum(1 for i in room.items if i["state"] == "done")}
 
-def ready_unstaffed(room):
-    """Ids of todo items that could start now and have nobody on them: every dependency done or dropped,
-    no lock held by a doing item, no running `agent:` thread, no open question for the owner blocking them, and
-    not named (by id) in now-head `waiting:`. A closed or paused room has none."""
-    if room.closed or room.paused:
-        return []
-    by_id = {i["id"]: i for i in room.items}
-    held = {l for i in room.items if i["state"] == "doing" for l in i["locks"] or []}
-    carded = {b for d in room.decisions if d["status"] == "open" and d["decider"] == OWNER for b in d["blocks"] or []}
-    named = set(re.findall(r"\b[A-Z]\d{2,}\b", (room.head["waiting"] if room.head else "") or ""))
-    return [i["id"] for i in sorted(room.items, key=lambda x: idkey(x["id"]))
-            if i["state"] == "todo" and i["id"] not in carded and i["id"] not in named
-            and all(d not in by_id or d == i["id"] or by_id[d]["state"] in ("done", "dropped") for d in i["depends_on"] or [])
-            and not held & set(i["locks"] or [])
-            and not (i["agent"] and thread_status(i["agent"]) == "running")]
+# ---------- auto-start: offer ready items to the lead ----------
+# atr never starts a worker. For a room it works out which todo items are ready (plan(): every dependency done or
+# dropped), and when the goal is approved, the room is open and unpaused and nothing has failed, it sends the lead ONE
+# message naming up to CAP - running items to dispatch, critical path first. "Running" is state=doing only: an item in
+# review has a finished worker and waits on the lead, so it does not occupy a slot. "Failed" is state=blocked (what
+# `atr need` sets): it pauses new offers until the lead resolves it. The last offer is kept in
+# .atr/autostart/ROOM.json, and the same ready set with the same running count is never offered twice.
+AUTOSTART_CAP = 3
 
-def ready_message(ids):
-    return f"{', '.join(ids)} {'is' if len(ids) == 1 else 'are'} ready (wave 0, no agent): dispatch {'it' if len(ids) == 1 else 'them'} before yielding"
+def _offer_path(name):
+    return ROOT / ".atr/autostart" / f"{name}.json"
+
+def read_offer(name):
+    try:
+        return json.loads(_offer_path(name).read_text())
+    except (OSError, ValueError):
+        return None
+
+def _record_offer(name, offer):
+    durable_write(_offer_path(name), json.dumps({**offer, "at": stamp()}, sort_keys=True) + "\n")
+
+def autostart(room):
+    """{state, ready, offer, running, cap, reason}. state: ok | capped | paused-failure | paused | locked | closed.
+    ready lists every ready item; offer is the ids that would be named to the lead now (empty unless ok)."""
+    p = plan(room)
+    running = sum(1 for i in room.items if i["state"] == "doing")
+    ready = sorted((x for x in p["items"] if x["ready"]), key=lambda x: not x["critical"])  # stable: plan order within
+    out = {"unready": [{"id": x["id"], "why": x["why_not"]} for x in p["items"] if x["state"] == "todo" and x["why_not"]],
+           "state": "ok", "ready": [{"id": x["id"], "title": x["title"], "critical": x["critical"],
+                                     "done_deps": x["done_deps"]} for x in ready],
+           "offer": [], "running": running, "cap": AUTOSTART_CAP, "reason": ""}
+    blocked = [i["id"] for i in room.items if i["state"] == "blocked"]
+    if room.closed:
+        out.update(state="closed", reason="room is closed")
+    elif room.build_locked:
+        out.update(state="locked", reason=f"{goal_state(room)}; nothing starts until the owner approves it")
+    elif room.paused:
+        out.update(state="paused", reason=f"paused by the owner since {room.local(room.paused)}")
+    elif blocked:
+        out.update(state="paused-failure", reason=f"{', '.join(blocked)} blocked: no new starts until resolved")
+    elif running >= AUTOSTART_CAP:
+        out.update(state="capped", reason=f"{running} running, cap {AUTOSTART_CAP}")
+    else:
+        out["offer"] = [x["id"] for x in ready][:AUTOSTART_CAP - running]
+        out["reason"] = "" if out["offer"] else "nothing ready"
+    return out
+
+def offer_text(room, a):
+    by = {x["id"]: x for x in a["ready"]}
+    n = len(a["offer"])
+    lines = [f"Room {room.name}: {n} item{'s' if n != 1 else ''} ready to start, {a['running']} running "
+             f"(cap {a['cap']}). Dispatch {'it' if n == 1 else 'them'} now: one worker per item, each in its own worktree."]
+    for i in a["offer"]:
+        x = by[i]
+        deps = f"; depends on {', '.join(x['done_deps'])}, done" if x["done_deps"] else "; no dependencies"
+        lines.append(f"- {i} {x['title']}{' (critical path)' if x['critical'] else ''}{deps}")
+    lines.append(f"After starting each: atr set {room.name} ID state=doing owner=ROLE agent=THREAD. "
+                 f"Never exceed {a['cap']} running.")
+    return "\n".join(lines)
+
+def offer_ready(name, dry=False):
+    """Compute the room's auto-start state and, unless dry, message the lead once for a new (ready set, running)
+    pair. Returns the autostart dict plus 'new' (would be or was offered) and 'text'."""
+    with store_transaction():
+        room = Room(name)
+        a = autostart(room)
+        last = read_offer(name)
+        offer = {"offered": a["offer"], "running": a["running"]}
+        flag = read_lead_flag(name)
+        # pending: this very offer was sent but not accepted; the retry (or `atr inbox`) owns it, so don't send again
+        a["pending"] = bool(a["offer"] and flag and flag.get("offer") == offer)
+        a["new"] = bool(a["offer"]) and not a["pending"] and not (
+            last and last.get("offered") == offer["offered"] and last.get("running") == offer["running"])
+        a["text"] = offer_text(room, a) if a["offer"] else ""
+        if dry:
+            return a
+        if not a["offer"]:
+            if last:
+                durable_unlink(_offer_path(name))
+        elif a["new"]:
+            notify_lead(room, a["text"], offer=offer)    # recorded only once T3 accepts it
+    return a
+
+def trigger_offer(name):
+    """After the surrounding save commits, re-check the room and offer if the ready set or running count changed."""
+    after_commit(lambda: offer_ready(name))
+
+def cmd_next(a):
+    room = Room(a.room)
+    r = offer_ready(room.name, dry=True)
+    print(f"{room.name}: auto-start {r['state']}" + (f" ({r['reason']})" if r["reason"] else "")
+          + f"; {r['running']} running, cap {r['cap']}")
+    for x in r["ready"]:
+        print(f"  ready {x['id']} {x['title']}{' (critical path)' if x['critical'] else ''}"
+              + ("  <- would be offered" if x["id"] in r["offer"] else ""))
+    for x in r["unready"]:
+        print(f"  not ready {x['id']}: {x['why']}")
+    if r["pending"]:
+        print("offer pending: the lead was not notified; atr retries once, or the lead reads it with atr inbox")
+    elif r["offer"] and not r["new"]:
+        print("already offered, nothing new to send")
+    elif r["offer"]:
+        print("dry run, nothing sent; the message would be:")
+        print(r["text"])
 
 def plan_lines(room):
     p = plan(room)
@@ -861,9 +849,6 @@ def plan_lines(room):
     for w in range(p["waves"]):
         ids = [x["id"] + ("*" if x["critical"] else "") for x in p["items"] if x["wave"] == w]
         out += wrap(f"wave {w}: {' '.join(ids)}", "")
-    idle = [x["id"] for x in p["items"] if x["unstaffed"]]
-    if idle:
-        out += wrap(f"ready, no agent: {' '.join(idle)}", "")
     return out
 
 def brief_gaps(i):
@@ -897,10 +882,10 @@ def cmd_need(a):
     r.append_to("Needs", f"- {logstamp()} {a.by}: {text}{tail}")
     r.append_to("Log", f"- {logstamp()} {a.by}: need: {text}{tail}; state=blocked")
     r.save()
-    told = tell_lead_or_defer(room, f"{r['id']} ({r['title']}) in room {room.name} is blocked by {a.by}: {text}{tail}. "
+    notify_lead(room, f"{r['id']} ({r['title']}) in room {room.name} is blocked by {a.by}: {text}{tail}. "
                               "Decide in this turn: an existing item first (depends_on), a small new prerequisite inside "
-                              "the PRD, or a scope change (refinement or card). Then flip it back and tell the worker.")
-    print(f"{r['id']} blocked; lead {'told' if told else 'not reachable (the page shows it under needs attention)'}")
+                              "the goal, or a scope change (a card for the owner). Then flip it back and tell the worker.")
+    print(f"{r['id']} blocked; lead notified (the room page flags it if T3 did not accept the message)")
 
 def cmd_log(a):
     room = Room(a.room)
@@ -910,68 +895,84 @@ def cmd_log(a):
     r.save()
 
 def after_answer(room, d, choice):
-    """A PRD decision moves the PRD: a) agreed unlocks building, anything else sends it back to draft.
+    """A goal decision moves the goal: a) approved unlocks building, anything else sends it back to draft.
     Returns a sentence for the lead's message, or None."""
-    if d["type"] == "refinement":
-        rf = next((x for x in room.refinements if x["id"] == d["source"]), None)
-        if not rf:
-            return
-        if choice == "a":
-            rf.set("status", "agreed")
-            rf.set("agreed", stamp())
-            agree_line(rf, f"Owner: agreed at {room.local(now())} ({d['id']})")
-            for old in rf["supersedes"]:
-                prev = next((x for x in room.refinements if x["id"] == old), None)
-                if prev and prev["status"] == "agreed":
-                    prev.set("status", "superseded")
-                    prev.set("updated", stamp())
-                    prev.save()
-        else:
-            rf.set("status", "draft")
-        rf.set("updated", stamp())
-        rf.save()
-        sync_binding(Room(room.name))
-        return
-    if d["type"] != "prd" or not room.prd:
-        return
-    prd = room.prd
+    if d["type"] != "goal" or not room.goal or room.goal["card"] != d["id"]:
+        return None      # only the card `atr goal approve` made for this goal can move it
+    goal = room.goal
     if choice == "a":
-        prd.set("status", "agreed")
-        prd.set("agreed", stamp())
-        agree_line(prd, f"Owner: agreed{' v' + prd['version'] if prd['version'] else ''} at {room.local(now())} ({d['id']})")
+        goal.set("status", "approved")
+        goal.set("approved", stamp())
     else:
-        prd.set("status", "draft")
-        if prd["version"]:                      # PRDs written before the version header count versions; new ones have none
-            prd.set("version", str(int(prd["version"]) + 1))
-    prd.set("updated", stamp())
-    prd.save()
-    sync_binding(Room(room.name))
+        goal.set("status", "draft")
+        goal.set("approved", "")
+    goal.set("updated", stamp())
+    goal.save()
+    if choice == "a":
+        trigger_offer(room.name)
     return None
 
-def agree_line(rec, line):
-    if re.search(r"^Owner:[ \t]*$", rec.body, re.M):
-        rec.body = re.sub(r"^Owner:[ \t]*$", line, rec.body, count=1, flags=re.M)
-    else:
-        rec.append_to("Sign-off", line)
+GOAL_FIELDS = (("Architecture", "architecture"), ("Minimal viable result", "result"), ("Definition of done", "done"))
 
-def prd_v(prd):
-    return f" (v{prd['version']})" if prd["version"] else ""
+def goal_state(room):
+    return f"goal {room.goal['status']}" if room.goal else "no goal yet"
 
-def binding(room):
-    """What binds the work: PRD.md plus the agreed refinements (never drafts, reviews or superseded ones)."""
-    ids = [r["id"] for r in room.refinements if r["status"] == "agreed"]
-    return "PRD.md" + (" + " + ", ".join(ids) if ids else "")
+def goal_fields(room):
+    return {key: room.goal.section(h) for h, key in GOAL_FIELDS} if room.goal else {}
 
-def sync_binding(room):
-    """Keep BRIEF.md's generated `binding:` line right; writes only when it changed."""
-    if room.prd and room.brief and room.brief["binding"] != binding(room):
-        room.brief.set("binding", binding(room))
-        room.brief.save()
+def cmd_goal(a):
+    room = Room(a.room)
+    if a.verb == "new":
+        refuse_closed(room, "goals")
+        values = {"architecture": a.architecture, "result": a.result, "done": a.done}
+        empty = [h for h, k in GOAL_FIELDS if not (values[k] or "").strip()]
+        if empty:
+            sys.exit(f"a goal needs all three fields; empty: {', '.join(empty)} "
+                     "(--architecture, --result, --done; one line each is enough for a small room)")
+        if any(re.search(r"^## ", values[k], re.M) for _, k in GOAL_FIELDS):
+            sys.exit("a goal field is text, not a heading")
+        body = "".join(f"## {h}\n{values[k].strip()}\n\n" for h, k in GOAL_FIELDS).rstrip("\n") + "\n"
+        for d in room.decisions:             # the owner must never approve text they have not seen
+            if d["type"] == "goal" and d["status"] == "open":
+                d.set("status", "superseded")
+                d.set("updated", stamp())
+                d.save()
+        if _offer_path(room.name).exists():
+            durable_unlink(_offer_path(room.name))
+        durable_write(room.dir / "GOAL.md", (TEMPLATES / "goal.md").read_text().format(
+            title=room.title, now=stamp()) + body)
+        print(f"{(room.dir / 'GOAL.md').relative_to(ROOT)}: goal saved as draft; next: atr goal {room.name} approve")
+        return
+    if not room.goal:
+        sys.exit(f"{room.name} has no goal: atr goal {room.name} new --architecture ... --result ... --done ...")
+    if room.goal["status"] == "approved":
+        sys.exit(f"{room.name}: the goal is already approved")
+    if any(d["type"] == "goal" and d["status"] == "open" for d in room.decisions):
+        sys.exit("a goal decision is already open")
+    refuse_closed(room, "goal cards")
+    rid = next_id(room.decisions, "D")
+    blocks = [i["id"] for i in room.items if i["state"] not in ("done", "dropped")]
+    text = (TEMPLATES / "decision.md").read_text().format(
+        id=rid, title=f"Approve goal: {room.title}?", type="goal", door="one", decider=OWNER,
+        source='"GOAL.md"', now=stamp())
+    text = text.replace("## Options\na) \nb) \n", "## Options\na) Approved: start work\n"
+                        "b) Changes needed (say what in the note)\n", 1)
+    text = text.replace("blocks: []", f"blocks: [{', '.join(blocks)}]", 1)
+    text = text.replace("## Why it matters\n", "## Why it matters\nNo worker starts until this is approved. "
+                        "Read the goal at the top of the page.\n", 1)
+    path = room.dir / "decisions" / f"{rid}-approve-goal.md"
+    durable_write(path, text)
+    room.goal.set("card", rid)
+    room.goal.save()
+    publish_card(room, rid, f"{room.name}: goal to approve", path)
 
 def cmd_brief(a):
     room = Room(a.room)
-    sync_binding(room)
-    print(f"binding: {binding(room)}" if room.prd else f"binding: none ({room.name} has no PRD.md)")
+    print(f"goal: {goal_state(room)}")
+    fields = goal_fields(room)
+    for h, k in GOAL_FIELDS:
+        if fields.get(k):
+            print(f"{h}: {' '.join(fields[k].split())}")
     code = code_info(room)
     if code and code["branch"]:
         print(f"code: {code['branch']} at {code['path']}")
@@ -981,16 +982,18 @@ def cmd_answer(a):
     r = room.find(a.id)
     if r["status"] == "final":
         raise StoreConflict(f"conflict: {a.room}/{a.id} is already final; reload the saved answer")
+    if r["status"] != "open" or r["decider"] != OWNER:
+        sys.exit(f"refused: {a.id} is {r['status']}, decider {r['decider']}; only an open card for the owner can be answered")
+    if a.choice not in {o["key"] for o in parse_options(r)}:
+        sys.exit(f"refused: {a.id} has no option {a.choice!r}")
     quote = f' · "{a.quote}"' if a.quote else ""
     r.append_to("Answer", f"{a.choice} · {a.by} · {room.local(now())}{quote}")
     r.set("status", "final")
     r.set("updated", stamp())
     r.save()
     extra = after_answer(room, r, a.choice)
-    queue_t3_action("message", active_lead(room),
-                    f"Decision saved: {room.name}/{r['id']} = {a.choice}. Read the saved record and resume eligible work.",
-                    room=room.name, source=r)
-    print("Saved locally. Inspect T3 acceptance with atr delivery list.")
+    notify_lead(room, f"Decision saved: {room.name}/{r['id']} = {a.choice}. Read the saved record and resume eligible work.")
+    print("Saved locally. The lead is notified; the room page flags it if T3 did not accept the message.")
     if extra:
         print(extra)
 
@@ -1062,8 +1065,7 @@ def render(room):
     if room.paused:
         out.append(f"⏸ PAUSED by {'the operator'} at {room.local(room.paused)}"
                    + (f", resumes {room.brief['paused_until']}" if room.brief["paused_until"] else ""))
-    if room.prd:
-        out.append(prd_chip(room) + (" · building locked" if room.build_locked else ""))
+    out.append(goal_state(room).capitalize() + (" · building locked" if room.build_locked else ""))
     if head and head["phase"]:
         out += wrap(head["phase"])
     if head and parse_time(head["updated"]):
@@ -1088,12 +1090,6 @@ def render(room):
         for d in prov:
             out.append(f"{d['id']} {clip(d['title'], W - 14)} {clip(d['default'], 8)}")
 
-    team = [d for d in room.decisions if d["status"] == "open" and d["decider"] != OWNER]
-    if team:
-        out += [rule, "OPEN, TEAM DECIDES"]
-        for d in team:
-            out.append(f"{d['id']} {clip(d['title'], W - 15)} {clip(d['decider'], 9)}")
-
     if head and head.body.strip():
         out += [rule] + [l.rstrip()[:W] for l in head.body.strip("\n").splitlines()]
 
@@ -1102,7 +1098,6 @@ def render(room):
         out += [rule, "PLAN"] + pl
     out += [rule, "IN FLIGHT"]
     act = [i for s in ACTIVE for i in room.items if i["state"] == s]
-    act.sort(key=lambda i: not blocked_open(i))          # feedback that blocks a launch first
     for i in act:
         state = i["state"]
         if state == "todo" and i["depends_on"]:
@@ -1142,14 +1137,8 @@ def render_index(room):
                     f"| {d['decider']} | {d['status']} |")
     return "\n".join(rows) + "\n"
 
-def prd_chip(room):
-    agreed = [r["id"] for r in room.refinements if r["status"] == "agreed"]
-    return ("PRD" + (f" v{room.prd['version']} ·" if room.prd["version"] else "") + f" {room.prd['status']}"
-            + "".join(f" · {x}" for x in agreed))
-
 def cmd_status(a):
     for room in rooms_from(a.rooms):
-        sync_binding(room)
         md, lines = render(room)
         durable_write(room.dir / "README.md", md)
         durable_write(room.dir / "decisions" / "INDEX.md", render_index(room))
@@ -1190,76 +1179,6 @@ def t3_configured():
     """True when the T3 command-line program exists where atr will look for it (runtime acceptance is not checked)."""
     return Path(t3_cli()).is_file()
 
-T3_INSTALLER = "https://t3.codes/install.sh"
-T3_MISSING = ("T3 is required and was not found: agents will not receive or act on anything; atr only records.\n"
-              "Set T3CODE_CLI_PATH or install T3: see docs/SETUP.md")
-
-def t3_responds():
-    """True when the T3 program answers a read-only query (a running T3 server is needed for it)."""
-    if not t3_configured():
-        return False
-    try:
-        r = subprocess.run([t3_cli(), "thread", "list", "--log-level", "error", *t3_cli_options()],
-                           capture_output=True, text=True, timeout=15, stdin=subprocess.DEVNULL)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    # A project-resolution error is a server response, not a connection failure.
-    return r.returncode == 0 or "No T3 Code project matches" in (r.stderr + r.stdout)
-
-def t3_install():
-    """Run T3's official CLI installer. True when a T3 program is found afterwards."""
-    import tempfile, urllib.request
-    try:
-        with tempfile.TemporaryDirectory() as d:
-            script = Path(d) / "install.sh"
-            with urllib.request.urlopen(T3_INSTALLER, timeout=30) as r:
-                script.write_bytes(r.read())
-            subprocess.run(["sh", str(script)], check=True)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return t3_configured()
-
-def t3_start(wait=20):
-    """Start T3 without a browser, detached, and wait until it answers. True when it does."""
-    if not t3_configured():
-        return False
-    try:
-        subprocess.Popen([t3_cli(), "serve", *t3_cli_options()], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, start_new_session=True)
-    except OSError:
-        return False
-    deadline = time.time() + wait
-    while time.time() < deadline:
-        if t3_responds():
-            return True
-        time.sleep(1)
-    return False
-
-def offer_t3(a, say):
-    """FR9: T3 first. Offer install, then start; only on a yes or --yes, never without a terminal. Declining is fine."""
-    if from_installer_env() or getattr(a, "skip_t3", False) or t3_responds():
-        return
-    can_ask = a.yes or sys.stdin.isatty()
-    def yes(q):
-        return a.yes or (can_ask and ASK(q).strip().lower() in ("y", "yes"))
-    installed_now = False
-    if not t3_configured():
-        if not yes("Install and start T3 (required)? [y/N] "):
-            return
-        if not t3_install():
-            say("T3 install failed; try: curl -fsSL " + T3_INSTALLER + " | sh", "warn")
-            return
-        say("T3 installed")
-        installed_now = True
-    if t3_responds():
-        return
-    if not installed_now and not yes("T3 is installed but not running. Start it now? [y/N] "):
-        return
-    say("T3 started and answering" if t3_start() else "T3 did not answer; start it yourself: t3 serve", "ok" if t3_responds() else "warn")
-
-def from_installer_env():
-    return os.environ.get("ATR_INSTALLER") == "1"
-
 def t3_status():
     """What /api/state reports: whether T3 is configured, the location atr uses, and what it tried (no file-path assumption:
     `location` is an opaque string a remote T3 could fill later)."""
@@ -1269,7 +1188,7 @@ def t3_status():
 
 def fetch_thread(thread):
     """One `t3 thread show` -> {'status','settled','provider','model','title',…} or None."""
-    if getattr(_store_state, "depth", 0) or migration_block():
+    if getattr(_store_state, "depth", 0):
         return (_thread_cache.get(thread) or (0, None))[1]
     cli = t3_cli()
     try:
@@ -1289,8 +1208,6 @@ def fetch_thread(thread):
 }
 
 def refresh_thread(thread):
-    if migration_block():
-        return
     import time
     res = fetch_thread(thread)
     old = _thread_cache.get(thread)
@@ -1356,21 +1273,24 @@ def wanted_threads(now_t=None):
             slow.discard(t)
     return fast, slow - fast
 
+OFFER_CHECK_S = 120    # catch-up check for auto-start offers
+
 def thread_refresher(every=20):
     """Background: refresh the wanted threads in parallel, a pass every `every` s."""
     import time
     from concurrent.futures import ThreadPoolExecutor
     pool = ThreadPoolExecutor(max_workers=6)
+    last_offer_check = 0
     while True:
         try:
-            if migration_block():
-                time.sleep(every)
-                continue
             fast, slow = wanted_threads()
             list(pool.map(refresh_thread, sorted(fast | slow)))
-            for action in delivery_actions().values():
-                if action["state"] in ("pending", "failed"):
-                    attempt_delivery(action["id"])
+            retry_lead_flags()
+            if time.time() - last_offer_check >= OFFER_CHECK_S:
+                last_offer_check = time.time()
+                for room in rooms_from([]):
+                    if room.brief:
+                        offer_ready(room.name)
         except (Exception, SystemExit) as e:  # keep the refresher alive whatever one room or lookup does
             print(f"atr: thread refresher: {e}", file=sys.stderr)
             print("atr error:", str(e), file=sys.stderr)
@@ -1404,10 +1324,6 @@ def room_threads(room):
         out.append(t)
     return out
 
-def is_standing(room):
-    """BRIEF `standing: true`: a room that never settles (the maintainer's); settled threads don't close it."""
-    return str(room.brief["standing"] if room.brief else "").strip().lower() == "true"
-
 def thread_state(room):
     """{'lead', 'lead_settled', 'others_active' (most recently active first), 'settled'}: the room as a set of threads."""
     lead = (room.brief and room.brief["lead_thread"] or "").strip()
@@ -1418,14 +1334,18 @@ def thread_state(room):
         if info and not info.get("settled"):
             active.append((_epoch(info.get("updated")) or 0, t))
     others = [t for _, t in sorted(active, reverse=True)]
-    return {"lead": lead, "lead_settled": lead_settled, "others_active": others, "standing": is_standing(room),
-            "settled": lead_settled and not others and not is_standing(room)}
+    return {"lead": lead, "lead_settled": lead_settled, "others_active": others,
+            "settled": lead_settled and not others}
 
 def active_lead(room):
     """The thread that stands for the lead right now: the BRIEF lead, unless it is settled and another thread of
     the room is not; then the most recently active of those."""
     st = thread_state(room)
     return st["others_active"][0] if st["lead_settled"] and st["others_active"] else st["lead"]
+
+def agent_command():
+    """How an agent runs atr without the owner's shell: this Python, isolated, this source."""
+    return shlex.join([sys.executable, "-I", str(Path(__file__).resolve())])
 
 def atr_command():
     """The explicit command prefix an agent or person can run from any directory: this source, this store."""
@@ -1440,7 +1360,7 @@ def lead_commands(room):
             "prompt": (f"Take the lead of atr room {room}. Read {SOURCE_ROOT}/PROTOCOL.md and {SOURCE_ROOT}/skills/lead/SKILL.md first. "
                        f"Find your own T3 thread id in your thread configuration, then run:\n"
                        f"{base} lead {name} <your-thread-id>\n"
-                       f"Then run `{base} inbox {name}` and `{base} check {name} --yield`, and carry on leading the room.")}
+                       f"Then run `{base} inbox {name}` and `{base} status {name}`, and carry on leading the room.")}
 
 def start_message(text):
     """The first message of a new lead thread: start a room for what the owner wants, and lead it."""
@@ -1453,14 +1373,12 @@ def cmd_start(a):
     if not text:
         sys.exit('say what you want, e.g.: atr start "a settings page for the app"')
     title = a.title or "atr lead: " + re.sub(r"\s+", " ", text)[:60]
-    action = queue_t3_action("launch", a.project or os.getcwd(), start_message(text),
-                             options={"provider": a.provider, "model": a.model, "title": title, "purpose": "lead"})
-    action = delivery_actions()[action["id"]]
-    if action["state"] == "confirmed":
-        print(f"lead thread started{': ' + action['thread'] if action.get('thread') else ''}. It creates the room; "
-              f"watch for it on the web page: {web_url()}")
-    else:
-        print(f"T3 launch {action['id']} is {action['state']}: {action['evidence']}\nCheck it with: atr delivery list")
+    result = t3_call("launch", a.project or os.getcwd(), start_message(text),
+                     {"provider": a.provider, "model": a.model, "title": title})
+    if not result["ok"]:
+        sys.exit(f"lead thread not started: {result['evidence']}")
+    print(f"lead thread started{': ' + result['thread'] if result.get('thread') else ''}. It creates the room; "
+          "watch for it on the web page (atr serve).")
 
 def cmd_lead(a):
     if not a.thread:
@@ -1494,11 +1412,12 @@ def _cmd_lead_local(a):
     room.brief.save()
     t = now()
     durable_append(room.dir / "pings.log", f"{stamp(t)}  {old or '-'}->{new}  lead-handoff  local-routing-saved\n")
-    told = tell_thread(new, f"You are now the lead of room {room.name} (lead_thread in BRIEF.md now points at this thread"
-                       f"{', replacing ' + old if old else ''}). Read `bin/atr inbox {room.name}` for what the owner did on the "
-                       f"page, then run `bin/atr check {room.name} --yield` and carry on leading: dispatch, answer, keep the room moving.")
+    notify_lead(room, f"You are now the lead of room {room.name} (lead_thread in BRIEF.md now points at this thread"
+                f"{', replacing ' + old if old else ''}). Read `bin/atr inbox {room.name}` for what the owner did on the "
+                f"page, then run `bin/atr status {room.name}` and carry on leading: dispatch, answer, keep the room moving.",
+                thread=new, allow_paused=True)
     print(f"{room.name}: lead_thread {old or '(none)'} -> {new}; threads: {', '.join(keep) or '(none)'}; "
-          f"{'new lead told' if told else 'could not reach the new lead thread'}")
+          "new lead notified (the room page flags it if T3 did not accept the message)")
 
 def _epoch(iso):
     try:
@@ -1534,257 +1453,55 @@ def lead_is_settled(room):
     """T3 reports the room's active lead thread as settled; a message to it would wake it and unsettle it."""
     return bool((thread_info(active_lead(room)) or {}).get("settled"))
 
-def tell_lead_or_defer(room, text, thread=None):
-    """Queue an explicit workflow notice; durable delivery waits for an eligible T3 target."""
-    action = queue_t3_action("message", thread or active_lead(room), text, room=room.name)
-    return delivery_actions()[action["id"]]["state"] == "confirmed"
-
 def lead_rooms(thread):
     """Every room (open or closed) whose BRIEF names this lead thread."""
     thread = (thread or "").strip()
     if not thread:
         return []
-    found = []
-    for d in sorted(ROOMS.iterdir()) if ROOMS.exists() else []:
-        b = d / "BRIEF.md"
-        if b.exists() and (Record(b)["lead_thread"] or "").strip() == thread:
-            found.append(d.name)
-    return found
+    return [r.name for r in rooms_from([]) if r.brief and (r.brief["lead_thread"] or "").strip() == thread]
 
-def worker_stall(room, item):
-    """Why a `doing` item's agent: can't be running, or None when it names nothing or says nothing useful."""
-    agent = (item["agent"] or "").strip()
-    if not agent:
-        return None
-    if not THREAD_ID.fullmatch(agent):
-        return f"{item['id']} marked doing, but its agent: field is not a thread id"
-    info = thread_info(agent)
-    if not info or info.get("status") == "running":
-        return None
-    try:
-        at = dt.datetime.fromisoformat(str(info.get("updated") or "").replace("Z", "+00:00"))
-        at = at if at.tzinfo else at.replace(tzinfo=dt.timezone.utc)
-    except ValueError:
-        at = None
-    how = "settled" if info.get("settled") else (info.get("status") or "finished")
-    return (f"{item['id']} marked doing, but its worker {info.get('title') or agent} finished"
-            f"{' at ' + room.when(at) if at else ''} ({how}) and nobody flipped the item")
-
-def continuity(room, yielding=False):
-    """Where an unfinished room stands: (state, detail). state is one of closed, paused, moving,
-    waiting_owner, waiting, stalled. Native subagents can't wake an idle lead, so a room only counts
-    as moving while the lead's turn runs or some item's `agent:` is a running T3 thread (delegate_task).
-    yielding=True judges the room as if the lead's turn had just ended."""
+def continuity(room):
+    """What the overview needs: (state, detail). state is one of closed, paused, running, waiting_owner, blocked, idle."""
     if room.closed:
         return "closed", room.brief["closed"]
     if room.paused:
         return "paused", f"paused at {room.local(room.paused)}"
-    lead = None if yielding else thread_status(active_lead(room))
-    doing = [i for i in room.items if i["state"] == "doing"]
-    # A running delegate_task child wakes the lead when it ends, whatever state its item is in.
-    live = [i["id"] for i in room.items if i["agent"] and thread_status(i["agent"]) == "running"]
-    if live:
-        return "moving", f"{', '.join(live)} running"
-    if lead == "running":
-        return "moving", "the lead is working" + (f" ({', '.join(i['id'] for i in doing)} in flight)" if doing else "")
+    doing = [i["id"] for i in room.items if i["state"] == "doing"]
+    if doing:
+        return "running", f"{', '.join(doing)} running"
     asks = [d["id"] for d in room.decisions if d["status"] == "open" and d["decider"] == OWNER
             and (len(parse_options(d)) >= 2 or d["type"] in ("ask", "todo"))]
     if asks:
         return "waiting_owner", f"waiting on you: {', '.join(asks)}"
-    waiting, resume = (room.head["waiting"], room.head["resume"]) if room.head else (None, None)
-    if waiting and resume:
-        at = parse_time(resume)
-        if not at and lead != "running":
-            awaited = set(re.findall(r"\bT\d{2,}\b", f"{waiting} {resume}"))
-            states = {i["id"]: i["state"] for i in room.items}
-            if awaited and awaited <= set(states) and all(states[x] in ("review", "done", "dropped") for x in awaited):
-                return "stalled", (f"everything awaited ({', '.join(sorted(awaited))}) finished "
-                                   "but the lead is idle and nobody resumed the room")
-        if at and at < now():
-            return "stalled", f"the wait on {waiting} was due to resume at {room.when(at)} and nobody resumed it"
-        return "waiting", f"waiting on {waiting}; resumes {room.when(at) if at else resume}"
-    if doing:
-        if why := [x for i in doing if (x := worker_stall(room, i))]:
-            return "stalled", "; ".join(why)
-    if not yielding and lead is None:
-        return "unavailable", "T3 lead execution state is unavailable or unknown; local records and decision saves remain usable"
-    if doing:
-        return "stalled", (f"{', '.join(i['id'] for i in doing)} marked doing, but nothing is running: "
-                           "the lead is idle and no item has a live T3 agent")
-    if idle := ready_unstaffed(room):
-        return "stalled", ready_message(idle)
-    return "stalled", "nothing is running, queued for a live agent, or waiting on you"
-
-# Items finished before the continuity rule aren't held to it.
-NEXT_RULE_SINCE = "2026-10-23T17:15Z"
-NEXT_OK = re.compile(r"\b(?:[TDAP]\d{2,}|PRD)\b|^(?:none|nothing)\b", re.I)
-
-# ---------- bottleneck checks ----------
-# `check --yield` counts any live agent as moving, so a slow agent or a forgotten review never trips it.
-# These are warnings only: they never change continuity() (moving/waiting/stalled).
-
-OVERRUN_X, HARD_OVERRUN_X = 1.0, 1.5      # elapsed / cap_h
-REVIEW_WARN_MIN, REVIEW_LOUD_MIN = 60, 180
-BOTTLENECK_CAP_FRAC, BOTTLENECK_MIN_BLOCKED = 0.5, 2
+    blocked = [i["id"] for i in room.items if i["state"] == "blocked"]
+    if blocked:
+        return "blocked", f"{', '.join(blocked)} blocked"
+    a = autostart(room)
+    if a["ready"]:
+        return "idle", f"{len(a['ready'])} ready: {a['reason'] or 'offered to the lead'}"
+    return "idle", "nothing running or ready"
 
 def cap_hours(i):
     m = re.match(r"\s*(\d+(?:\.\d+)?)", str(i["cap_h"] or ""))
     return float(m.group(1)) if m and float(m.group(1)) > 0 else None
 
-def state_since(i, state):
-    """When the item last went to `state`: the time of the last `set ... state=<state>` Log line. Log lines carry
-    only HH:MMZ, so dates are rebuilt walking forward from `created:`, a day later whenever a line's time is earlier
-    than the previous one's (`updated` is not trusted: hand-edited Logs leave it stale). Without `created:` the anchor
-    is `updated`; no line lands after now. Falls back to `updated`."""
-    up = parse_time(i["updated"] or "")
-    created = parse_time(str(i["created"] or ""))
-    lines = re.findall(r"^- (\d\d):(\d\d)Z\b(.*)$", i.section("Log"), re.M)
-    if not (created or up):
-        return None
-    anchor = (created or up).replace(second=0, microsecond=0)
-    limit = now()
-    cur, found, times = anchor, None, []
-    for n, (h, m, rest) in enumerate(lines):
-        t = cur.replace(hour=int(h), minute=int(m))
-        if n and t < cur:
-            t += dt.timedelta(days=1)
-        cur = t
-        times.append((t, rest))
-    if times and not created and times[-1][0] > limit + dt.timedelta(minutes=5):     # a few minutes ahead is clock skew, not yesterday
-        shift = dt.timedelta(days=-((times[-1][0] - limit).days + 1))
-        times = [(t + shift, r) for t, r in times]
-    for t, rest in times:
-        if re.search(rf"\bstate={state}\b", rest):
-            found = min(t, limit)
-    return found or up
-
-def dur(minutes):
-    minutes = int(minutes)
-    return f"{minutes}m" if minutes < 60 else f"{minutes // 60}h{minutes % 60:02d}m"
-
-def bottlenecks(room, now_t=None):
-    """[{id, rule, level, text, nudge, since}] for an open room. level is note | warn | loud; nudge is the plain
-    sentence for the lead (None: shown only). rules: need, no-cap, overrun, hard-overrun, review-stale, review-late, bottleneck."""
-    now_t = now_t or now()
+def needs_attention(room):
+    """[{id, rule, level, text}] shown on the page: a blocked item with a need, and a lead that settled while
+    work is open (text for the owner only: a message would wake the settled thread)."""
     if room.closed or room.paused:
         return []
-    carded = {b for d in room.decisions if d["status"] == "open" and d["decider"] == OWNER for b in d["blocks"] or []}
-    lead = room.who("lead")
-    lead = f"{lead} (the lead)" if lead != "lead" else "the lead"
-    out = []
-    def add(i, rule, level, text, nudge=None, since=None):
-        out.append({"id": i["id"], "rule": rule, "level": level, "text": text, "nudge": nudge,
-                    "since": stamp(since) if since else ""})
-    for i in room.items:
-        if i["state"] not in ("done", "dropped") and not i["outcome"] and (tgt := blocked_open(i)):
-            add(i, "blocks", "loud", f"{i['id']} blocks {', '.join(tgt)}: triage it first")
-    for i in room.items:
-        if i["state"] == "blocked" and latest_need(i):
-            add(i, "need", "warn", f"{i['id']} is blocked: {latest_need(i)}", None, state_since(i, "blocked"))
-    for i in room.items:
-        if i["state"] not in ("doing", "review") or i["id"] in carded:
-            continue
-        since = state_since(i, i["state"])
-        mins = (now_t - since).total_seconds() / 60 if since else 0
-        if i["state"] == "review":
-            if i["agent"] and thread_status(i["agent"]) == "running":
-                continue     # a reviewer is on it
-            if mins > REVIEW_LOUD_MIN:
-                add(i, "review-late", "loud", f"{i['id']} has sat in review {dur(mins)}: {lead} flips it to done or dispatches a reviewer",
-                    f"{i['id']} has sat in review for {dur(mins)}. Flip it to done if it's finished, or dispatch a reviewer.", since)
-            elif mins > REVIEW_WARN_MIN:
-                add(i, "review-stale", "warn", f"{i['id']} has sat in review {dur(mins)}: {lead} flips it to done or dispatches a reviewer",
-                    f"{i['id']} has sat in review for {dur(mins)}. Flip it to done if it's finished, or dispatch a reviewer.", since)
-            continue
-        cap = cap_hours(i)
-        if cap is None:
-            add(i, "no-cap", "warn", f"{i['id']} is doing with no cap_h (running {dur(mins)}): set one so an overrun can be seen",
-                f"{i['id']} is running with no cap_h. Set one (bin/atr set {room.name} {i['id']} cap_h=<hours>).", since)
-            continue
-        x = mins / 60 / cap
-        capt = f"{cap:g}h"
-        if x >= HARD_OVERRUN_X:
-            add(i, "hard-overrun", "loud", f"{i['id']} hard overrun: {x:.1f}x its {capt} cap ({dur(mins)} running)",
-                f"{i['id']} has run {x:.1f}x its {capt} cap. Decide now: split it, extend the cap, or stop it.", since)
-        elif x >= OVERRUN_X:
-            add(i, "overrun", "warn", f"{i['id']} overrun: {x:.1f}x its {capt} cap ({dur(mins)} running)",
-                f"{i['id']} has run {x:.1f}x its {capt} cap. Decide whether to split, extend or stop it.", since)
-        if x > BOTTLENECK_CAP_FRAC:
-            blocked, queue = [], [i["id"]]
-            while queue:
-                cur = queue.pop(0)
-                for j in room.items:
-                    if cur in (j["depends_on"] or []) and j["id"] not in blocked and j["state"] not in ("done", "dropped"):
-                        blocked.append(j["id"])
-                        queue.append(j["id"])
-            todo = [b for b in blocked if next(j for j in room.items if j["id"] == b)["state"] == "todo"]
-            if len(todo) >= BOTTLENECK_MIN_BLOCKED:
-                add(i, "bottleneck", "note", f"bottleneck: {i['id']} blocks {', '.join(todo)} ({x:.0%} of its {capt} cap used)",
-                    None, since)
+    out = [{"id": i["id"], "rule": "need", "level": "warn", "text": f"{i['id']} is blocked: {latest_need(i)}"}
+           for i in room.items if i["state"] == "blocked" and latest_need(i)]
+    left = [i["id"] for i in room.items if i["state"] not in ("done", "dropped")]
+    if left and lead_is_settled(room):
+        out.append({"id": ",".join(left), "rule": "settled-open", "level": "loud",
+                    "text": f"lead settled with open items: {', '.join(left)}: finish or drop them, "
+                            "set closed:, or unsettle the lead"})
     return out
 
-def settled_open_warn(room):
-    """The lead thread is settled in T3 while items are open, so the room is unfinished. Text for the owner only:
-    never sent to the lead (a message would wake the settled thread). None for closed, standing and paused rooms."""
-    if room.closed or room.paused or is_standing(room) or not lead_is_settled(room):
-        return None
-    left = [i["id"] for i in room.items if i["state"] not in ("done", "dropped")]
-    if not left:
-        return None
-    return {"id": ",".join(left), "rule": "settled-open", "level": "loud", "nudge": None,
-            "text": f"lead settled with open items: {', '.join(left)}: finish or drop them, "
-                    "set closed:, or unsettle the lead"}
-
 def attention_json(room):
-    b = bottlenecks(room)
-    w = settled_open_warn(room)
-    if w:
-        b = b + [w]
-    if lead_is_settled(room):     # nudges are withheld from a settled lead; show them to the owner instead
-        b = [dict(x, text=f"{x['text']} (nudge withheld: lead thread is settled)") if x["nudge"] else x for x in b]
-    return {"attention": [{k: x[k] for k in ("id", "rule", "level", "text")} for x in b],
-            "attention_loud": any(x["level"] == "loud" for x in b)}
-
-def ensure_standing(d):
-    """One-time, idempotent: mark the `process` room standing. True when it changed BRIEF."""
-    b = d / "BRIEF.md"
-    if not b.exists():
-        return False
-    rec = Record(b)
-    if str(rec["standing"]).lower() == "true":
-        return False
-    rec.set("standing", "true")
-    rec.save()
-    return True
-
-PRD_MAX_LINES = 120
-REFINEMENT_CAP = 5
-
-def refinement_problems(room):
-    p = []
-    if room.prd and room.prd["status"] in ("draft", "review"):
-        n = len(room.prd.path.read_text().splitlines())
-        if n > PRD_MAX_LINES:
-            p.append(f"{room.name}/PRD: {n} lines, over {PRD_MAX_LINES}; move the technical approach and UX research to notes/")
-    for r in room.refinements:
-        if r["status"] != "superseded" and not r["touches"]:
-            p.append(f"{room.name}/{r['id']}: touches nothing; name the PRD ids it changes (touches: [FR4]) or drop it")
-    live = [r for r in room.refinements if r["status"] != "superseded"]
-    if len(live) >= REFINEMENT_CAP:
-        p.append(f"{room.name}: {len(live)} refinements; consolidate or confirm pivot (ask the owner: fold them into a new PRD, "
-                 "or agree they still fit this one)")
-    agreed = [r for r in room.refinements if r["status"] == "agreed"]
-    for i in room.items:
-        if i["state"] in ("done", "dropped"):
-            continue
-        text = i.path.read_text()
-        for r in agreed:
-            when, upd = parse_time(r["agreed"]), parse_time(i["updated"])
-            hit = [t for t in r["touches"] if re.search(rf"\b{re.escape(t)}\b", text)]
-            if hit and when and upd and upd < when:
-                p.append(f"{room.name}/{i['id']}: cites {', '.join(hit)}, which {r['id']} overrides (agreed after this item "
-                         "was last touched); re-read it against the refinement")
-    return p
+    b = needs_attention(room)
+    return {"attention": b, "attention_loud": any(x["level"] == "loud" for x in b)}
 
 def t3_thread_link(thread):
     """Portable HTTPS tracker link; custom desktop protocols are not available in every browser."""
@@ -1806,121 +1523,32 @@ def worker_role(item, role=None):
     word = slug(role or (item["owner"] or "").split(" ")[0] or "") or "worker"
     return word
 
-def lead_title_warn(room):
-    """The active lead thread's title should start with 'Room · '. None for closed and standing rooms
-    and when T3 doesn't know the thread."""
-    if room.closed or is_standing(room) or not (room.brief and room.brief["lead_thread"]):
-        return None
-    info = thread_info(active_lead(room))
-    if not info:
-        return None
-    title = info.get("title") or ""
-    if title.startswith("Room · "):
-        return None
-    return (f"{room.name}: lead thread is titled {title!r}: rename it to 'Room · {room.name} · lead' "
-            "with t3_thread_update")
-
-def problems(room, yielding=False):
+def problems(room):
+    """Data-integrity lint only: bad state, unknown dependency, cycle, doing with unmet dependencies, lock clash,
+    decision shape, no goal."""
     p, ids = [], {i["id"] for i in room.items}
+    by_id = {i["id"]: i for i in room.items}
+    if room.items and not room.goal:
+        p.append(f"{room.name}: no goal")
     for i in room.items:
         tag = f"{room.name}/{i['id']}"
         if i["state"] not in ITEM_STATES:
             p.append(f"{tag}: bad state {i['state']!r}")
-        if i["state"] not in ("todo", "dropped") and not i["owner"]:
-            p.append(f"{tag}: {i['state']} but no owner")
         for d in i["depends_on"] or []:
             if d not in ids:
                 p.append(f"{tag}: depends on unknown {d}")
         if i["state"] == "doing":
-            unmet = [d for d in i["depends_on"] or [] if d in ids and next(x for x in room.items if x["id"] == d)["state"] != "done"
-                     and next(x for x in room.items if x["id"] == d)["state"] != "dropped"]
+            unmet = [d for d in i["depends_on"] or [] if d in ids and by_id[d]["state"] not in ("done", "dropped")]
             if unmet:
                 p.append(f"{tag}: doing, but depends_on {', '.join(unmet)} not done")
-            if i["phase"] != "prd" and brief_gaps(i):
-                p.append(f"{tag}: doing with an empty {' and '.join(brief_gaps(i))}; the brief belongs in the item before work starts")
-        if i["state"] == "done" or i["outcome"]:
-            for s in open_successors(room, i) if room.name == PROCESS_ROOM else []:
-                for t in blocked_open(i):
-                    if t not in (s["blocks"] or []):
-                        p.append(f"{tag}: resolved, {s['id']} is its successor but does not block {t}")
-        if i["state"] == "done":
-            if "- [ ]" in i.section("Acceptance"):
-                p.append(f"{tag}: done with unticked acceptance")
-            art = re.search(r"^Artifacts:\s*(.*)$", i.section("Result"), re.M)
-            if not art or not art.group(1).strip():
-                p.append(f"{tag}: done without Artifacts in Result")
-        agent = (i["agent"] or "").strip()
-        if agent and i["state"] not in ("done", "dropped") and (
-                not THREAD_ID.fullmatch(agent)):
-            p.append(f"{i['id']}: agent: {agent!r} is not a thread id, the page can't see the worker")
-        up = parse_time(i["updated"])
-        if i["state"] == "doing" and up and now() - up > dt.timedelta(hours=STALE_H):
-            p.append(f"{tag}: doing, no update for {ago(up)}")
     for cyc in dependency_cycles(room):
         p.append(f"{room.name}: dependency cycle {' > '.join(cyc + cyc[:1])}; break it, nothing in it can ever start")
-    live = open_items(room)
-    if len(live) >= 4 and not any(i["depends_on"] or i["locks"] for i in room.items):
-        p.append(f"{room.name}: no dependency plan: {len(live)} open items and no depends_on or locks anywhere "
-                 "(PROTOCOL: Plan the dependencies first)")
     holders = {}
     for i in room.items:
         if i["state"] == "doing":
             for l in i["locks"] or []:
                 holders.setdefault(l, []).append(i["id"])
     p += [f"{room.name}: lock {l} claimed by {', '.join(v)}" for l, v in holders.items() if len(v) > 1]
-    she = sum(1 for _, pr in room.team.values() if pr == "she")
-    he = sum(1 for _, pr in room.team.values() if pr == "he")
-    if abs(she - he) > 1:
-        p.append(f"{room.name}: team names are {she} she / {he} he; keep them even")
-    for i in room.items:
-        role = i["owner"].split(" ")[0]
-        if i["state"] in ("doing", "review") and role and role not in room.team:
-            p.append(f"{room.name}/{i['id']}: owner {role} has no name yet (atr name)")
-    if not room.prd and not (room.brief and room.brief["prd"]):
-        p.append(f"{room.name}: no PRD.md; every feature starts with a PRD (atr room new), "
-                 "or set 'prd: waived (reason)' in BRIEF.md")
-    if room.build_locked:
-        for i in room.items:
-            if i["state"] == "doing" and i["phase"] != "prd":
-                p.append(f"{room.name}/{i['id']}: building while the PRD is {room.prd['status']}")
-    tmp = [str(f.relative_to(room.dir)) for f in sorted(room.dir.rglob("*.md"))
-           if f.name not in ("README.md", "INDEX.md") and re.search(r"(?<![\w.])/tmp/\S", f.read_text())]
-    if tmp:
-        p.append(f"{room.name}: {len(tmp)} record(s) cite /tmp ({', '.join(tmp[:3])}{', …' if len(tmp) > 3 else ''}); "
-                 "temporary files can disappear: copy the evidence into notes/")
-    shared = lead_rooms(room.brief and room.brief["lead_thread"])
-    if len(shared) > 1 and not room.closed:
-        p.append(f"{room.name}: its lead thread also leads {', '.join(r for r in shared if r != room.name)}; "
-                 "one thread is one room, so new work needs a new thread")
-    if yielding and (idle := ready_unstaffed(room)):
-        p.append(f"{room.name}: {ready_message(idle)}")
-    state, detail = continuity(room, yielding)
-    if state == "stalled" and not (yielding and detail == ready_message(ready_unstaffed(room))):
-        p.append(f"{room.name}: STALLED: {detail}. Dispatch the successor (delegate_task, agent: on the item), "
-                 "put a real question on the page, set waiting:/resume: in now-head.md, or close the room")
-    if not room.closed:
-        for i in room.items:
-            if i["state"] == "done" and (parse_time(i["updated"] or "") or now()) >= parse_time(NEXT_RULE_SINCE):
-                nxt = re.search(r"^Next:[ \t]*(.*)$", i.section("Result"), re.M)
-                if not nxt or not NEXT_OK.search(nxt.group(1).strip()):
-                    p.append(f"{room.name}/{i['id']}: done, but Next names no record; point it at the successor "
-                             "T/D/A id, or write 'none (why)'")
-        if room.prd and room.prd["status"] != "agreed":
-            loose = [l for l in room.prd.section("Open questions").splitlines()
-                     if re.match(r"\s*(?:[-*]|\d+[.)])\s+\S", l) and not re.search(r"\b[TDA]\d{2,}\b", l)]
-            if loose:
-                p.append(f"{room.name}/PRD: {len(loose)} open question(s) with no owner record; "
-                         "each becomes a D/A for the owner or a bounded T for the team")
-    p += refinement_problems(room)
-    p += (code_info(room) or {"warn": []})["warn"]
-    if (w := lead_title_warn(room)):
-        p.append(w)
-    if settled_open_warn(room):
-        p.append(f"{room.name}: {settled_open_warn(room)['text']}")
-    if (w := organize_warn(room)):
-        p.append(w)
-    for x in bottlenecks(room):
-        p.append(f"{room.name}/{x['id']}: {x['text']}")
     for d in room.decisions:
         tag = f"{room.name}/{d['id']}"
         if d["status"] not in DECISION_STATES:
@@ -1942,7 +1570,7 @@ def problems(room, yielding=False):
     return p
 
 def cmd_check(a):
-    found = [x for room in rooms_from(a.rooms) for x in problems(room, a.yield_)]
+    found = [x for room in rooms_from(a.rooms) for x in problems(room)]
     print("\n".join(f"warn: {x}" for x in found) or "ok")
     sys.exit(1 if a.strict and found else 0)
 
@@ -1995,83 +1623,13 @@ def record_json(room, r):
             "sections": [{"h": h.strip(), "text": t.strip()} for h, t in sections if t.strip()],
             "file": str(r.path.relative_to(ROOT))}
 
-ACTIVITY_H = 12
-
-def activity(room):
-    """Who logged work on this room's items, as minutes ago, over the room's own lifetime
-    (at most ACTIVITY_H hours). 'HH:MMZ' is UTC; a bare 'HH:MM' is read in the room's tz,
-    and a time later than now as yesterday. Entries dated before the room existed are misdated
-    and dropped. Returns (events, span in minutes)."""
-    t_now = now()
-    created = room.created
-    life = int((t_now - created).total_seconds() // 60) if created else ACTIVITY_H * 60
-    span = max(120, min(ACTIVITY_H * 60, -(-(life + 10) // 30) * 30))
-    names = {r: n for r, (n, _) in room.team.items()}
-    out = []
-    for i in room.items:
-        for hh, mm, z, who in re.findall(r"^- (\d\d):(\d\d)(Z?) ([^:\s]+):", i.section("Log"), re.M):
-            base = t_now if z else t_now.astimezone(room.tz)
-            t = base.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
-            if t > base + dt.timedelta(minutes=5):
-                t -= dt.timedelta(days=1)
-            ago_min = int((base - t).total_seconds() // 60)
-            if 0 <= ago_min <= min(span, life + 10):
-                out.append({"who": names.get(who, who), "ago": ago_min, "item": i["id"]})
-    return out, span
-
-def members_json(room):
-    """Per team member: working (an item in doing, or a running T3 agent), waiting (open items, nothing running)
-    or retired (nothing open), with the task or what it waits for. Uses only loaded records and the thread cache."""
-    ok = {i["id"] for i in room.items if i["state"] in ("done", "dropped")} | {d["id"] for d in room.decisions if d["status"] in ("final", "superseded")}
-    decs = {d["id"]: d for d in room.decisions}
-    mine = {}
-    for i in room.items:
-        mine.setdefault(i["owner"].split(" ")[0] or "unassigned", []).append(i)
-    roles = list(room.team) + [o for o in mine if o not in room.team]
-    out = []
-    for role in roles:
-        its = mine.get(role, [])
-        openi = [i for i in its if i["state"] not in ("done", "dropped")]
-        running = [i for i in openi if i["state"] == "doing" or (i["agent"] and thread_status(i["agent"]) == "running")]
-        m = {"role": role, "name": room.team.get(role, ("", ""))[0] or role.capitalize(), "open": len(openi), "total": len(its)}
-        if running:
-            running.sort(key=lambda i: i["state"] != "doing")
-            m.update(state="working", task={"id": running[0]["id"], "title": running[0]["title"]}, more=len(running) - 1)
-        elif openi:
-            waits, seen = [], set()
-            own = {i["id"] for i in openi}
-            for i in openi:
-                deps = i["depends_on"] or []
-                for x in re.findall(r"[A-Z]\d+", deps) if isinstance(deps, str) else deps:
-                    if x in ok or x in seen or x in own:
-                        continue
-                    seen.add(x)
-                    d = decs.get(x)
-                    who = ("the owner" if d["decider"] == OWNER else d["decider"]) if d else ""
-                    waits.append(f"{x} ({who})" if who else x)
-                if i["state"] == "review" and "review" not in seen:
-                    seen.add("review")
-                    waits.append("review")
-            if not waits:
-                st = openi[0]["state"]
-                waits = ["an outside event"] if st == "blocked" else ["a teammate to pick it up"] if st != "todo" else ["its turn to start"]
-            m.update(state="waiting", waits=waits, task={"id": openi[0]["id"], "title": openi[0]["title"]})
-        else:
-            m.update(state="retired")
-        out.append(m)
-    return out
-
-def lead_idle_min(thread):
-    """Age of the latest T3 observation, unknown while running or unavailable."""
-    info = thread_info(thread)
-    if not info or info.get("status") == "running":
-        return None
-    observed = _epoch(info.get("updated"))
-    return max(0, int((time.time() - observed) / 60)) if observed else None
+def autostart_json(room):
+    a = autostart(room)
+    return {"state": a["state"], "ready": [x["id"] for x in a["ready"]], "offer": a["offer"],
+            "running": a["running"], "cap": a["cap"], "reason": a["reason"], "unready": a["unready"]}
 
 def room_json(room, with_records=False):
     head = room.head
-    acts, span = activity(room)
     asks = [decision_json(room, d) for d in needs_you(room)]
     asks.sort(key=lambda x: (not x["urgent"], -len(x["impact"]["agents"]), -len(x["impact"]["items"]),
                              -x["impact"]["hours"], -(x["waiting_min"] or 0)))
@@ -2088,14 +1646,13 @@ def room_json(room, with_records=False):
              "cap_h": str(i["cap_h"] or ""), "agent": str(i["agent"] or ""),
              "agent_link": t3_thread_link(str(i["agent"] or "")) or ""})
     order = {"doing": 0, "review": 1, "blocked": 2, "todo": 3}
-    lane_list = [{"owner": o, "name": room.team.get(o, ("", ""))[0], "pronoun": room.team.get(o, ("", ""))[1],
-                  "items": sorted(v, key=lambda x: order.get(x["state"], 9))}
+    lane_list = [{"owner": o, "items": sorted(v, key=lambda x: order.get(x["state"], 9))}
                  for o, v in sorted(lanes.items(), key=lambda kv: (kv[0] == "unassigned", kv[0]))]
     recent = [d for d in room.decisions if d["status"] == "final" and since and (parse_time(d["updated"]) or now()) > since]
     counts = {s: sum(1 for i in room.items if i["state"] == s) for s in ITEM_STATES}
     return {"name": room.name, "title": room.title, "tz": room.tz.key,
-            "deliveries": [{"id": action["id"], "state": action["state"], "evidence": action["evidence"]}
-                           for action in delivery_actions().values() if action["room"] == room.name],
+            "lead_flag": read_lead_flag(room.name),
+            "autostart": autostart_json(room),
             "revision": room.brief._version if room.brief else None,
             "paused": room.local(room.paused) if room.paused else "",
             "paused_at": stamp(room.paused) if room.paused else "",
@@ -2107,217 +1664,170 @@ def room_json(room, with_records=False):
                              if head and parse_time(head["updated"]) else None,
             "since": head["since"] if head else "", "asks": asks,
             "provisional": [decision_json(room, d) for d in room.decisions if d["status"] == "provisional"],
-            "team_open": [decision_json(room, d) for d in room.decisions
-                          if d["status"] == "open" and d["decider"] != OWNER],
             "recent": [{"id": d["id"], "title": d["title"], "decider": d["decider"], "answer": d.section("Answer")}
                        for d in recent],
             "lanes": lane_list, "plan": plan(room), "counts": counts, "locks": [{"name": n, "holder": h} for n, h in held_locks()],
             "code": code_info(room), "lead_thread": bool(room.brief and room.brief["lead_thread"]), "lead_link": t3_thread_link(active_lead(room)) or "", "lead_commands": lead_commands(room.name),
-            "team": [{"role": r, "name": n, "pronoun": pr} for r, (n, pr) in room.team.items()],
-            "records": {r["id"]: record_json(room, r) for r in room.items + room.decisions + room.refinements + ([room.prd] if room.prd else [])}
+            "records": {r["id"]: record_json(room, r) for r in room.items + room.decisions + ([room.goal] if room.goal else [])}
                        if with_records else {}, "records_included": with_records,
-            "prd": {"status": room.prd["status"], "version": room.prd["version"], "locked": room.build_locked,
-                    "refinements": [r["id"] for r in room.refinements if r["status"] == "agreed"]}
-                   if room.prd else None,
-            "members": members_json(room), "activity": acts, "activity_min": span,
+            "goal": {"status": room.goal["status"], "locked": room.build_locked, **goal_fields(room)}
+                   if room.goal else {"status": "none", "locked": True},
             "continuity": dict(zip(("state", "detail"), continuity(room))),
             "lead_status": thread_status(active_lead(room)),
-            "lead_idle_min": lead_idle_min(active_lead(room)),
             **attention_json(room),
             "closed": bool(room.closed),
             "lead_settled": (ts := thread_state(room))["settled"],
-            "lead_settled_others": len(ts["others_active"]) if ts["lead_settled"] and not ts["standing"] else 0,
-            "standing": ts["standing"],
-            **({"feedback": feedback_counts(room), **process_docs()} if room.name == PROCESS_ROOM else {})}
+            "lead_settled_others": len(ts["others_active"]) if ts["lead_settled"] else 0}
 
 def sync_lock():
     """Canonical mutations share the store's lock."""
     return store_transaction()
 
-def _delivery_path():
-    return ROOT / ".atr/deliveries.json"
+# ---------- telling the lead: send once, record, one retry ----------
+# The owner's answer or event is saved first. notify_lead then calls `t3 thread send` once, after the save is
+# committed. A failure sets a marker (.atr/lead-flag/ROOM.json), which the web page shows as "Lead not notified";
+# `atr serve` re-sends once, 60 s later. A second failure leaves the marker for the owner. `atr inbox ROOM`
+# (the lead's pull path) prints the unsent notice and clears the marker.
+RETRY_AFTER_S = 60
 
+def _flag_path(name):
+    return ROOT / ".atr/lead-flag" / f"{name}.json"
 
-def save_delivery_actions(actions):
-    durable_write(_delivery_path(), json.dumps(actions, sort_keys=True, indent=2) + "\n")
-
-
-def migration_state():
-    """No configuration import or external work; malformed migration metadata fails closed for delivery."""
+def read_lead_flag(name):
     try:
-        path = ROOT / ".atr/migration.json"
-        if path.is_symlink() or path.parent.is_symlink():
-            return {"invalid": True}
-        state = json.loads(path.read_bytes())
-    except FileNotFoundError:
-        return None
+        return json.loads(_flag_path(name).read_text())
     except (OSError, ValueError):
-        return {"invalid": True}
-    try:
-        here = str(SOURCE_ROOT / "bin")
-        if here not in sys.path:
-            sys.path.insert(0, here)
-        from atr_migrate import validate_fence
-        validate_fence(state, ROOT)
-    except (ImportError, KeyError, TypeError, ValueError, AttributeError):
-        return {"invalid": True}
-    return state
-
-
-def migration_block(action=None, state=None):
-    state = migration_state() if state is None else state
-    if state is None:
-        return ""
-    if state.get("invalid"):
-        return "Migration metadata is invalid; preserve the store and repair its manifest before outbound actions. Local saves remain available."
-    if state["state"] != "reviewed":
-        return "Migration copy is fenced; inspect `atr migrate verify`, then explicitly review this store before outbound actions."
-    if action and action["id"] in state["imported_actions"] and action["id"] not in state["reviewed_actions"]:
-        return "Imported action is fenced; reconcile its original T3 acceptance with `atr delivery reconcile --outcome accepted|not-accepted --evidence ...` before retrying."
-    return ""
-
-
-def _process_started(pid):
-    try:
-        return Path(f"/proc/{int(pid)}/stat").read_text().rsplit(")", 1)[1].split()[19]
-    except (OSError, ValueError, IndexError):
-        return ""
-
-
-def _attempt_owner_alive(action):
-    try:
-        pid = int(action.get("owner_pid", -1))
-        if pid <= 0:
-            return False
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except (OSError, ValueError):
-        return False
-    observed = _process_started(pid)
-    return not (observed and action.get("owner_started") and observed != action["owner_started"])
-
-
-def delivery_actions():
-    """Recover abandoned attempts conservatively; never turn a lost response into a safe retry."""
-    with store_transaction():
-        try:
-            actions = json.loads(_delivery_path().read_text())
-        except FileNotFoundError:
-            return {}
-        changed = False
-        migration = migration_state()
-        for action in actions.values():
-            if migration_block(action, migration):
-                continue
-            if action["kind"] not in ("message", "launch"):
-                continue
-            if action["state"] == "attempting" and (not _attempt_owner_alive(action) or
-                    action.get("lease_until", float("inf")) < time.time()):
-                action.update(state="uncertain", evidence="Attempt interrupted; reconcile T3 history before retrying.")
-                changed = True
-        if changed:
-            save_delivery_actions(actions)
-        return actions
-
-
-def queue_t3_action(kind, target, payload, *, room="", source=None, allow_paused=False, options=None):
-    if kind not in ("message", "launch"):
-        raise ValueError("unsupported concrete action")
-    with store_transaction():
-        source_path = str(source.path.relative_to(ROOT)) if source else ""
-        if kind == "message" and (room == PROCESS_ROOM or source_path.startswith(f"rooms/{PROCESS_ROOM}/")) and target != room_lead(PROCESS_ROOM):
-            raise StoreConflict("Maintenance messages must stay in process; do not notify project leads")
-        revision = source._version if source else ""
-        identity = json.dumps([kind, target, payload, room, source_path, revision, options], sort_keys=True)
-        action_id = hashlib.sha256(identity.encode()).hexdigest()[:24]
-        actions = delivery_actions()
-        if action_id not in actions:
-            candidate = {"id": action_id, "kind": kind, "room": room, "options": options or {},
-                         "state": "pending", "created_at": time.time()}
-            if claimant := _launch_claimant(candidate, actions):
-                raise StoreConflict(f"Item launch reserved by {claimant['id']} ({claimant['state']}); "
-                                    "inspect and reconcile that acceptance before creating another launch")
-            actions[action_id] = {"id": action_id, "kind": kind, "target": target or "", "payload": payload,
-                                  "room": room, "source": source_path, "revision": revision,
-                                  "allow_paused": allow_paused, "options": options or {}, "state": "pending",
-                                  "created": stamp(), "created_at": time.time(), "attempts": [], "evidence": "Saved locally; awaiting T3 acceptance."}
-            save_delivery_actions(actions)
-        after_commit(lambda: attempt_delivery(action_id))
-        return actions[action_id]
-
-
-def _launch_claimant(action, actions):
-    """The durable action row reserves a room/item across payload and record revisions."""
-    item = action.get("options", {}).get("item")
-    if action.get("kind") != "launch" or not action.get("room") or not item:
         return None
-    claimants = [other for other in actions.values() if other.get("kind") == "launch" and
-                 other.get("room") == action["room"] and str(other.get("options", {}).get("item", "")).upper() == str(item).upper() and
-                 other.get("state") in ("pending", "attempting", "uncertain", "confirmed")]
-    # Existing accepted/unknown/in-flight work outranks unattempted pending rows. A deterministic
-    # election lets one old duplicate pending row proceed without two rows blocking each other.
-    return min(claimants, key=lambda other: (other["state"] == "pending", other.get("created_at", 0), other["id"]), default=None)
 
+def _write_lead_flag(name, flag):
+    durable_write(_flag_path(name), json.dumps(flag, sort_keys=True, indent=2) + "\n")
+
+def clear_lead_flag(name):
+    if _flag_path(name).exists():
+        durable_unlink(_flag_path(name))
+
+def _log_ping(name, thread, what):
+    durable_append(ROOMS / name / "pings.log", f"{stamp()}  atr->{thread or '-'}  lead-notice  {what}\n")
+
+def _flag_lead(name, thread, text, reason, retryable, offer=None):
+    old = read_lead_flag(name) or {}
+    flag = {"since": stamp(), "since_epoch": time.time(), "thread": thread or "", "text": text[:2000],
+            "reason": reason[:500], "retryable": retryable, "retried": False, "missed": int(old.get("missed", 0)) + 1}
+    if offer:
+        flag["offer"] = offer
+    _write_lead_flag(name, flag)
+    _log_ping(name, thread, f"not-notified: {reason[:200]}")
+
+def _send_notice(name, thread, text):
+    """One send. Returns (accepted, evidence). Never inside the store lock."""
+    result = t3_call("message", thread, text)
+    return result["ok"], result["evidence"]
+
+def _unknown_delivery(evidence):
+    return "acceptance unknown" in evidence
+
+def _deliver_notice(name, thread, text, offer=None):
+    ok, evidence = _send_notice(name, thread, text)
+    with store_transaction():
+        if ok:
+            _log_ping(name, thread, "sent")
+            if offer:
+                _record_offer(name, offer)
+        elif _unknown_delivery(evidence):     # T3 may have accepted it: a second send could duplicate it
+            _flag_lead(name, thread, text, f"delivery unknown, not retried: {evidence}", False, offer)
+        else:
+            _flag_lead(name, thread, text, f"T3 did not accept the message: {evidence}", True, offer)
+    return ok
+
+def notify_lead(room, text, thread=None, allow_paused=False, offer=None):
+    """Tell the room's lead, or `thread`. The caller has already saved its record. Sends once after the surrounding
+    save commits; on a block or a failure the room is flagged instead (never queued). Returns True when the send was
+    made and accepted, False when blocked or refused, None when it will run after the commit."""
+    name = room.name
+    thread = thread or active_lead(room)
+    if not thread:
+        _flag_lead(name, "", text, "the room has no lead thread", False, offer)
+        return False
+    if room.paused and not allow_paused:
+        _flag_lead(name, thread, text, "room paused; the lead was not messaged", False, offer)
+        return False
+    info = thread_info(thread) or {}
+    if info.get("snoozed") or info.get("settled"):
+        _flag_lead(name, thread, text, "lead thread is snoozed or settled; not woken", False, offer)
+        return False
+    if getattr(_store_state, "depth", 0):
+        after_commit(lambda: _deliver_notice(name, thread, text, offer))
+        return None
+    return _deliver_notice(name, thread, text, offer)
+
+def retry_lead_flags(now_epoch=None):
+    """Re-send once, RETRY_AFTER_S after the failure, for every room whose marker is a failed send that was not
+    retried yet. The retry is recorded before it is made, so no path can try a third time."""
+    now_epoch = time.time() if now_epoch is None else now_epoch
+    flags = ROOT / ".atr/lead-flag"
+    for f in sorted(flags.glob("*.json")) if flags.is_dir() else []:
+        name = f.stem
+        flag = read_lead_flag(name)
+        if not flag or not flag.get("retryable") or flag.get("retried") or now_epoch - flag.get("since_epoch", now_epoch) < RETRY_AFTER_S:
+            continue
+        since = flag["since_epoch"]
+        with store_transaction():
+            flag = read_lead_flag(name)
+            if not flag or flag.get("retried") or flag.get("since_epoch") != since:
+                continue                      # `atr inbox` cleared it, or a newer failure replaced it
+            flag["retried"] = True
+            _write_lead_flag(name, flag)
+        ok, evidence = _send_notice(name, flag["thread"], flag["text"])
+        with store_transaction():
+            cur = read_lead_flag(name)
+            if not cur or cur.get("since_epoch") != since:
+                _log_ping(name, flag["thread"], f"retry {'sent' if ok else 'failed'} after the flag was cleared: {evidence[:200]}")
+                continue                      # never re-create a flag someone already cleared
+            if ok:
+                clear_lead_flag(name)
+                if flag.get("offer"):
+                    _record_offer(name, flag["offer"])
+                _log_ping(name, flag["thread"], "sent (retry)")
+            else:
+                cur["reason"] = (f"delivery unknown after the retry: {evidence}" if _unknown_delivery(evidence)
+                                 else f"T3 did not accept the message, also on the retry: {evidence}")[:500]
+                _write_lead_flag(name, cur)
+                _log_ping(name, flag["thread"], f"not-notified (retry failed): {evidence[:200]}")
 
 def t3_cli_options():
     value = os.environ.get("ATR_T3_BASE_DIR")
     return ["--base-dir", value] if value else []
 
 
-def t3_project():
-    value = os.environ.get("ATR_T3_PROJECT")
-    if not value:
-        return str(SOURCE_ROOT)
-    path = Path(value).expanduser()
-    return str(path.resolve()) if path.exists() else value
-
-
-def t3_execute(action):
-    """The concrete public T3 CLI boundary. A successful CLI exit establishes acceptance only."""
+def t3_call(kind, target, payload, options=None):
+    """The one public T3 CLI call: `thread send` (kind message) or `thread start` (kind launch).
+    {'ok': accepted, 'evidence': text, 'thread': id or None}. A clean exit with an acceptance response
+    is accepted; receipt and execution are not verified."""
     if getattr(_store_state, "depth", 0):
-        raise RuntimeError("T3 execution requires a committed save outside the store lock")
-    if reason := migration_block(action):
-        return {"state": "pending", "evidence": reason}
-    cli = t3_cli()
-    if action["kind"] == "launch" and action.get("options", {}).get("purpose") == "maintainer":
-        # Resolve the project before attempting a launch. Failure here cannot have created a thread.
-        try:
-            probe = _external_run([cli, "thread", "list", "--project", action["target"], "--json", *t3_cli_options()], timeout=15)
-            if probe.returncode:
-                if "No T3 Code project matches" not in (probe.stderr + probe.stdout):
-                    return {"state": "failed", "evidence": "Maintainer project preflight failed; no thread launch attempted: " + (probe.stderr or probe.stdout)[:1000]}
-                added = _external_run([cli, "project", "add", action["target"], "--title", "atr", *t3_cli_options()], timeout=15)
-                if added.returncode:
-                    return {"state": "failed", "evidence": "Could not register atr project; no thread launch attempted: " + (added.stderr or added.stdout)[:1000]}
-        except (OSError, subprocess.SubprocessError) as error:
-            return {"state": "failed", "evidence": f"Maintainer project preflight failed; no thread launch attempted: {error}"}
-    payload = action["payload"] + f"\n\n[atr-action:{action['id']}]"
-    if action["kind"] == "launch":
-        payload += ((f"\nAtr room: {action['room']}." if action["room"] else "\nNo atr room yet.") + f" Selected store: {ROOT}.\n"
+        raise RuntimeError("T3 calls need a committed save outside the store lock")
+    options = options or {}
+    if kind == "launch":
+        payload += (f"\n\nSelected store: {ROOT}.\n"
                     f"Use: {shlex.join([sys.executable, '-I', str(SOURCE_ROOT / 'bin/atr'), '--data-dir', str(ROOT)])} <command>.\n"
                     "Keep all atr updates in that store; source resources are separate.")
-        args = ["thread", "start", action["target"], "-", "--json"]
+        args = ["thread", "start", target, "-", "--json"]
         for name in ("provider", "model", "title"):
-            if action["options"].get(name):
-                args += ["--" + name, action["options"][name]]
+            if options.get(name):
+                args += ["--" + name, options[name]]
     else:
-        args = ["thread", "send", action["target"], "-", "--json"]
+        args = ["thread", "send", target, "-", "--json"]
     try:
-        result = _external_run([cli, *args, *t3_cli_options()], timeout=float(os.environ.get("ATR_T3_TIMEOUT", "5")), input=payload)
+        result = _external_run([t3_cli(), *args, *t3_cli_options()], timeout=float(os.environ.get("ATR_T3_TIMEOUT", "5")), input=payload)
     except (FileNotFoundError, PermissionError) as error:
-        return {"state": "failed", "evidence": f"T3 unavailable; no process started: {error}"}
+        return {"ok": False, "evidence": f"T3 unavailable: {error}", "thread": None}
     except subprocess.TimeoutExpired:
-        return {"state": "uncertain", "evidence": "T3 timed out after start; acceptance is unknown. Reconcile before retrying."}
+        return {"ok": False, "evidence": "T3 timed out; acceptance unknown", "thread": None}
     except OSError as error:
-        return {"state": "failed", "evidence": f"T3 could not start: {error}"}
+        return {"ok": False, "evidence": f"T3 could not start: {error}", "thread": None}
     if result.returncode:
         lines = [line for line in (result.stderr or result.stdout).splitlines() if line.strip()
                  and not re.match(r"\s*\[\d+/\d+(\.\d+)?:[A-Z]+:", line)]
-        detail = ("\n".join(lines) or f"exit {result.returncode}")[:1000]
-        return {"state": "uncertain", "evidence": f"T3 exited unsuccessfully ({detail}); acceptance is unknown."}
+        return {"ok": False, "evidence": f"T3 exited unsuccessfully: {('; '.join(lines) or 'exit ' + str(result.returncode))[:500]}", "thread": None}
     response = {}
     decoder = json.JSONDecoder()
     for match in re.finditer(r"\{", result.stdout):
@@ -2328,207 +1838,19 @@ def t3_execute(action):
         if isinstance(response, dict):
             break
     if not isinstance(response, dict) or not any(response.get(key) for key in ("thread", "threadId", "id", "ok", "accepted", "success")):
-        return {"state": "uncertain", "evidence": "T3 exited without an acceptance response; reconcile before retrying."}
-    thread_data = response.get("thread") or {}
-    thread = (thread_data.get("threadId") or thread_data.get("id")) if isinstance(thread_data, dict) else None
-    thread = thread or ((response.get("threadId") or response.get("id")) if isinstance(response, dict) else None)
-    if thread and action.get("options", {}).get("purpose") == "maintainer":
-        open_maintainer(thread)
-    return {"state": "confirmed", "evidence": "T3 CLI exited successfully: accepted; receipt and execution are unverified.",
-            **({"thread": thread} if thread else {})}
-
-
-def open_maintainer(thread):
-    """Open the exact accepted thread; UI failure never retries a successful launch."""
-    try:
-        result = _external_run([t3_cli(), "thread", "show", thread, "--json", *t3_cli_options()], timeout=15)
-        data = json.loads(result.stdout).get("thread", {})
-        link = data.get("link", "")
-        if not link.startswith("https://"):
-            return
-        import webbrowser
-        # Desktop installations register t3-thread://; otherwise use T3's web link.
-        desktop = sys.platform == "darwin" and any(Path(p).exists() for p in
-                    ("/Applications/T3 Code.app", str(Path.home() / "Applications/T3 Code.app")))
-        if desktop:
-            deep = "t3-thread://v2/" + link.split("/threads/", 1)[1]
-            opened = subprocess.run(["open", deep], capture_output=True, timeout=10)
-            if opened.returncode == 0:
-                return
-        webbrowser.open(link)
-    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
-        pass  # The durable launch receipt and thread id remain available to open manually.
-
-
-def _delivery_block(action, actions=None):
-    if (action.get("kind") == "message" and action.get("source", "").startswith(f"rooms/{PROCESS_ROOM}/")
-            and action.get("target") != room_lead(PROCESS_ROOM)):
-        return "Maintenance source belongs to process; cross-room delivery blocked"
-    if reason := migration_block(action):
-        return reason
-    if claimant := _launch_claimant(action, actions or {}):
-        if claimant["id"] != action["id"]:
-            return f"Item launch reserved by {claimant['id']} ({claimant['state']}); reconcile that acceptance before another launch."
-    if action.get("suspended"):
-        return "Action suspended; inspect its preserved origin and reconcile before enabling delivery."
-    if not action["target"]:
-        return "No T3 target recorded; configure the room lead and create a fresh notification."
-    if action["room"]:
-        room = Room(action["room"])
-        if action["kind"] == "message" and active_lead(room) != action["target"]:
-            return "Room target changed; reconcile this obligation before retrying."
-        if room.paused and not action["allow_paused"]:
-            return "Room paused; pending until resumed and revalidated."
-        if action["kind"] == "launch" and action["options"].get("item"):
-            item = room.find(action["options"]["item"])
-            if room.closed or (room.build_locked and item["phase"] != "prd"):
-                return "Launch blocked by the room's closure or PRD agreement gate."
-            if any(room.find(dependency)["state"] != "done" for dependency in item["depends_on"]):
-                return "Launch blocked by incomplete dependencies."
-        if action["kind"] == "message" and not action["allow_paused"]:
-            if any(other["id"] != action["id"] and other["kind"] == "message" and other["room"] == action["room"]
-                   and other["target"] == action["target"] and other["state"] == "attempting" for other in (actions or {}).values()):
-                return "Another acceptance attempt is in progress; this notice remains a separate pending obligation."
-            info = thread_info(action["target"]) or {}
-            if info.get("snoozed") or info.get("settled"):
-                return "Lead is snoozed or settled; no automatic wake attempted."
-            if info.get("status") == "running":
-                return "Lead is working; pending until idle to avoid queuing another turn."
-            since = parse_time(room.head["since"]) if room.head else None
-            if since and since.timestamp() > action.get("created_at", 0):
-                action["state"] = "superseded"
-                return "Acknowledged through the room's local read marker; no T3 delivery attempted."
-    if action["source"]:
-        source = _store_path(ROOT / action["source"])
-        if not source.exists() or hashlib.sha256(source.read_bytes()).hexdigest() != action["revision"]:
-            return "Originating record changed; reconcile the obsolete obligation before retrying."
-    return ""
-
-
-def attempt_delivery(action_id):
-    with store_transaction():
-        actions = delivery_actions()
-        action = actions[action_id]
-        if reason := migration_block(action):
-            return {**action, "blocked": reason}
-        if action["kind"] not in ("message", "launch"):
-            return {**action, "evidence": "Unknown action kind; preserve and reconcile without automatic execution"}
-        if action["state"] not in ("pending", "failed"):
-            return action
-        if reason := _delivery_block(action, actions):
-            action["evidence"] = reason
-            save_delivery_actions(actions)
-            return action
-        group = [action]
-        if action["kind"] == "message" and action["state"] == "pending" and not action["attempts"]:
-            for candidate in actions.values():
-                if candidate["id"] == action_id or candidate["kind"] != "message" or candidate["state"] != "pending" or candidate["attempts"]:
-                    continue
-                if candidate["room"] == action["room"] and candidate["target"] == action["target"]:
-                    if migration_block(candidate):
-                        continue  # imported evidence stays byte-for-byte intact until individual reconciliation
-                    reason = _delivery_block(candidate, actions)
-                    if reason:
-                        candidate["evidence"] = reason
-                    else:
-                        group.append(candidate)
-        batch_id = hashlib.sha256(" ".join(sorted(item["id"] for item in group)).encode()).hexdigest()[:24]
-        for item in group:
-            item.update(state="attempting", owner_pid=os.getpid(), owner_started=_process_started(os.getpid()),
-                        lease_until=time.time() + float(os.environ.get("ATR_T3_TIMEOUT", "5")) + 10,
-                        attempt_token=uuid.uuid4().hex)
-            item["attempts"].append({"started": stamp(), "pid": os.getpid(), "batch": batch_id, "token": item["attempt_token"]})
-        save_delivery_actions(actions)
-        request = dict(action)
-        if len(group) > 1:
-            request.update(id=batch_id, payload="\n\n".join(item["payload"] + f"\n[atr-action:{item['id']}]" for item in group))
-    try:
-        outcome = t3_execute(request)
-    except Exception as error:
-        outcome = {"state": "uncertain", "evidence": f"Attempt lost its result: {error}. Reconcile before retrying."}
-    with store_transaction():
-        actions = delivery_actions()
-        for item in group:
-            current = actions[item["id"]]
-            if current["state"] != "attempting" or current.get("attempt_token") != item["attempt_token"]:
-                current.setdefault("late_evidence", []).append({"observed": stamp(), "token": item["attempt_token"], **outcome})
-                continue
-            current.update(outcome)
-            current["attempts"][-1].update(finished=stamp(), state=current["state"], evidence=current["evidence"])
-            if current["state"] == "confirmed" and current["kind"] == "launch" and current.get("thread") and current["room"]:
-                room = Room(current["room"])
-                if current["options"].get("item"):
-                    item = room.find(current["options"]["item"])
-                    if item._version == current["revision"]:
-                        item.set("agent", current["thread"])
-                        item.set("state", "doing")
-                        item.set("updated", stamp())
-                        item.append_to("Log", f"- {logstamp()} lead: set state=doing; T3 accepted dispatch {current['id']}; execution unverified")
-                        item.save()
-                    else:
-                        current["association"] = "Item changed; set its agent only after reviewing the accepted thread"
-                if room.brief and current["options"].get("purpose") == "maintainer":
-                    room.brief.set("lead_thread", current["thread"])
-                    room.brief.save()
-                    durable_write(config_dir() / "maintainer_thread", current["thread"] + "\n")
-        save_delivery_actions(actions)
-        return actions[action_id]
-
-
-def reconcile_delivery(action_id, outcome, evidence):
-    if outcome not in ("accepted", "not-accepted") or not evidence.strip():
-        raise ValueError("reconciliation requires accepted/not-accepted and evidence from T3 history or an operator check")
-    with store_transaction():
-        actions = delivery_actions()
-        action = actions[action_id]
-        migration = migration_state()
-        imported = bool(migration and not migration.get("invalid") and action_id in migration["imported_actions"] and action_id not in migration["reviewed_actions"])
-        if action["state"] == "attempting" and not imported:
-            raise StoreConflict("an attempt is still active; wait before reconciling")
-        if action["state"] == "confirmed" and outcome != "accepted":
-            raise StoreConflict("confirmed acceptance cannot be reset for resend")
-        action.update(state="confirmed" if outcome == "accepted" else "failed", evidence=evidence.strip(), reconciled=stamp())
-        if imported:
-            migration["reviewed_actions"][action_id] = {"outcome": outcome, "evidence": evidence.strip(), "at": stamp()}
-            durable_write(ROOT / ".atr/migration.json", json.dumps(migration, sort_keys=True, indent=2) + "\n")
-        save_delivery_actions(actions)
-        return action
-
-
-def cmd_delivery(a):
-    if a.verb == "list":
-        actions = delivery_actions()
-        for action in actions.values():
-            if reason := migration_block(action):
-                action["blocked"] = reason
-        print(json.dumps(actions, indent=2))
-    elif a.verb == "retry":
-        print(json.dumps(attempt_delivery(a.id), indent=2))
-    else:
-        print(json.dumps(reconcile_delivery(a.id, a.outcome, a.evidence), indent=2))
-
-
-def cmd_migrate(a):
-    here = str(SOURCE_ROOT / "bin")
-    if here not in sys.path:
-        sys.path.insert(0, here)
-    from atr_migrate import Migration, MigrationConflict
-    try:
-        operation = getattr(Migration(), a.verb)
-        result = operation(a.source, a.destination, a.evidence) if a.verb == "review" else operation(a.source, a.destination)
-    except MigrationConflict as error:
-        raise StoreConflict(str(error)) from error
-    print(json.dumps(result, sort_keys=True, indent=2))
+        return {"ok": False, "evidence": "T3 exited without an acceptance response", "thread": None}
+    data = response.get("thread") or {}
+    thread = (data.get("threadId") or data.get("id")) if isinstance(data, dict) else None
+    thread = thread or response.get("threadId") or response.get("id")
+    return {"ok": True, "evidence": "T3 accepted; receipt and execution are unverified", "thread": thread}
 
 
 def organize_wanted(room):
     """The lead's desired T3 organize state from room state (pure): pin while the owner is needed (an open owner
-    decision, ask, or PRD/refinement agree card), unpin and settle once the room is closed, else leave it alone.
+    decision, ask, or goal approval card), unpin and settle once the room is closed, else leave it alone.
     {'pinned': True|False|None, 'settled': True|None, 'reason': str}; None means unchanged."""
     if room.closed:
         return {"pinned": False, "settled": True, "reason": "room closed"}
-    if room.name == PROCESS_ROOM and is_standing(room):
-        return {"pinned": True, "settled": None, "reason": "standing maintainer"}
     ny = needs_you(room)
     if ny:
         return {"pinned": True, "settled": None, "reason": f"owner needed: {', '.join(d['id'] for d in ny)}"}
@@ -2561,7 +1883,7 @@ def organize_plan(room, info=None):
 
 def organize_warn(room):
     """Hint when the lead's pin state is known to be out of line with the room; None when fine or unknown."""
-    if room.brief is None or not room.brief["lead_thread"] or is_standing(room):
+    if room.brief is None or not room.brief["lead_thread"]:
         return None
     plan = organize_plan(room)
     known = [s for s in plan["steps"] if s["state"] == "pending"]
@@ -2591,12 +1913,11 @@ def cmd_t3(a):
         room = known_room(a.target)
         refuse_closed(room, "T3 work")
         if a.verb == "send":
-            action = queue_t3_action("message", active_lead(room), a.text,
-                                    room=room.name, source=room.brief)
+            sent = notify_lead(room, a.text)
         else:
             item = room.find(a.item)
-            if room.paused or (room.build_locked and item["phase"] != "prd"):
-                raise StoreConflict("dispatch blocked by pause or PRD agreement")
+            if room.paused or room.build_locked:
+                raise StoreConflict("dispatch blocked by pause or goal approval")
             if item["state"] not in ("todo", "doing") or item["agent"]:
                 raise StoreConflict("item is not available for a new dispatch; reconcile its existing thread first")
             if any(room.find(dependency)["state"] != "done" for dependency in item["depends_on"]):
@@ -2609,11 +1930,8 @@ def cmd_t3(a):
             role = worker_role(item, getattr(a, "role", None))
             task = delegate_task_text(room.name, item["id"], a.text)
     if a.verb == "send":
-        # The committed message action is distinct from a worker launch brief.
-        # Read its final ledger state after the post-commit delivery attempt.
-        with store_transaction():
-            delivery = dict(delivery_actions()[action["id"]])
-        print(json.dumps({"delivery": delivery}, indent=2))
+        print(json.dumps({"sent": "queued until the save commits" if sent is None else sent,
+                          "lead_flag": read_lead_flag(room.name)}, indent=2))
         return
     # atr is a CLI and cannot call T3 MCP tools: only the lead agent can call delegate_task. No top-level thread is made.
     print(json.dumps({"tool": "delegate_task", "title": title, "role": "implementation", "isolation": "worktree",
@@ -2630,18 +1948,26 @@ def delegate_task_text(room, item, text):
             "Keep all atr updates in that store; source resources are separate. You are a child thread and take no "
             "messages: report to the lead via your final answer and `atr need`.")
 
-def tell_thread(thread, text):
-    related = lead_rooms(thread)
-    room = related[0] if len(related) == 1 else ""
-    action = queue_t3_action("message", thread, text, room=room)
-    return delivery_actions()[action["id"]]["state"] == "confirmed"
+def write_views(room):
+    """Regenerate the room's derived README.md and decisions/INDEX.md; the one place that writes them."""
+    md, _ = render(room)
+    durable_write(room.dir / "README.md", md)
+    durable_write(room.dir / "decisions" / "INDEX.md", render_index(room))
 
+def web_state(want=""):
+    """The /api/state body, read in one store transaction; None when `want` names no room."""
+    with store_transaction():
+        rooms = rooms_from([])
+        if want and want not in {room.name for room in rooms}:
+            return None
+        return {"rooms": [room_json(x, x.name == want) for x in rooms], "now": stamp(), "t3": t3_status()}
 
-def _tell_thread(thread, text):
-    return tell_thread(thread, text)
-
-def tell_lead(room, text):
-    return tell_thread(active_lead(room), text)
+def web_record(room_name, rid):
+    """The /api/record body; SystemExit for an unknown room, StopIteration for an unknown record."""
+    with store_transaction():
+        room = known_room(room_name)
+        rec = next(x for x in room.items + room.decisions + ([room.goal] if room.goal else []) if x["id"] == rid)
+        return record_json(room, rec)
 
 def web_question(room, d, note, push):
     """A follow-up question in place of an answer: the card stays open, the lead is woken to reply."""
@@ -2651,10 +1977,10 @@ def web_question(room, d, note, push):
     d.append_to("Questions", f'- Q · {OWNER} · {room.local(now())}: "{note}"')
     d.set("updated", stamp())
     d.save()
-    action = queue_t3_action("message", active_lead(room), f'The owner asked a question on {d["id"]} ({d["title"]}) instead of answering: "{note}". '
+    notify_lead(room, f'The owner asked a question on {d["id"]} ({d["title"]}) instead of answering: "{note}". '
                      f'The card stays open. Reply this turn with: bin/atr reply {room.name} {d["id"]} "<your answer>" '
-                     f'(it shows on the card), and change the options if the answer changes them. Do not answer for the owner.', room=room.name, source=d)
-    return {"ok": True, "action": action["id"], "told_lead": False}
+                     f'(it shows on the card), and change the options if the answer changes them. Do not answer for the owner.')
+    return {"ok": True}
 
 def cmd_reply(a):
     room = Room(a.room)
@@ -2708,16 +2034,14 @@ def _web_answer(room, rid, choice, note, push, by=OWNER, quote="", source="", ex
     d.save()
     extra = after_answer(room, d, choice)
     room = Room(room.name)
-    md, _ = render(room)
-    durable_write(room.dir / "README.md", md)
-    durable_write(room.dir / "decisions" / "INDEX.md", render_index(room))
+    write_views(room)
     unblocks = ", ".join(i["id"] for i in blocked["items"]) or "nothing listed"
-    action = queue_t3_action("message", active_lead(room), f"The owner answered {rid} ({d['title']}): {choice}) {label}"
+    notify_lead(room, f"The owner answered {rid} ({d['title']}): {choice}) {label}"
                      + (f'. Note: "{note}"' if note else "")
                      + f". {src[:1].upper() + src[1:]}; the record is final in {d.path.relative_to(ROOT)}."
                      + (f" {extra}" if extra else "")
-                     + f" It unblocks: {unblocks}. Act on eligible work now, don't ask again.", room=room.name, source=d)
-    return {"ok": True, "action": action["id"], "told_lead": False}
+                     + f" It unblocks: {unblocks}. Act on eligible work now, don't ask again.")
+    return {"ok": True}
 
 def cmd_inbox(a):
     """What the owner did on the page since this room's inbox was last read. `t3 thread send` can't steer a busy
@@ -2745,29 +2069,18 @@ def cmd_inbox(a):
         news.append((paused, f"PAUSED at {room.local(paused)}: stop dispatching (see the skill)"))
     for t, line in sorted(news):
         print(f"{room.local(t)}  {line}")
-    actions = delivery_actions()
-    acknowledged = False
-    for action in actions.values():
-        if action["room"] == room.name and action["kind"] == "message" and action["state"] == "pending" and not action["attempts"]:
-            print(f"Pending notice {action['id']}: {action['payload']}")
-            action.update(state="superseded", evidence="Acknowledged through the local inbox; no T3 delivery attempted")
-            acknowledged = True
-    if acknowledged:
-        save_delivery_actions(actions)
+    flag = read_lead_flag(room.name)
+    if flag:
+        print(f"Not delivered to you ({flag['reason']}; {flag['missed']} notice(s)): {flag['text']}")
+        clear_lead_flag(room.name)
+        if flag.get("offer"):                 # the lead has now read it: don't offer the same set again
+            _record_offer(room.name, flag["offer"])
     if not news:
         print(f"nothing new since {room.local(since) if since else 'the start'}")
     durable_write(mark, stamp())
 
-def web_nudge(room, note):
-    state, detail = continuity(room)
-    note = re.sub(r"\s+", " ", note or "").strip()[:500]
-    action = queue_t3_action("message", active_lead(room),
-                f"A local nudge was saved for {room.name}: {state} ({detail})." + (f" Note: {note}" if note else "")
-                + " Read the room and advance eligible work after checking its current gates.", room=room.name, source=room.brief)
-    return {"ok": True, "action": action["id"], "told_lead": False}
-
-def create_room_files(d, title, thread, waive_prd, t):
-    """The room directory, BRIEF and now-head (PRD waived when `waive_prd` is a reason). Shared by `room new` and `setup`."""
+def create_room_files(d, title, thread, t):
+    """The room directory, BRIEF and now-head."""
     durable_mkdir(d / "items", parents=True)
     durable_mkdir(d / "decisions")
     durable_mkdir(d / "notes")
@@ -2775,11 +2088,8 @@ def create_room_files(d, title, thread, waive_prd, t):
     brief = re.sub(r"^title:", f"created: {stamp(t)}\ntitle:", brief, count=1, flags=re.M)
     brief = re.sub(r"^lead_thread:[ \t]*", f"lead_thread: {thread}  ", brief, count=1, flags=re.M)
     durable_write(d / "BRIEF.md", brief)
-    if waive_prd:
-        durable_write(d / "now-head.md", (TEMPLATES / "now-head.md").read_text().format(phase="starting", now=stamp(t)))
-        brief_record = Record(d / "BRIEF.md")
-        brief_record.set("prd", f"waived ({waive_prd})")
-        brief_record.save()
+    durable_write(d / "now-head.md", (TEMPLATES / "now-head.md").read_text().format(
+        phase="Goal: not written yet, building locked", now=stamp(t)))
 
 RENAME_HINT = "Next: rename your thread to 'Room · {room} · lead' (t3_thread_update, action rename)"
 NO_LEAD_HINT = "Next: give the room a lead. Run `atr lead {room}` and paste what it prints into a T3 thread"
@@ -2798,161 +2108,22 @@ def cmd_room(a):
         sys.exit(f"refused: thread {thread} already leads rooms/{taken[0]}. One thread is one room: a new feature or "
                  "project needs a new T3 thread and a new team. Ask the owner to start one; don't reuse this thread.")
     t = now()
-    create_room_files(d, a.title, thread, a.waive_prd, t)
-    if a.waive_prd:
-        print(f"rooms/{a.name}: BRIEF created, PRD waived ({a.waive_prd}); create items with atr new item")
-        print(next_hint(a.name, thread))
-        return
-    durable_write(d / "now-head.md", (TEMPLATES / "now-head.md").read_text().format(
-        phase="PRD: product lead drafting, building locked", now=stamp(t)))
-    durable_write(d / "PRD.md", (TEMPLATES / "prd.md").read_text().format(
-        title=a.title, ux="none" if a.no_ux else "ux", now=stamp(t)))
-    room = Room(a.name)
-    def item(title, owner, accept, depends=()):
-        rid = next_id(room.items, "T")
-        text = (TEMPLATES / "item.md").read_text().format(
-            id=rid, title=title, owner=owner, depends=", ".join(depends), locks="", cap="", now=stamp(t),
-            hhmm=logstamp(t), by="lead").replace("cap_h:", "phase: prd\ncap_h:", 1)
-        text = text.replace("## Acceptance\n- [ ] ", "## Acceptance\n" + "\n".join(f"- [ ] {x}" for x in accept), 1)
-        durable_write(room.dir / "items" / f"{rid}-{slug(title)}.md", text)
-        room.items.append(Record(room.dir / "items" / f"{rid}-{slug(title)}.md"))
-        return rid
-    ux = None if a.no_ux else item("UX research for the PRD", "ux",
-        ["research questions agreed with the product lead", "findings written in notes/ux-research.md, linked from the PRD"])
-    context = item("Context: what exists", "techlead",
-        ["related prior work read; owner answers and relevant constraints recorded with sources",
-         "repo AGENTS.md, .agents/skills and the docs/architecture pages that apply linked at a commit in notes/context.md",
-         "code owners and source provenance recorded",
-         "required execution and data boundaries documented with evidence"])
-    draft = item("Draft the PRD", "product", ["every PRD.md section filled", "open questions are D/A records",
-                 "Product lead line signed in Sign-off"], [ux] if ux else [])
-    item("Tech review of the PRD", "techlead", ["notes/tech-approach.md written (riskiest assumption has a first test, one-way doors listed)",
-         "each FR/NFR is testable (a test can be written for it)", "Tech lead line signed in Sign-off"], [draft, context])
-    print(f"rooms/{a.name}: BRIEF, PRD draft and PRD items created; building stays locked until the owner agrees the PRD")
+    create_room_files(d, a.title, thread, t)
+    print(f"rooms/{a.name}: BRIEF created; building stays locked until the owner approves a goal "
+          f"(atr goal {a.name} new ..., then atr goal {a.name} approve)")
     print(next_hint(a.name, thread))
-
-def cmd_prd(a):
-    room = Room(a.room)
-    prd = room.prd
-    if not prd:
-        sys.exit(f"{room.name} has no PRD.md")
-    if a.action == "review":
-        signoff = prd.section("Sign-off")
-        missing = [who for who in ("Product lead", "Tech lead")
-                   if not re.search(rf"^{who}:[ \t]*\S", signoff, re.M)]
-        if missing:
-            sys.exit(f"PRD not signed by: {', '.join(missing)} (Sign-off section)")
-        if any(d["type"] == "prd" and d["status"] == "open" for d in room.decisions):
-            sys.exit("a PRD decision is already open")
-        prd.set("status", "review")
-        prd.set("updated", stamp())
-        prd.save()
-        rid = next_id(room.decisions, "D")
-        blocks = [i["id"] for i in room.items if i["phase"] != "prd" and i["state"] not in ("done", "dropped")]
-        text = (TEMPLATES / "decision.md").read_text().format(
-            id=rid, title=f"Agree PRD: {prd['title']}?", type="prd", door="one", decider=OWNER,
-            source='"PRD.md"', now=stamp())
-        text = text.replace("## Options\na) \nb) \n", "## Options\na) Agreed: start building\n"
-                            "b) Changes needed (say what in the note)\n", 1)
-        text = text.replace("blocks: []", f"blocks: [{', '.join(blocks)}]", 1)
-        text = text.replace("## Why it matters\n", "## Why it matters\nBuilding is locked until this is agreed. "
-                            "Read the PRD: tap PRD at the top of the page.\n", 1)
-        path = room.dir / "decisions" / f"{rid}-agree-prd.md"
-        durable_write(path, text)
-        publish_card(room, rid, f"{room.name}: PRD to review", path)
 
 def publish_card(room, rid, msg, path):
     """Open a locally readable review card after its records are durable."""
-    md, _ = render(Room(room.name))
-    durable_write(room.dir / "README.md", md)
-    durable_write(room.dir / "decisions" / "INDEX.md", render_index(Room(room.name)))
+    write_views(Room(room.name))
     print(path.relative_to(ROOT))
     print(f"{rid} saved locally and available for review")
-def cmd_refinement(a):
-    room = Room(a.room)
-    if not room.prd:
-        sys.exit(f"{room.name} has no PRD.md; refinements change an agreed PRD")
-    if a.what == "new":
-        if not a.title:
-            sys.exit('usage: atr refinement ROOM new "title" --touches FR4 [--supersedes RF01]')
-        refuse_closed(room, "refinements")
-        touches = [x.strip() for t in a.touches or [] for x in t.split(",") if x.strip()]
-        sup = [x.strip().upper() for t in a.supersedes or [] for x in t.split(",") if x.strip()]
-        if not touches:
-            sys.exit("a refinement changes something: name the PRD ids it touches (--touches FR4). No id to name means it is a pivot")
-        known = {r["id"] for r in room.refinements}
-        if set(sup) - known:
-            sys.exit(f"no such refinement to supersede: {', '.join(sorted(set(sup) - known))}")
-        rid = next_id(room.refinements, "RF")
-        text = (TEMPLATES / "refinement.md").read_text().format(
-            id=rid, title=a.title, touches=", ".join(touches), supersedes=", ".join(sup), now=stamp())
-        durable_mkdir(room.dir / "refinements", exist_ok=True)
-        path = room.dir / "refinements" / f"{rid}-{slug(a.title)}.md"
-        durable_write(path, text)
-        print(path.relative_to(ROOT))
-        return
-    rf = next((r for r in room.refinements if r["id"].lower() == a.what.lower()), None)
-    if not rf or a.title != "review":
-        sys.exit(f"usage: atr refinement {room.name} new \"title\" --touches FR4 | atr refinement {room.name} RFnn review")
-    if rf["status"] not in ("draft", "review"):
-        sys.exit(f"{rf['id']} is {rf['status']}; only a draft goes to review")
-    signoff = rf.section("Sign-off")
-    missing = [who for who in ("Product lead", "Tech lead") if not re.search(rf"^{who}:[ \t]*[^\s(]", signoff, re.M)]
-    if missing:
-        sys.exit(f"{rf['id']} not signed by: {', '.join(missing)} (Sign-off section; Tech lead may say n/a)")
-    if any(d["type"] == "refinement" and d["source"] == rf["id"] and d["status"] == "open" for d in room.decisions):
-        sys.exit(f"an Agree {rf['id']} card is already open")
-    rf.set("status", "review")
-    rf.set("updated", stamp())
-    rf.save()
-    rid = next_id(room.decisions, "D")
-    blocks = [i["id"] for i in room.items if i["state"] not in ("done", "dropped")
-              and re.search(rf"\b{rf['id']}\b", i.path.read_text())]
-    text = (TEMPLATES / "decision.md").read_text().format(
-        id=rid, title=f"Agree {rf['id']}: {rf['title']}?", type="refinement", door="two", decider=OWNER,
-        source=f'"{rf["id"]}"', now=stamp())
-    text = text.replace("## Options\na) \nb) \n", "## Options\na) Agreed: this is now binding\n"
-                        "b) Changes needed (say what in the note)\n", 1)
-    text = text.replace("blocks: []", f"blocks: [{', '.join(blocks)}]", 1)
-    text = text.replace("## Why it matters\n", "## Why it matters\nIt changes " + ", ".join(rf["touches"]) +
-                        f" ({rf['kind']}) inside the agreed PRD. Nothing waits on it unless an item cites {rf['id']}. "
-                        "Read it through the RF chip at the top of the page.\n", 1)
-    path = room.dir / "decisions" / f"{rid}-agree-{rf['id'].lower()}.md"
-    durable_write(path, text)
-    publish_card(room, rid, f"{room.name}: {rf['id']} to review", path)
-
-def set_team(room, team):
-    room.brief.set("team", [f"{r}={n} ({pr})" for r, (n, pr) in team.items()])
-    room.brief.save()
-
-def cmd_name(a):
-    room = Room(a.room)
-    if not room.brief:
-        sys.exit(f"{room.name}: no BRIEF.md")
-    name = a.name.strip().capitalize()
-    if not re.fullmatch(r"[A-Za-zÀ-ÿ'-]{2,20}", name):
-        sys.exit("a first name, one word")
-    taken = {n.lower(): r for r, (n, _) in room.team.items() if r != a.role}
-    if name.lower() in taken:
-        sys.exit(f"{name} is taken by {taken[name.lower()]}; pick another")
-    if a.role in room.team and not a.force:
-        sys.exit(f"{a.role} is already {room.team[a.role][0]}; use --force to rename")
-    team = dict(room.team)
-    team[a.role] = (name, a.pronoun)
-    she = sum(1 for _, pr in team.values() if pr == "she")
-    he = sum(1 for _, pr in team.values() if pr == "he")
-    if abs(she - he) > 1:
-        need = "she" if she < he else "he"
-        sys.exit(f"that makes {she} she / {he} he; pick a name for '{need}' to keep the team even")
-    set_team(room, team)
-    print(f"{a.role} is now {name} ({a.pronoun}) · team {she} she / {he} he")
-
 def cmd_rooms(a):
     (cmd_room if a.verb == "new" else cmd_rooms_list)(a)
 
 def room_state(room):
-    """closed, paused, standing or open: closed wins, then an explicit pause."""
-    return "closed" if room.closed else "paused" if room.paused else "standing" if is_standing(room) else "open"
+    """closed, paused or open: closed wins, then an explicit pause."""
+    return "closed" if room.closed else "paused" if room.paused else "open"
 
 def cmd_rooms_list(a):
     """Read-only: one line per room under rooms/; writes nothing."""
@@ -2968,14 +2139,6 @@ def cmd_rooms_list(a):
     for r in rows:
         print("  ".join(c.ljust(w[i]) for i, c in enumerate(r[:4])) + "  " + r[4])
 
-def cmd_team(a):
-    for room in rooms_from(a.rooms):
-        print(f"{room.title}:")
-        for r, (n, pr) in room.team.items():
-            print(f"  {n:<10} {pr:<4} {r}")
-        she = sum(1 for _, pr in room.team.values() if pr == "she")
-        print(f"  {she} she / {len(room.team) - she} he")
-
 def web_pause(room, pause, note, push, by="", until="", expected_revision=None):
     """Save an explicit operator pause or resume and queue a T3 notice."""
     if not room.brief:
@@ -2987,15 +2150,14 @@ def web_pause(room, pause, note, push, by="", until="", expected_revision=None):
             if room.brief["paused_until"]:
                 room.brief.set("paused_until", "")
             room.brief.save()
-        return {"ok": True, "told_lead": False, "already": True}
+        return {"ok": True, "already": True}
     room.brief.set("paused", stamp() if pause else "")
     room.brief.set("paused_by", by if pause else "")
     if until or room.brief["paused_until"]:
         room.brief.set("paused_until", until if pause else "")
     room.brief.save()
     room = Room(room.name)
-    md, _ = render(room)
-    durable_write(room.dir / "README.md", md)
+    write_views(room)
     note = re.sub(r"\s+", " ", note or "").strip()[:500]
     how = "tapped on the atr page"
     if pause:
@@ -3010,9 +2172,10 @@ def web_pause(room, pause, note, push, by="", until="", expected_revision=None):
                + "tapped on the atr page" + ")."
                + (f' Note: "{note}".' if note else "")
                + " Pick up where you stopped: re-read the room, then re-dispatch the items that were in flight.")
-    action = queue_t3_action("message", active_lead(room), msg,
-                            room=room.name, source=room.brief, allow_paused=True)
-    return {"ok": True, "told_lead": False, "action": action["id"]}
+    notify_lead(room, msg, allow_paused=True)
+    if not pause:
+        trigger_offer(room.name)
+    return {"ok": True}
 
 def cmd_serve(a):
     import http.server, json, threading
@@ -3088,20 +2251,16 @@ def cmd_serve(a):
                 return self.send(200, page, "text/html; charset=utf-8", "no-cache", True)
             if r == "/api/state":
                 want = self.query().get("room", "")
-                rooms = rooms_from([])
-                if want and want not in {room.name for room in rooms}:
+                body = web_state(want)
+                if body is None:
                     return self.send(404, b'{"error":"no such room"}')
-                body = {"rooms": [room_json(x, x.name == want) for x in rooms], "now": stamp(), "t3": t3_status()}
                 return self.send(200, json.dumps(body).encode(), cache="no-cache", etag=True)
             if r == "/api/search":      # only q is read; files come from the fixed globs in _search_sources
                 return self.send(200, json.dumps(search_data(self.query().get("q", ""))).encode())
             if r == "/api/record":
                 q = self.query()
                 try:
-                    room = known_room(q.get("room", ""))
-                    rec = next(x for x in room.items + room.decisions + room.refinements + ([room.prd] if room.prd else [])
-                               if x["id"] == q.get("id"))
-                    return self.send(200, json.dumps(record_json(room, rec)).encode())
+                    return self.send(200, json.dumps(web_record(q.get("room", ""), q.get("id"))).encode())
                 except (SystemExit, OSError):
                     return self.send(404, b'{"error":"no such room"}')
                 except StopIteration:
@@ -3121,7 +2280,7 @@ def cmd_serve(a):
                 return self.send(500, json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"}).encode())
 
         def post_request(self):
-            if self.route() not in ("/api/answer", "/api/pause", "/api/nudge"):
+            if self.route() not in ("/api/answer", "/api/pause"):
                 return self.send(404, b'{"error":"not found"}')
             if allowed and self.headers.get("Tailscale-User-Login", "") not in allowed:
                 return self.send(403, b'{"error":"not allowed"}')
@@ -3129,9 +2288,7 @@ def cmd_serve(a):
                 return self.send(415, b'{"error":"json only"}')
             try:
                 req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
-                if self.route() == "/api/nudge":
-                    res = web_nudge(known_room(req["room"]), req.get("note", ""))
-                elif self.route() == "/api/pause":
+                if self.route() == "/api/pause":
                     res = web_pause(known_room(req["room"]), bool(req["paused"]), req.get("note", ""), False,
                                     expected_revision=req.get("revision"))
                 else:
@@ -3152,697 +2309,6 @@ def cmd_serve(a):
     print(f"atr web on http://{a.host}:{a.port}/")
     srv.serve_forever()
 
-# ---------- setup + feedback ----------
-# First-run bootstrap: the `process` room and an optional standing maintainer thread that receives feedback on
-# PROTOCOL.md, skills/lead/SKILL.md and the charters. The maintainer
-# thread is, in order, env ATR_MAINTAINER_THREAD, the file .atr/operator/maintainer_thread in the store,
-# the lead_thread of room `process`.
-
-PROCESS_ROOM = "process"
-PROCESS_TITLE = "Maintain the protocol, lead skill and charters from feedback"
-PROCESS_WAIVE = "standing room: feedback items, not a feature, so no PRD"
-FEEDBACK_DOCS = ("PROTOCOL", "skill", "charter")
-FEEDBACK_DEDUPE_H = 24
-MAINTAINER_STUB = ("Maintain the atr coordination rules and core workflow from feedback recorded in room process. "
-                   "Read PROTOCOL.md and skills/lead/SKILL.md. Inspect the requested feedback and its evidence, "
-                   "record the outcome and successor, and preserve the owner's review gates. "
-                   "Keep work bounded to the requested maintenance; publication, deployment and live store changes "
-                   "require their applicable authorization.")
-
-def config_dir():
-    return ROOT / ".atr/operator"
-
-def read_setup():
-    try:
-        return json.loads((config_dir() / "setup.json").read_text())
-    except (OSError, ValueError):
-        return {}
-
-def write_setup(data):
-    durable_mkdir(config_dir(), parents=True, exist_ok=True)
-    durable_write(config_dir() / "setup.json", json.dumps(data, indent=2, sort_keys=True) + "\n")
-
-def room_lead(name):
-    b = ROOMS / name / "BRIEF.md"
-    return (Record(b)["lead_thread"] or "").strip() if b.exists() else ""
-
-def maintainer_thread(fallback=True):
-    """(thread id, source) of the maintainer thread, or ("", ""). fallback=False: only the env var and the config file."""
-    env = os.environ.get("ATR_MAINTAINER_THREAD", "").strip()
-    if env:
-        return env, "env ATR_MAINTAINER_THREAD"
-    try:
-        f = (config_dir() / "maintainer_thread").read_text().strip()
-    except OSError:
-        f = ""
-    if f:
-        return f, tilde(config_dir() / "maintainer_thread")
-    if fallback:
-        t = room_lead(PROCESS_ROOM)
-        if t:
-            return t, f"lead_thread of room {PROCESS_ROOM}"
-    return "", ""
-
-def maintainer_prompt():
-    return (f"{MAINTAINER_STUB}\n\n---\nAtr data: {ROOT}\n"
-            f"Rules: {SOURCE_ROOT / 'PROTOCOL.md'}\nLead guidance: {SOURCE_ROOT / 'skills/lead/SKILL.md'}\n"
-            f"Room: {PROCESS_ROOM}. `export ATR_AS=Maintainer`.\n"
-            f"Initialize this existing room now: read BRIEF.md, now-head.md and the binding brief, "
-            f"find your own thread id and run atr lead {PROCESS_ROOM} YOUR_THREAD_ID using the command below. "
-            "Rename yourself Room · process · lead and pin yourself using T3 tools. "
-            "Fill the room goal, scope and repository/branch paths; update now-head with readiness and resume event. "
-            "For every owner instruction in this conversation, save its substance and your action in the tracker "
-            "before replying: create or update a bounded item, maintain its state, Result and successor, and keep "
-            "now-head current. Questions and status requests get a recorded answer; do not create busywork. "
-            "Check inbox and status before reporting initialization complete. "
-            "Stay available for explicitly requested feedback; do not start unrelated work.\n")
-
-def t3_launch_maintainer(prompt):
-    """Start the maintainer as a T3 thread, through the required bridge."""
-    return queue_t3_action("launch", t3_project(), prompt, room=PROCESS_ROOM,
-                           options={"title": "Room · process · lead", "purpose": "maintainer"})
-
-LAUNCH_MAINTAINER = t3_launch_maintainer     # tests replace these two; nothing runs at import time
-ASK = input
-
-def set_lead_thread(room_dir, thread):
-    b = room_dir / "BRIEF.md"
-    durable_write(b, re.sub(r"^lead_thread:[ \t]*[^#\n]*?(\s*#.*)?$", lambda m: f"lead_thread: {thread}" + (f"  {m.group(1).strip()}" if m.group(1) else ""),
-                        b.read_text(), count=1, flags=re.M))
-
-def check_setup():
-    """List of what is missing; empty when set up."""
-    out, cfg = [], read_setup()
-    if not (ROOMS / PROCESS_ROOM / "BRIEF.md").exists():
-        out.append(f"room {PROCESS_ROOM} is missing: run bin/atr setup")
-    if "maintainer" not in cfg:
-        out.append(f"{config_dir() / 'setup.json'}: no choice recorded about a maintainer thread: run bin/atr setup")
-    elif cfg["maintainer"]:
-        tid, src = maintainer_thread()
-        if not tid:
-            out.append("maintainer thread: none recorded; recreate it with: bin/atr setup --recreate-maintainer")
-    return out
-
-def setup_warnings():
-    """Things worth a look that don't fail `setup --check`."""
-    cfg = read_setup()
-    if not cfg.get("maintainer"):
-        return []
-    tid, src = maintainer_thread()
-    if tid and (fetch_thread(tid) or {}).get("settled"):
-        return [f"maintainer thread {tid} ({src}) is settled; it must stay unsettled (unsettle it in T3, or "
-                "bin/atr setup --recreate-maintainer)"]
-    return []
-
-def on_path():
-    """True when the `atr` command found on PATH is this source's bin/atr."""
-    import shutil
-    found = shutil.which("atr")
-    return bool(found) and Path(found).resolve() == Path(__file__).resolve()
-
-RC_BEGIN = "# >>> atr >>>"      # opening marker of the block ./install.sh writes
-
-def login_shell():
-    return Path(os.environ.get("SHELL", "")).name
-
-def rc_file(shell=None):
-    """The startup file ./install.sh writes to for `shell` (default: $SHELL), or None for a shell it does not know."""
-    shell = shell or login_shell()
-    home = Path.home()
-    if shell == "fish":
-        return Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config") / "fish/config.fish"
-    if shell == "zsh":
-        return Path(os.environ.get("ZDOTDIR") or home) / ".zshrc"
-    if shell == "bash":
-        return home / ".bashrc"
-    return None
-
-def rc_has_atr(shell=None):
-    """True when the shell's startup file has the block ./install.sh writes."""
-    f = rc_file(shell)
-    try:
-        return bool(f) and RC_BEGIN in f.read_text()
-    except OSError:
-        return False
-
-# ---------- making atr discoverable to agents in T3 ----------
-# T3 has no skill directory of its own: its providers find skills (Claude Code in ~/.claude/skills, Codex in
-# ~/.codex/skills). Agents also don't inherit the owner's shell, so the `atr` function and ATR_DATA_DIR are
-# invisible to them; config.json records the store and the exact command instead.
-
-SKILL_NAME = "atr-lead"
-
-def skill_homes():
-    """[(provider, agent home, skill link)] for the providers T3 runs whose skills atr can be found by."""
-    home = Path.home()
-    claude = Path(os.environ.get("CLAUDE_CONFIG_DIR") or home / ".claude")
-    codex = Path(os.environ.get("CODEX_HOME") or home / ".codex")
-    return [("Claude Code", claude, claude / "skills" / SKILL_NAME), ("Codex", codex, codex / "skills" / SKILL_NAME)]
-
-def skill_source():
-    return SKILL_DIR.resolve()
-
-def skill_status():
-    """[(provider, link, state)]; state is linked, missing, other (something else is there) or no-agent."""
-    out = []
-    for provider, agent_home, link in skill_homes():
-        if link.is_symlink() or link.exists():
-            state = "linked" if link.resolve() == skill_source() else "other"
-        else:
-            state = "missing" if agent_home.is_dir() else "no-agent"
-        out.append((provider, link, state))
-    return out
-
-def install_skills():
-    """Link the lead skill into each installed provider's skills directory. Never replaces anything else."""
-    lines = []
-    for provider, link, state in skill_status():
-        if state == "missing":
-            durable_mkdir(link.parent, parents=True, exist_ok=True)
-            link.symlink_to(skill_source(), target_is_directory=True)
-            lines.append(("ok", f"lead skill: available to {provider} ({tilde(link)})"))
-        elif state == "linked":
-            lines.append(("ok", f"lead skill: available to {provider}"))
-        elif state == "other":
-            lines.append(("warn", f"lead skill: {tilde(link)} exists and is not atr's; left alone, so {provider} "
-                                  f"won't find atr's skill"))
-    if not any(state != "no-agent" for _, _, state in skill_status()):
-        lines.append(("warn", "lead skill: neither Claude Code nor Codex is installed here; "
-                              "run atr setup again after installing one"))
-    return lines
-
-def tilde(path):
-    p, home = str(path), str(Path.home())
-    return "~" + p[len(home):] if p == home or p.startswith(home + "/") else p
-
-def store_config_path():
-    home = Path.home()
-    xdg = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config")
-    return (xdg if xdg.is_absolute() else home / ".config") / "atr/config.json"
-
-def agent_command():
-    """How an agent runs atr without the owner's shell: this Python, isolated, this source."""
-    return shlex.join([sys.executable, "-I", str(Path(__file__).resolve())])
-
-def remember_store():
-    """Record this store and command in config.json so agents find both. Never repoints an existing choice."""
-    f = store_config_path()
-    try:
-        cfg = json.loads(f.read_text()) if f.exists() else {}
-    except (OSError, ValueError):
-        return ("warn", f"{tilde(f)} is unreadable; agents can't find the store from it. Fix or remove it, then run atr setup")
-    if not isinstance(cfg, dict):
-        return ("warn", f"{tilde(f)} is not a JSON object; fix or remove it, then run atr setup")
-    saved = cfg.get("data_dir")
-    if saved and Path(str(saved).replace("~", str(Path.home()), 1)).resolve() != ROOT:
-        return ("warn", f"{tilde(f)} points agents at {saved}, not this store ({tilde(ROOT)}); "
-                        "edit data_dir there if this store is the one you use")
-    if saved and cfg.get("command") == agent_command():
-        return ("ok", f"agents find this store through {tilde(f)}")
-    cfg.update(data_dir=str(ROOT), command=agent_command())
-    durable_mkdir(f.parent, parents=True, exist_ok=True)
-    durable_write(f, json.dumps(cfg, indent=2, sort_keys=True) + "\n")
-    return ("ok", f"agents find this store through {tilde(f)}")
-
-# ---------- the web page as a user service ----------
-# `atr serve` is the web page and also the T3 bridge's background loop (thread status, retrying queued deliveries).
-# A user service keeps it running from login: systemd --user on Linux, launchd on macOS. ATR_SERVICE=off disables
-# service management (tests); ATR_SYSTEMCTL / ATR_LAUNCHCTL name the tools.
-
-SERVICE_UNIT = "atr.service"
-LAUNCHD_LABEL = "atr.web"
-DEFAULT_PORT = 8787
-SERVICE_ENV = ("PATH", "T3CODE_CLI_PATH", "ATR_T3_PROJECT", "ATR_T3_BASE_DIR", "ATR_T3_TIMEOUT", "ATR_USERS")
-
-def read_config():
-    try:
-        cfg = json.loads(store_config_path().read_text())
-        return cfg if isinstance(cfg, dict) else {}
-    except (OSError, ValueError):
-        return {}
-
-def set_config(**values):
-    """Add keys to config.json; never rewrites a file atr can't read."""
-    f = store_config_path()
-    if f.exists() and not read_config():
-        try:
-            if json.loads(f.read_text()) != {}:
-                return
-        except (OSError, ValueError):
-            return
-    cfg = read_config()
-    cfg.update(values)
-    durable_mkdir(f.parent, parents=True, exist_ok=True)
-    durable_write(f, json.dumps(cfg, indent=2, sort_keys=True) + "\n")
-
-def web_port():
-    try:
-        return int(read_config().get("web_port") or DEFAULT_PORT)
-    except (TypeError, ValueError):
-        return DEFAULT_PORT
-
-def web_url(port=None):
-    return f"http://127.0.0.1:{port or web_port()}/"
-
-def web_alive(port=None, timeout=1.0):
-    """True when atr's page answers on the loopback port."""
-    import urllib.request
-    try:
-        with urllib.request.urlopen(web_url(port), timeout=timeout) as r:
-            return r.status == 200 and b"agent-rooms" in r.read(4096)
-    except (OSError, ValueError):
-        return False
-
-def wait_alive(port, seconds=6.0):
-    end = time.time() + seconds
-    while time.time() < end:
-        if web_alive(port):
-            return True
-        time.sleep(0.3)
-    return False
-
-def service_tool(kind):
-    import shutil
-    if kind == "systemd":
-        return os.environ.get("ATR_SYSTEMCTL") or shutil.which("systemctl")
-    return os.environ.get("ATR_LAUNCHCTL") or shutil.which("launchctl")
-
-def service_kind():
-    """'systemd', 'launchd' or None (no user service manager, or ATR_SERVICE=off)."""
-    if os.environ.get("ATR_SERVICE") == "off":
-        return None
-    if sys.platform == "darwin":
-        return "launchd" if service_tool("launchd") else None
-    tool = service_tool("systemd")
-    if not tool:
-        return None
-    try:
-        r = subprocess.run([tool, "--user", "show-environment"], capture_output=True, timeout=10)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    return "systemd" if r.returncode == 0 else None
-
-def service_file(kind):
-    if kind == "systemd":
-        return store_config_path().parent.parent / "systemd/user" / SERVICE_UNIT
-    return Path.home() / "Library/LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
-
-def service_argv(port):
-    return [sys.executable, "-I", str(Path(__file__).resolve()), "--data-dir", str(ROOT),
-            "serve", "--host", "127.0.0.1", "--port", str(port)]
-
-def service_definition(kind, port):
-    env = {k: os.environ[k] for k in SERVICE_ENV if os.environ.get(k)}
-    if kind == "systemd":
-        q = lambda v: '"' + v.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%") + '"'
-        return ("[Unit]\nDescription=atr web page and T3 bridge\n\n[Service]\n"
-                f"ExecStart={' '.join(q(x) for x in service_argv(port))}\n"
-                + "".join(f"Environment={q(f'{k}={v}')}\n" for k, v in env.items())
-                + "Restart=on-failure\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n")
-    import plistlib
-    log = str(Path.home() / "Library/Logs/atr.log")
-    return plistlib.dumps({"Label": LAUNCHD_LABEL, "ProgramArguments": service_argv(port), "EnvironmentVariables": env,
-                           "RunAtLoad": True, "KeepAlive": True, "StandardOutPath": log, "StandardErrorPath": log}).decode()
-
-def service_run(kind, *args):
-    tool = service_tool(kind)
-    cmd = [tool, "--user", *args] if kind == "systemd" else [tool, *args]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        return False, str(e)
-    return r.returncode == 0, (r.stderr or r.stdout).strip()
-
-def launchd_domain():
-    return f"gui/{os.getuid()}"
-
-def install_service(port=None):
-    """Install or refresh the user service and start it. Returns (mark, line)."""
-    kind = service_kind()
-    if not kind:
-        return ("warn", "web page: no user service manager here (systemd --user or launchd); open it with: atr open")
-    port = port or web_port()
-    f = service_file(kind)
-    taken = web_alive(port) and not f.exists()     # an `atr serve` someone started by hand holds the port
-    durable_mkdir(f.parent, parents=True, exist_ok=True)
-    durable_write(f, service_definition(kind, port))
-    set_config(web_port=port)
-    if kind == "systemd":
-        steps = [("daemon-reload",), ("enable", SERVICE_UNIT), ("restart", SERVICE_UNIT)]
-    else:
-        service_run(kind, "bootout", f"{launchd_domain()}/{LAUNCHD_LABEL}")
-        steps = [("bootstrap", launchd_domain(), str(f))]
-    for step in steps:
-        ok, detail = service_run(kind, *step)
-        if not ok:
-            return ("warn", f"web page: could not start the service ({' '.join(step)}: {detail}); "
-                            "see atr service status")
-    if taken:
-        return ("warn", f"web page: service installed, but something already serves {web_url(port)} (an atr serve "
-                        "you started?). Stop it; the service takes over within seconds and then starts when you log in")
-    if wait_alive(port):
-        return ("ok", f"web page: running at {web_url(port)} (starts when you log in)")
-    return ("warn", f"web page: service installed but nothing answers at {web_url(port)} yet "
-                    f"(another program on port {port}?); see atr service status")
-
-def uninstall_service():
-    kind = service_kind()
-    if not kind or not service_file(kind).exists():
-        return ("ok", "web page: no service installed")
-    f = service_file(kind)
-    if kind == "systemd":
-        service_run(kind, "disable", "--now", SERVICE_UNIT)
-        f.unlink()
-        service_run(kind, "daemon-reload")
-    else:
-        service_run(kind, "bootout", f"{launchd_domain()}/{LAUNCHD_LABEL}")
-        f.unlink()
-    return ("ok", f"web page: service removed ({tilde(f)})")
-
-def restart_service():
-    kind = service_kind()
-    if not kind or not service_file(kind).exists():
-        return None
-    if kind == "systemd":
-        return service_run(kind, "restart", SERVICE_UNIT)
-    return service_run(kind, "kickstart", "-k", f"{launchd_domain()}/{LAUNCHD_LABEL}")
-
-def service_summary():
-    """One line about the web page for doctor and status."""
-    kind = service_kind()
-    installed = bool(kind) and service_file(kind).exists()
-    alive = web_alive()
-    if installed and alive:
-        return f"Web page: {web_url()} (user service)"
-    if installed:
-        return f"note: the web page service is installed but nothing answers at {web_url()}; see atr service status"
-    if alive:
-        return f"Web page: {web_url()} (not a service; it stops with its terminal. To keep it running: atr service install)"
-    return "note: the web page isn't running. Keep it running with: atr service install (or open it once: atr open)"
-
-def cmd_service(a):
-    if a.verb == "install":
-        mark, line = install_service(a.port)
-        print(line)
-        if mark != "ok":
-            sys.exit(1)
-    elif a.verb == "uninstall":
-        print(uninstall_service()[1])
-    elif a.verb == "restart":
-        r = restart_service()
-        if r is None:
-            sys.exit("no service installed; install it with: atr service install")
-        if not r[0]:
-            sys.exit(f"restart failed: {r[1]}")
-        print(f"restarted; {'running at ' + web_url() if wait_alive(web_port()) else 'not answering yet'}")
-    else:
-        kind = service_kind()
-        print(f"Service manager: {kind or 'none found'}")
-        if kind:
-            f = service_file(kind)
-            print(f"Service file: {tilde(f)}" + ("" if f.exists() else " (not installed)"))
-            if f.exists() and kind == "systemd":
-                print("State: " + (service_run(kind, "is-active", SERVICE_UNIT)[1] or "unknown")
-                      + f" (logs: journalctl --user -u {SERVICE_UNIT})")
-            elif f.exists():
-                print(f"Logs: {tilde(Path.home() / 'Library/Logs/atr.log')}")
-        print(f"Web page: {web_url()} " + ("answers" if web_alive() else "does not answer"))
-
-def cmd_open(a):
-    """Open the web page, starting it first if it isn't running."""
-    port = web_port()
-    if not web_alive(port):
-        if restart_service() is None:
-            durable_mkdir(ROOT / ".atr", parents=True, exist_ok=True)
-            log = open(ROOT / ".atr/serve.log", "ab")
-            subprocess.Popen(service_argv(port), stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
-            print(f"started the web page in the background (log: {tilde(ROOT / '.atr/serve.log')}); "
-                  "to keep it running across logins: atr service install")
-        if not wait_alive(port, 10):
-            sys.exit(f"the web page didn't come up at {web_url(port)}; see atr service status")
-    print(web_url(port))
-    if not a.no_browser:
-        import webbrowser
-        webbrowser.open(web_url(port))
-
-def env_snippet(shell=None):
-    """The lines ./install.sh puts in the shell's startup file, for `shell` (default: $SHELL); fish, zsh or bash."""
-    shell = shell if shell in ("fish", "zsh", "bash") else (login_shell() if login_shell() in ("fish", "zsh", "bash") else "bash")
-    q, py, exe = shlex.quote, shlex.quote(sys.executable), shlex.quote(str(Path(__file__).resolve()))
-    comp = shlex.quote(str(SOURCE_ROOT / "completions" / f"atr.{shell}"))
-    if shell == "fish":
-        return [f"set -gx ATR_DATA_DIR {q(str(ROOT))}", f"function atr; {py} -I {exe} $argv; end", f"source {comp}"]
-    return [f"export ATR_DATA_DIR={q(str(ROOT))}", "unalias atr 2>/dev/null", f'function atr {{ {py} -I {exe} "$@"; }}', f". {comp}"]
-
-def path_note():
-    if on_path() or rc_has_atr():
-        return []
-    return [f"atr is not on your PATH; run {SOURCE_ROOT / 'install.sh'} to add it to your shell's startup file, or see the lines with: atr setup --print-env"]
-
-def cmd_setup(a):
-    if getattr(a, "print_env", False):
-        return _cmd_setup_local(a)      # prints only: no T3 lookups, no store lock
-    if not a.check:
-        # prerequisite first (FR9): before anything else is created
-        offer_t3(a, lambda line, mark="ok": print(line))
-    try:
-        return _cmd_setup(a)
-    finally:
-        if not a.check and not getattr(a, "skip_t3", False) and not t3_configured():
-            print(T3_MISSING)
-
-def _cmd_setup(a):
-    # Ask T3 about the maintainer thread before taking the store lock: under the lock, lookups read only
-    # the cache, and an empty cache would read as "T3 does not find it".
-    for fallback in (False, True):
-        tid, _ = maintainer_thread(fallback=fallback)
-        if tid:
-            refresh_thread(tid)
-    return _cmd_setup_local(a)
-
-def _cmd_setup_local(a):
-    if getattr(a, "print_env", False):
-        print("\n".join(env_snippet(a.print_env if isinstance(a.print_env, str) else None)))
-        return
-    # install.sh sets ATR_INSTALLER and has already reported T3, the data directory and the PATH
-    from_installer = os.environ.get("ATR_INSTALLER") == "1"
-    if not from_installer:
-        print("T3: skipped (--skip-t3)" if getattr(a, "skip_t3", False) else
-              "T3: configured; runtime acceptance unverified" if t3_configured() else "T3: not found (required)")
-    if a.check:
-        problems = check_setup()
-        if not t3_configured() and not getattr(a, "skip_t3", False):
-            problems.insert(0, T3_MISSING.replace("\n", "; ") + " (CI or restore: --skip-t3)")
-        for w in setup_warnings():
-            print(f"warning: {w}")
-        for p in problems:
-            print(f"missing: {p}")
-        if problems:
-            sys.exit(1)
-        print("setup ok")
-        for n in path_note():
-            print(f"note: {n}")
-        return
-    for n in ([] if from_installer else path_note()):
-        print(f"note: {n}")
-    def say(line, mark="ok"):
-        """One status line; under install.sh, in its style (indented, marked)."""
-        if not from_installer:
-            return print(line)
-        tty = sys.stdout.isatty() and not os.environ.get("NO_COLOR") and os.environ.get("TERM", "dumb") != "dumb"
-        utf = "utf" in (os.environ.get("LC_ALL") or os.environ.get("LC_CTYPE") or os.environ.get("LANG") or "").lower()
-        sym, color = {"ok": ("✓" if utf else "+", "32"), "warn": ("!", "33"), "ask": ("?", "36")}[mark]
-        print(f"  \033[{color}m{sym}\033[0m {line}" if tty else f"  {sym} {line}", end="" if mark == "ask" else "\n",
-              flush=True)
-    d = ROOMS / PROCESS_ROOM
-    created = not d.exists()
-    if created:
-        create_room_files(d, PROCESS_TITLE, "", PROCESS_WAIVE, now())
-    if ensure_standing(d) or created:
-        say(f"room {PROCESS_ROOM} created: it stays open and collects feedback on the protocol and lead skill")
-    mark, line = remember_store()
-    say(line, mark)
-    if not getattr(a, "no_skills", False):
-        for mark, line in install_skills():
-            say(line, mark)
-    if not getattr(a, "no_service", False):
-        mark, line = install_service()
-        say(line, mark)
-    cfg = read_setup()
-    if a.recreate_maintainer or a.yes:
-        want = True
-    elif a.no_maintainer:
-        want = False
-    elif from_installer and t3_configured():
-        want = True
-    elif "maintainer" in cfg:
-        want = bool(cfg["maintainer"])
-    elif from_installer and not t3_configured():
-        say("maintainer thread: not offered without T3; once T3 is installed: atr setup --yes", "warn")
-        return
-    elif sys.stdin.isatty():
-        q = "Start a maintainer thread in T3 that acts on that feedback? You can add one later. [y/N] "
-        if from_installer:
-            say("", "ask")
-        want = ASK(q).strip().lower() in ("y", "yes")
-    else:
-        print("not asked (no terminal): rerun with --yes or --no-maintainer to record the choice")
-        return
-    if cfg.get("maintainer") != want:
-        cfg.update(maintainer=want, asked=stamp())
-        write_setup(cfg)
-    if not want:
-        say("maintainer thread: none (choice saved; nothing to do). To start one later: atr setup --yes"
-            if from_installer else
-            "maintainer thread: none (your choice is saved; nothing to do). "
-            f"Feedback items are still kept in room {PROCESS_ROOM}. To start one later: atr setup --yes")
-        return
-    have, src = maintainer_thread(fallback=True)
-    if have and not a.recreate_maintainer:
-        after_commit(lambda: open_maintainer(have))
-        say(f"maintainer thread {have} ({src})" + ("" if fetch_thread(have) else
-              "\nT3 does not find it; if it is gone, recreate it with: bin/atr setup --recreate-maintainer"))
-        return
-    if LAUNCH_MAINTAINER is t3_launch_maintainer:
-        action = LAUNCH_MAINTAINER(maintainer_prompt())
-        say(f"maintainer thread: T3 launch {action['id']} is pending; check it with: atr delivery list")
-        return
-    try:
-        tid = LAUNCH_MAINTAINER(maintainer_prompt())
-    except Exception as e:
-        sys.exit(f"could not start the maintainer thread: {e}\nretry with: bin/atr setup --recreate-maintainer")
-    durable_mkdir(config_dir(), parents=True, exist_ok=True)
-    durable_write(config_dir() / "maintainer_thread", tid + "\n")
-    set_lead_thread(d, tid)
-    say(f"maintainer thread {tid} started; room {PROCESS_ROOM} lead_thread set")
-
-def cmd_doctor(a):
-    """Inspect local prerequisites without creating a store or contacting T3."""
-    problems = []
-    print(f"Source: {SOURCE_ROOT}")
-    print(f"Python: {sys.version.split()[0]} ({sys.executable})")
-    if sys.version_info < (3, 13):
-        problems.append("Python 3.13 or newer is required")
-    for name in ("template/brief.md", "template/item.md", "template/decision.md", "template/prd.md",
-                 "template/refinement.md", "template/now-head.md", "web/index.html", "PROTOCOL.md", "install.sh"):
-        if not (SOURCE_ROOT / name).is_file():
-            problems.append(f"source asset missing: {name}; restore a complete atr installation")
-    print(f"Atr data: {ROOT} ({DATA_SELECTION})")
-    if ROOT.exists() and not ROOT.is_dir():
-        problems.append(f"data path is not a directory: {ROOT}")
-    else:
-        parent = ROOT
-        while not parent.exists() and parent != parent.parent:
-            parent = parent.parent
-        if not os.access(parent, os.W_OK | os.X_OK):
-            problems.append(f"data directory is not writable: {parent}")
-        try:
-            problems.extend(check_setup())
-        except (OSError, ValueError, TypeError, AttributeError) as error:
-            problems.append(f"cannot read local setup: {error}; repair it or run atr setup")
-    cli = t3_cli()
-    if Path(cli).is_file() and os.access(cli, os.X_OK):
-        print(f"T3: {cli}; runtime acceptance unverified")
-    else:
-        print(f"warning: T3 unavailable or not executable: {cli}; install T3 or set T3CODE_CLI_PATH")
-        print("Local records remain usable; automated work requires T3.")
-    for provider, link, state in skill_status():
-        if state == "linked":
-            print(f"Lead skill: {provider} ({tilde(link)})")
-        elif state == "missing":
-            print(f"note: {provider} can't find the lead skill; run atr setup to link it")
-        elif state == "other":
-            print(f"note: {tilde(link)} is not atr's lead skill; {provider} won't find atr's")
-    print(service_summary())
-    cfg_file = store_config_path()
-    try:
-        saved = json.loads(cfg_file.read_text()).get("data_dir") if cfg_file.exists() else None
-    except (OSError, ValueError, AttributeError):
-        saved = None
-    if not saved:
-        print(f"note: agents in T3 can't find this store; run atr setup to record it in {tilde(cfg_file)}")
-    for note in path_note():
-        print(f"note: {note}")
-    for problem in problems:
-        print(f"missing: {problem}")
-    if problems:
-        sys.exit(1)
-    print("doctor ok (local setup; T3 execution has not been verified)")
-
-
-def cmd_self_update(a):
-    """Update the running installation, leaving setup and records alone."""
-    script = SOURCE_ROOT / "install.sh"
-    if not script.is_file():
-        sys.exit(f"{script} is missing; restore a complete atr installation")
-    sys.stdout.flush()
-    os.execvp("sh", ["sh", str(script), "--self-update"])
-
-
-def cmd_uninstall(a):
-    """Hand over to install.sh --uninstall, which undoes what the installer did (data and T3 stay)."""
-    script = SOURCE_ROOT / "install.sh"
-    if not script.is_file():
-        sys.exit(f"{script} is missing; remove the atr block from your shell startup file by hand")
-    sys.stdout.flush()
-    os.execvpe("sh", ["sh", str(script), "--uninstall", *(["--yes"] if a.yes else [])],
-               {**os.environ, "ATR_DATA_DIR": os.environ.get("ATR_DATA_DIR") or str(ROOT)})
-
-def norm_text(s):
-    return re.sub(r"\s+", " ", s or "").strip().lower()
-
-def feedback_field(rec, name):
-    m = re.search(rf"^- {name}: ?(.*)$", rec.section("Inputs"), re.M)
-    return m.group(1).strip() if m else ""
-
-def cmd_feedback(a):
-    if not (ROOMS / PROCESS_ROOM / "BRIEF.md").exists():
-        sys.exit(f"no room {PROCESS_ROOM}: run bin/atr setup first")
-    room = Room(PROCESS_ROOM)
-    refuse_closed(room, "feedback")
-    text = re.sub(r"[ \t]+", " ", a.text).strip()
-    if not text:
-        sys.exit("feedback needs some text")
-    blocks = [x.strip() for x in (a.blocks or "").split(",") if x.strip()]
-    for b in blocks:
-        rn, _, rid = b.partition("/")
-        if not rid or not (ROOMS / rn / "BRIEF.md").exists() or not any(x["id"].lower() == rid.lower() for x in Room(rn).items):
-            sys.exit(f"--blocks {b}: need an existing room/item, e.g. app/T07")
-    t = now()
-    for r in room.items:
-        made = parse_time(r["created"]) or parse_time(r["updated"])
-        if (feedback_field(r, "from") == a.from_room and norm_text(r.section("Feedback")) == norm_text(text)
-                and made and (t - made).total_seconds() < FEEDBACK_DEDUPE_H * 3600):
-            print(f"{r['id']} (already filed from {a.from_room} in the last {FEEDBACK_DEDUPE_H} h; not filed again)")
-            return
-    rid = next_id(room.items, "T")
-    title = re.split(r"(?<=[.!?])\s|\n", text, maxsplit=1)[0][:80].strip() or text[:80]
-    body = (TEMPLATES / "item.md").read_text().format(
-        id=rid, title=title, owner="maintainer", depends="", locks="", cap="", now=stamp(t), hhmm=logstamp(t), by=a.by)
-    inputs = "".join(f"- {k}: {v}\n" for k, v in (("doc", a.doc), ("from", a.from_room), ("cites", a.cites or ""),
-                                                 ("from_thread", a.from_thread or "")))
-    body = body.replace("## Acceptance\n- [ ] \n\n## Inputs\n- \n",
-                        f"## Feedback\n{text}\n\n## Acceptance\n- [ ] Triaged: set `outcome:` to accepted, rejected or deferred "
-                        f"and say why in Result\n\n## Inputs\n{inputs}", 1)
-    path = room.dir / "items" / f"{rid}-{slug(title)}.md"
-    durable_write(path, body)
-    rec = Record(path)
-    rec.set("created", stamp(t))
-    if blocks:
-        rec.set("blocks", blocks)
-    rec.save()
-    print(rid)
-    tid, _ = maintainer_thread()
-    if tid and read_setup().get("maintainer") is not False:
-        tell_thread(tid, f'Feedback {PROCESS_ROOM}/{rid} on {a.doc} from room {a.from_room}: "{text[:300]}". Triage it: '
-                    f'{("BLOCKS " + ", ".join(blocks) + " (launch-blocking: triage first). ") if blocks else ""}'
-                    f'bin/atr set {PROCESS_ROOM} {rid} state=doing, decide, then set outcome=accepted|rejected|deferred '
-                    f'and fill Result. Keep the Result and successor current.')
-
-PROCESS_DOCS = [("PROTOCOL", "PROTOCOL.md", ""), ("Lead skill", "skills/lead/SKILL.md", ""),
-                ("Charters", "PROTOCOL.md", "charters-and-staffing-rules"), ("Changelog", "docs/CHANGELOG.md", "")]
-
-
 @store_guard
 def local_document(relative):
     path = Path(relative)
@@ -3862,19 +2328,6 @@ def local_document(relative):
     if not candidate.resolve().is_relative_to(base.resolve()):
         raise ValueError("document escaped its root")
     return candidate.read_text(), "text/plain; charset=utf-8"
-
-def process_docs():
-    """Extra /api/state fields for room `process`: the changelog tail, the watching bullets and the doc chips.
-    Fixed files only; nothing here comes from a request."""
-    def read(rel):
-        try:
-            return ((ROOT if rel.startswith("rooms/") else SOURCE_ROOT) / rel).read_text()
-        except OSError:
-            return ""
-    changelog = [l.strip() for l in read("docs/CHANGELOG.md").splitlines() if re.match(r"\d{4}-\d\d-\d\d ", l)][-5:]
-    watching = [l[2:].strip()[:240] for l in read(f"rooms/{PROCESS_ROOM}/notes/watching.md").splitlines() if l.startswith("- ")]
-    return {"changelog": changelog, "watching": watching,
-            "docs": [{"label": a, "file": f, "anchor": h} for a, f, h in PROCESS_DOCS if (SOURCE_ROOT / f).is_file()]}
 
 # ---------- GET /api/search: the fixed globs only, never a path from the request ----------
 SEARCH_MIN, SEARCH_MAX_Q, SEARCH_PER_GROUP, SEARCH_SNIP = 2, 80, 8, 40
@@ -3970,171 +2423,25 @@ def search_data(q):
             res["more"][g] = len(hits) > SEARCH_PER_GROUP
     return res
 
-def feedback_counts(room, now_t=None):
-    """Fields for /api/state on room `process`: open feedback items (those with a Feedback section), and outcomes recorded in the last 7 days."""
-    now_t = now_t or now()
-    out = {"open": 0, "accepted": 0, "rejected": 0, "deferred": 0}
-    for r in room.items:
-        if not re.search(r"^## Feedback\s*$", r.body, re.M):      # build and triage items of the room are not feedback
-            continue
-        o = (r["outcome"] or "").lower()
-        if o in out and o != "open":
-            made = parse_time(r["updated"])
-            if made and (now_t - made).total_seconds() < 7 * 86400:
-                out[o] += 1
-        elif r["state"] not in ("done", "dropped"):
-            out["open"] += 1
-    out["week_days"] = 7
-    return out
-
-# ---------- shell completion ----------
-# The scripts in completions/ are thin: on <Tab> they run `atr __complete WORD... CURRENT` and show what it
-# prints, one "value<TAB>description" per line. A first line ":dirs" asks the shell for directories instead.
-# Everything else is read from the argparse parser below, so completion cannot drift from the commands.
-COMPLETION_SHELLS = {"bash": "atr.bash", "zsh": "atr.zsh", "fish": "atr.fish"}
-COMPLETE_DIRS = {"data_dir", "source", "destination"}
-COMPLETE_ROOMS = {"room", "rooms", "from_room"}
-COMPLETE_ITEM_LISTS = {("new", "depends"), ("new", "blocks"), ("need", "needs")}
-COMPLETE_IDS = {"set": "TD", "log": "TD", "need": "T", "reply": "D", "answer": "D"}
-
-def cmd_completion(a):
-    print((SOURCE_ROOT / "completions" / COMPLETION_SHELLS[a.shell]).read_text(), end="")
-
-def _completion_rooms(rooms_dir):
-    try:
-        return sorted(p.name for p in rooms_dir.iterdir() if p.is_dir() and not p.name.startswith("."))
-    except OSError:
-        return []
-
-def _completion_records(rooms_dir, room, kinds):
-    """(id, title) for a room's items (T) and/or decisions (D), read without locks: completion only looks."""
-    out = []
-    for kind, folder in (("T", "items"), ("D", "decisions")):
-        if kind not in kinds or "/" in room or room.startswith("."):
-            continue
-        found = []
-        for p in (rooms_dir / room / folder).glob("*.md"):
-            if p.name == "INDEX.md":
-                continue
-            try:
-                m = re.search(r"^title:\s*(.*)$", p.read_text(errors="replace").split("\n---", 1)[0], re.M)
-            except OSError:
-                m = None
-            found.append((p.name.split("-")[0].removesuffix(".md"), m.group(1).strip() if m else ""))
-        out += sorted(found, key=lambda r: idkey(r[0]))
-    return out
-
-def completion_candidates(parser, words):
-    """What can follow `atr WORDS[:-1]`, filtered by the partial last word: (value, description) pairs,
-    or [(":dirs", "")] when the shell should complete a directory."""
-    *done, cur = words or [""]
-    p, index, values, pending, path, data_dir = parser, 0, {}, None, [], None
-    for w in done:
-        if pending is not None:
-            values[pending.dest] = w
-            pending = None
-            continue
-        if w.startswith("-") and w != "-":
-            name, eq, value = w.partition("=")
-            action = p._option_string_actions.get(name)
-            if action is not None and action.nargs != 0:
-                if eq:
-                    values[action.dest] = value
-                else:
-                    pending = action
-            continue
-        positionals = [x for x in p._actions if not x.option_strings]
-        if index >= len(positionals):
-            continue
-        action = positionals[index]
-        if isinstance(action, argparse._SubParsersAction):
-            if w not in action.choices:
-                return []
-            if p is parser:
-                data_dir = values.get("data_dir")
-            p, index = action.choices[w], 0
-            path.append(action._name_parser_map[w].prog.split()[-1])
-            continue
-        if action.nargs in ("*", "+"):
-            values.setdefault(action.dest, []).append(w)
-        else:
-            values[action.dest] = w
-            index += 1
-    cmd = path[0] if path else ""
-    try:
-        rooms_dir = select_data_dir(explicit=data_dir)[0] / "rooms" if data_dir else ROOMS
-    except ValueError:
-        rooms_dir = ROOMS
-
-    def pick(pairs, prefix=""):
-        return [(prefix + v, d) for v, d in pairs if v.startswith(cur[len(prefix):]) or not cur[len(prefix):]]
-
-    def for_value(action):
-        if action.dest in COMPLETE_DIRS:
-            return [(":dirs", "")]
-        if action.choices is not None and not isinstance(action, argparse._SubParsersAction):
-            return pick((str(c), "") for c in action.choices)
-        if (cmd, action.dest) in COMPLETE_ITEM_LISTS and values.get("room"):
-            head = cur.rpartition(",")[0]
-            given = set(head.split(","))
-            return [(v, d) for v, d in pick(_completion_records(rooms_dir, values["room"], "T"),
-                                            head + "," if head else "") if v.rpartition(",")[2] not in given]
-        if action.dest in COMPLETE_ROOMS:
-            taken = values.get(action.dest) if isinstance(values.get(action.dest), list) else []
-            return pick((r, "") for r in _completion_rooms(rooms_dir) if r not in taken)
-        if action.dest == "id" and cmd in COMPLETE_IDS and values.get("room"):
-            return pick(_completion_records(rooms_dir, values["room"], COMPLETE_IDS[cmd]))
-        return []
-
-    if pending is not None:
-        return for_value(pending)
-    if cur.startswith("-"):
-        seen = {o for o in done if o.startswith("--")}
-        return pick((o, x.help or "") for x in p._actions for o in x.option_strings
-                    if o.startswith("--") and x.help != argparse.SUPPRESS
-                    and (o not in seen or isinstance(x, argparse._AppendAction)))
-    positionals = [x for x in p._actions if not x.option_strings]
-    if index >= len(positionals):
-        return []
-    action = positionals[index]
-    if isinstance(action, argparse._SubParsersAction):
-        helps = {c.dest: c.help or "" for c in action._choices_actions}
-        return pick((name, helps.get(name, "")) for name, sp in action.choices.items()
-                    if sp.prog.split()[-1] == name)       # canonical names only, not aliases
-    return for_value(action)
-
 def main():
     ap = build_parser()
-    if sys.argv[1:2] == ["__complete"]:
-        for value, description in completion_candidates(ap, sys.argv[2:]):
-            print(f"{value}\t{' '.join(description.split())}" if description else value)
-        return
     a = ap.parse_args()
     if a.lock_directory:
         print(LOCKDIR)
         return
     if not a.cmd:
         ap.error("a command is required")
-    if a.cmd == "setup":
-        if os.environ.get("ATR_INSTALLER") != "1":
-            print(f"Atr data: {ROOT} ({DATA_SELECTION})")
     {"new": cmd_new, "set": cmd_set, "need": cmd_need, "log": cmd_log, "answer": cmd_answer, "reply": cmd_reply, "status": cmd_status,
      "check": cmd_check, "serve": cmd_serve,
-     "name": cmd_name, "team": cmd_team, "rooms": cmd_rooms, "room": cmd_rooms, "prd": cmd_prd, "refinement": cmd_refinement, "brief": cmd_brief, "inbox": cmd_inbox, "lead": cmd_lead, "start": cmd_start, "service": cmd_service, "open": cmd_open,
-     "setup": cmd_setup, "doctor": cmd_doctor, "self-update": cmd_self_update, "uninstall": cmd_uninstall, "feedback": cmd_feedback, "delivery": cmd_delivery, "migrate": cmd_migrate, "t3": cmd_t3,
-     "completion": cmd_completion}[a.cmd](a)
+     "rooms": cmd_rooms, "room": cmd_rooms, "goal": cmd_goal, "brief": cmd_brief, "inbox": cmd_inbox, "next": cmd_next, "lead": cmd_lead, "start": cmd_start,
+     "t3": cmd_t3}[a.cmd](a)
 
 def build_parser():
     ap = argparse.ArgumentParser(prog="atr", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--data-dir", help="local Markdown store (overrides ATR_DATA_DIR, config.json and the XDG default)")
+    ap.add_argument("--data-dir", help="local Markdown store (overrides ATR_DATA_DIR)")
     ap.add_argument("--lock-directory", action="store_true", help=argparse.SUPPRESS)
     sub = ap.add_subparsers(dest="cmd")
     who = os.environ.get("ATR_AS", "lead")
-    mg = sub.add_parser("migrate", help="explicit preview/copy/verification/rollback on quiescent copies; no selection or service changes")
-    mg.add_argument("verb", choices=["preview", "copy", "verify", "rollback", "review"])
-    mg.add_argument("--source", required=True, help="explicit legacy copy containing rooms/")
-    mg.add_argument("--destination", required=True, help="distinct empty local data directory or its owned migration")
-    mg.add_argument("--evidence", default="", help="required for review; imported actions still need individual delivery reconciliation")
     t3 = sub.add_parser("t3", help="concrete T3 thread facts, communication and gated item dispatch")
     t3.add_argument("verb", choices=["show", "send", "launch", "organize"])
     t3.add_argument("target", help="thread id for show; room for send or launch")
@@ -4142,20 +2449,14 @@ def build_parser():
     t3.add_argument("--item", help="item id required for launch")
     t3.add_argument("--project", help="existing public T3 project id or registered path; defaults to ATR_T3_PROJECT/source")
     t3.add_argument("--provider"); t3.add_argument("--model"); t3.add_argument("--title"); t3.add_argument("--role", help="role in the worker title (default: the item owner)")
-    dl = sub.add_parser("delivery", help="inspect pending T3 actions; reconcile uncertain acceptance before retrying")
-    dl.add_argument("verb", choices=["list", "retry", "reconcile"])
-    dl.add_argument("id", nargs="?")
-    dl.add_argument("--outcome", choices=["accepted", "not-accepted"])
-    dl.add_argument("--evidence", default="")
     n = sub.add_parser("new")
     n.add_argument("kind", choices=["item", "decision"])
     n.add_argument("room"); n.add_argument("title")
     n.add_argument("--owner"); n.add_argument("--cap")
     n.add_argument("--depends", type=lambda s: s.split(",")); n.add_argument("--locks", type=lambda s: s.split(","))
-    n.add_argument("--type", default="decision", choices=["decision", "premise", "ask", "prd", "refinement", "todo"])
+    n.add_argument("--type", default="decision", choices=["decision", "premise", "ask", "todo"])
     n.add_argument("--blocks", help="decisions: item ids this blocks, e.g. T07,T08")
     n.add_argument("--steps", help="todo cards: what the owner has to do, commands included")
-    n.add_argument("--phase", choices=["prd", "build"], help="items: prd work may start before the PRD is agreed")
     n.add_argument("--door", default="two", choices=["one", "two"])
     n.add_argument("--decider", default=OWNER); n.add_argument("--source")
     n.add_argument("--option", action="append", help="one per option, in order; becomes a), b), …")
@@ -4175,49 +2476,21 @@ def build_parser():
     an.add_argument("--by", default=OWNER); an.add_argument("--quote")
     st = sub.add_parser("status"); st.add_argument("rooms", nargs="*")
     ck = sub.add_parser("check"); ck.add_argument("rooms", nargs="*"); ck.add_argument("--strict", action="store_true")
-    ck.add_argument("--yield", dest="yield_", action="store_true")
-    nm = sub.add_parser("name"); nm.add_argument("room"); nm.add_argument("role"); nm.add_argument("name")
-    nm.add_argument("--pronoun", required=True, choices=["she", "he"]); nm.add_argument("--force", action="store_true")
-    tm = sub.add_parser("team"); tm.add_argument("rooms", nargs="*")
     rms = sub.add_parser("room", aliases=["rooms"], help="list rooms, or start a feature room")
     rms_sub = rms.add_subparsers(dest="verb", required=True)
     rms_sub.add_parser("list", help="every room: state, open items, open decisions, title")
     rm = rms_sub.add_parser("new", help="start a feature (one room per thread)"); rm.add_argument("name"); rm.add_argument("title")
-    rm.add_argument("--no-ux", action="store_true", help="skip the UX research item (say why in the PRD notes)")
-    rm.add_argument("--waive-prd", metavar="WHY", help="work that isn't a feature (publishing, a fix): no PRD or PRD items; "
-                    "say why, and the owner's go-ahead in words is the gate")
     rm.add_argument("--lead-thread", default="",
                     help="your own T3 thread id (t3_thread_configuration); a thread can lead only one room")
     ib = sub.add_parser("inbox"); ib.add_argument("room")
-    rf = sub.add_parser("refinement", help="change an agreed PRD: new \"title\" --touches FR4 | RFnn review")
-    rf.add_argument("room"); rf.add_argument("what", help='"new" or an RF id'); rf.add_argument("title", nargs="?")
-    rf.add_argument("--touches", action="append", help="PRD ids changed, e.g. FR4 (repeat or comma-separate)")
-    rf.add_argument("--supersedes", action="append", help="RF id this replaces")
-    br = sub.add_parser("brief", help="print the binding: line (PRD.md + agreed refinements)"); br.add_argument("room")
-    pr = sub.add_parser("prd"); pr.add_argument("room"); pr.add_argument("action", choices=["review"])
+    nx = sub.add_parser("next", help="dry run: which ready items atr would offer the lead now (sends nothing)")
+    nx.add_argument("room")
+    br = sub.add_parser("brief", help="print the room's goal and code line"); br.add_argument("room")
+    gl = sub.add_parser("goal", help="write the room's goal (3 fields), then ask the owner to approve it")
+    gl.add_argument("room"); gl.add_argument("verb", choices=["new", "approve"])
+    gl.add_argument("--architecture", default=""); gl.add_argument("--result", default=""); gl.add_argument("--done", default="")
     sv = sub.add_parser("serve"); sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8787)
-    su = sub.add_parser("setup", help="first run: create the process room, optionally start the maintainer thread")
-    su.add_argument("--check", action="store_true", help="report what is missing and exit non-zero; changes nothing")
-    su.add_argument("--print-env", nargs="?", const=True, metavar="SHELL", help="print the shell lines (fish, zsh or bash; default $SHELL) that put atr on your PATH and exit; changes nothing")
-    su.add_argument("--yes", action="store_true", help="start the maintainer thread, and install/start T3 if missing, without asking")
-    su.add_argument("--skip-t3", action="store_true", help="don't require or offer T3 (CI, restore)")
-    su.add_argument("--no-maintainer", action="store_true", help="record that no maintainer thread is wanted")
-    su.add_argument("--recreate-maintainer", action="store_true", help="start a new maintainer thread (the old one is gone)")
-    su.add_argument("--no-skills", action="store_true", help="don't link the lead skill into Claude Code's and Codex's skills")
-    su.add_argument("--no-service", action="store_true", help="don't install the web page as a user service")
-    sv2 = sub.add_parser("service", help="keep the web page running from login (systemd --user or launchd)")
-    sv2.add_argument("verb", choices=["install", "uninstall", "status", "restart"])
-    sv2.add_argument("--port", type=int, help=f"port for install (default {DEFAULT_PORT} or the saved one)")
-    op = sub.add_parser("open", help="open the web page, starting it if it isn't running")
-    op.add_argument("--no-browser", action="store_true", help="only make sure it runs and print the address")
-    fb = sub.add_parser("feedback", help="file feedback on PROTOCOL.md, the lead skill or a charter")
-    fb.add_argument("text"); fb.add_argument("--doc", required=True, choices=FEEDBACK_DOCS)
-    fb.add_argument("--from", dest="from_room", required=True, help="the room the feedback comes from")
-    fb.add_argument("--cites", help="a record that shows it, e.g. notes/D05"); fb.add_argument("--from-thread")
-    fb.add_argument("--blocks", help="room/item[,room/item] this feedback blocks, e.g. app/T07; the Maintainer is told "
-                    "it is launch-blocking and the blocked room's lead is tapped when it is resolved")
-    fb.add_argument("--by", default=who)
     st = sub.add_parser("start", help="start a T3 thread that creates a room for what you want and leads it")
     st.add_argument("text", nargs="?", help="what you want built, as you'd tell a person")
     st.add_argument("--project", help="T3 project id or a path inside it (default: this directory)")
@@ -4225,25 +2498,17 @@ def build_parser():
     ld = sub.add_parser("lead", help="hand a room's lead to another T3 thread")
     ld.add_argument("room"); ld.add_argument("thread", nargs="?", help="omit to print copyable take-the-lead text")
     ld.add_argument("--keep-old", action="store_true", help="keep the old lead in threads: even if it is settled")
-    sub.add_parser("doctor", help="diagnose Python, source assets, data directory, setup and T3; changes nothing")
-    sub.add_parser("self-update", help="update this source installation; keeps data, shell configuration and T3")
-    un = sub.add_parser("uninstall", help="undo install.sh: remove atr from your shell startup files and delete the "
-                        "fetched source; keeps your data and T3")
-    un.add_argument("--yes", action="store_true", help="remove without asking")
-    cp = sub.add_parser("completion", help="print the shell completion script (install.sh already loads it)")
-    cp.add_argument("shell", choices=sorted(COMPLETION_SHELLS))
     return ap
 
 # All canonical entry points participate in the same lock/recovery boundary, including calls made
 # directly by the web server and its background loops. CLI commands acquire before reading Room.
 for _name in ("cmd_new", "cmd_set", "cmd_need", "cmd_log", "cmd_answer", "cmd_reply", "cmd_status",
-              "cmd_name", "cmd_room", "cmd_prd", "cmd_refinement", "cmd_brief",
-              "cmd_inbox", "cmd_feedback", "_cmd_setup_local"):
+              "cmd_room", "cmd_goal", "cmd_brief",
+              "cmd_inbox"):
     globals()[_name] = store_command(globals()[_name])
 
-for _name in ("web_pause", "web_question", "web_answer", "web_nudge", "after_answer", "sync_binding", "set_team",
+for _name in ("web_pause", "web_question", "web_answer", "after_answer",
               "create_room_files",
-              "ensure_standing",
               "search_data"):
     globals()[_name] = store_guard(globals()[_name])
 

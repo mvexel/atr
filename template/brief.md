@@ -4,7 +4,6 @@ tz: UTC                # display timezone, e.g. Europe/Zurich
 repos: []              # path#branch, e.g. /home/me/repo#feat/x
 lead_thread:           # T3 thread id of the lead; owner answers create durable messages
 threads: []            # other T3 threads working this room (a fork, a second lead); the room settles only when all are
-team: []               # role=Name (she|he); set with `bin/atr name`
 closed:                # set when the room is finished: time and one-line reason
 ---
 # {title}

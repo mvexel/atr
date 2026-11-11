@@ -1,6 +1,10 @@
 """`atr set ... state=review|done` warns when the Log has no `set state=doing` line.
 Run: python3 -I -m unittest tests.test_set_warn_doing
 """
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
+import sys
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+import goal_fixture
 import contextlib, importlib.machinery, importlib.util, io, tempfile, types, unittest
 from pathlib import Path
 
@@ -22,6 +26,7 @@ class SetWarn(unittest.TestCase):
         self.addCleanup(setattr, tr, "ROOT", self._canonical_root_before)
         (tr.ROOMS / "r1" / "items").mkdir(parents=True)
         (tr.ROOMS / "r1" / "BRIEF.md").write_text("---\ntitle: t\n---\n")
+        goal_fixture.approve(tr.ROOMS / "r1")
 
     def tearDown(self):
         tr.ROOMS = self.saved

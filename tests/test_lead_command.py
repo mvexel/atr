@@ -1,4 +1,5 @@
 """Copyable take-the-lead text: `atr lead ROOM` without a thread prints it; the state API carries it; the page can copy it."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
 import contextlib, importlib.machinery, importlib.util, io, json, os, re, shlex, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
@@ -22,8 +23,7 @@ class LeadCommand(unittest.TestCase):
         self.store = Path(self.tmp.name) / "store with space"
         env = {**os.environ, "ATR_DATA_DIR": str(self.store), "XDG_CONFIG_HOME": self.tmp.name + "/cfg", "CLAUDE_CONFIG_DIR": self.tmp.name + "/claude", "CODEX_HOME": self.tmp.name + "/codex", "ATR_SERVICE": "off", "T3CODE_CLI_PATH": "/nonexistent"}
         self.env = env
-        self.run_atr("setup", "--no-maintainer")
-        self.run_atr("rooms", "new", "demo", "Demo", "--waive-prd", "not a feature: test")
+        self.run_atr("rooms", "new", "demo", "Demo")
 
     def run_atr(self, *args):
         return subprocess.run([sys.executable, "-I", str(ATR), *args], capture_output=True, text=True, env=self.env)
@@ -48,7 +48,7 @@ class LeadCommand(unittest.TestCase):
         c = mod.lead_commands("demo")
         self.assertTrue(c["terminal"].endswith(" lead demo THREAD_ID"))
         self.assertIn("lead demo <your-thread-id>", c["prompt"])
-        self.assertIn("check demo --yield", c["prompt"])
+        self.assertIn("status demo", c["prompt"])
 
     def test_page_wiring(self):
         self.assertIn("leadCmdBox(r)", HTML)

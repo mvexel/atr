@@ -1,4 +1,5 @@
-"""A worker's review/done reaches the lead; an idle lead behind a finished wait is stalled."""
+"""A worker's review/done reaches the lead; continuity() gives the overview state."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
 import argparse, importlib.machinery, importlib.util, tempfile, unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -15,10 +16,11 @@ class Wake(unittest.TestCase):
         t = tempfile.TemporaryDirectory(); self.addCleanup(t.cleanup)
         self.root = Path(t.name)
         self.status = 'idle'
+        self.sent = []
         for c in (patch.object(tr, 'ROOT', self.root), patch.object(tr, 'ROOMS', self.root / 'rooms'),
                   patch.object(tr, 'thread_info', side_effect=lambda th: {'status': self.status}),
                   patch.object(tr, 'thread_status', side_effect=lambda th: self.status),
-                  patch.object(tr, 't3_execute', side_effect=lambda a: {'state': 'confirmed', 'evidence': 'x'})):
+                  patch.object(tr, 't3_call', side_effect=lambda kind, target, payload, options=None: self.sent.append((target, payload)) or {'ok': True, 'evidence': 'x', 'thread': None})):
             c.start(); self.addCleanup(c.stop)
         d = self.root / 'rooms/demo'; (d / 'items').mkdir(parents=True)
         (d / 'BRIEF.md').write_text(f'---\ntitle: Demo\nlead_thread: {LEAD}\n---\n')
@@ -28,29 +30,25 @@ class Wake(unittest.TestCase):
     def set(self, by, *pairs):
         tr.cmd_set(argparse.Namespace(room='demo', id='T01', pairs=list(pairs), by=by, force=False, expect_version=None))
 
-    def actions(self):
-        return list(tr.delivery_actions().values())
-
-    def test_worker_review_queues_one_notice_and_repeat_adds_none(self):
+    def test_worker_review_sends_one_notice_and_repeat_adds_none(self):
         self.set('worker', 'state=review')
-        self.assertEqual(len(self.actions()), 1)
-        self.assertIn('T01', self.actions()[0]['payload'])
+        self.assertEqual(len(self.sent), 1)
+        self.assertEqual(self.sent[0][0], LEAD)
+        self.assertIn('T01', self.sent[0][1])
         self.set('worker', 'state=review')
-        self.assertEqual(len(self.actions()), 1)
+        self.assertEqual(len(self.sent), 1)
 
     def test_lead_changes_send_nothing(self):
         self.set('lead', 'state=done')
-        self.assertEqual(self.actions(), [])
+        self.assertEqual(self.sent, [])
 
-    def test_free_text_wait_on_finished_items_is_stalled_when_lead_idle(self):
-        room = tr.Room('demo')
-        self.assertEqual(tr.continuity(room, True)[0], 'waiting')   # the second awaited item is unknown: keep today's behaviour
-        (self.root / 'rooms/demo/now-head.md').write_text('---\nwaiting: T01\nresume: when T01 reaches review\n---\n')
-        self.assertEqual(tr.continuity(tr.Room('demo'), True)[0], 'waiting')  # still doing
+    def test_continuity_overview(self):
+        room = lambda: tr.Room('demo')
+        self.assertEqual(tr.continuity(room())[0], 'running')
+        self.set('worker', 'state=blocked')
+        self.assertEqual(tr.continuity(room())[0], 'blocked')
         self.set('worker', 'state=review')
-        self.assertEqual(tr.continuity(tr.Room('demo'), True)[0], 'stalled')
-        self.status = 'running'
-        self.assertEqual(tr.continuity(tr.Room('demo'))[0], 'moving')
+        self.assertEqual(tr.continuity(room())[0], 'idle')
 
 
 if __name__ == '__main__':

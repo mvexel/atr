@@ -1,6 +1,7 @@
 """Locks belong to the selected local store, shared by bin/atr and bin/with-lock.
 Run: python3 -I -m unittest discover -s tests -p test_lockdir.py
 """
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
 import os, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 

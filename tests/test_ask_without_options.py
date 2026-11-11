@@ -1,6 +1,7 @@
 """check: an open ask card for the owner needs no lettered options (free-text answer); other cards still do.
 Run: python3 -m unittest tests.test_ask_without_options
 """
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import isolated_data  # noqa: E402,F401
 import importlib.machinery, importlib.util, sys, tempfile, unittest
 from pathlib import Path
 
@@ -32,7 +33,7 @@ class AskWithoutOptions(unittest.TestCase):
         (d / "decisions" / "X01-q.md").write_text(
             f"---\nid: X01\ntitle: q\ntype: {typ}\ndoor: two\ndecider: owner\nstatus: open\n"
             f"opened: 2026-10-27T10:00Z\nupdated: 2026-10-27T10:00Z\n---\n## Options\n{options}\n")
-        return [w for w in tr.problems(tr.Room("r"), False) if "fewer than 2 options" in w]
+        return [w for w in tr.problems(tr.Room("r")) if "fewer than 2 options" in w]
 
     def test_ask_without_options_is_quiet(self):
         self.assertEqual(self.warnings("ask"), [])
