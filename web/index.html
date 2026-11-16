@@ -189,7 +189,7 @@ function form(key, fields, save, saveLabel) {
 const edit = key => () => { S.editing = key; draw(); };
 
 function decision(d, plan) {
-  const who = d.options ? "you, from the lead's options" : d.by === "you" ? "you" : d.by.startsWith("worker:") ? `worker ${d.by.slice(7)}, without asking` : "the lead, without asking";
+  const who = d.said ? "you, in chat (the lead wrote it down)" : d.options ? "you, from the lead's options" : d.by === "you" ? "you" : d.by.startsWith("worker:") ? `worker ${d.by.slice(7)}, without asking` : "the lead, without asking";
   if (d.state === "accepted" && !S.open.has(d.id))
     return h("button", { class: "dec folded", title: "Show the whole decision", onclick: e => { e.stopPropagation(); S.open.add(d.id); draw(); } },
       h("b", {}, d.id), " ", d.chosen, h("span", { class: "muted" }, " · accepted"));
@@ -345,7 +345,8 @@ function workingOn(plan) {
 function drawProject() {
   const { plan, unread, lead_waiting: listening } = S.data;
   const waiting = plan.decisions.filter(d => d.state === "needs_you"), proposed = plan.goals.filter(g => g.proposed);
-  const review = plan.decisions.filter(d => d.state === "to_review");
+  const review = plan.decisions.filter(d => d.state === "to_review" && !d.said);
+  const said = plan.decisions.filter(d => d.state === "to_review" && d.said);
   const unstopped = plan.tasks.filter(t => t.pruned_by && t.stopped === false);
   const gone = plan.tasks.filter(t => ["parked", "dropped"].includes(t.status) && t.stopped !== false);
   const fresh = plan.tasks.filter(isNew).length;
@@ -368,6 +369,11 @@ function drawProject() {
       h("div", { class: "btns" }, g.done_when ? [btn("Accept goal and test", () => act("goal_accept", { id: g.id, test: true }), "p"),
           btn("Accept goal, test still a guess", () => act("goal_accept", { id: g.id }))] : btn("Accept goal", () => act("goal_accept", { id: g.id }), "p"),
         btn("Reject", () => act("goal_remove", { id: g.id }))))),
+    said.map(d => h("div", { class: "card" }, h("div", { class: "k" }, `You said this in chat · ${d.id}` + (d.on !== "project" ? ` · on ${d.on}` : "")),
+      h("div", { class: "q" }, d.chosen), d.why && h("div", {}, d.why),
+      h("div", { class: "btns" }, btn("That's what I meant", () => act("review", { id: d.id, verdict: "accept" }), "p"),
+        S.editing === "ov" + d.id ? form("ov" + d.id, [{ label: "What did you mean?" }], note => act("review", { id: d.id, verdict: "overturn", note }), "Correct it")
+          : btn("Not quite…", edit("ov" + d.id))))),
     review.length ? h("div", { class: "banner" }, h("button", { class: "link", onclick: () => { review.forEach(d => S.open.add(d.on)); draw(); } },
       `${review.length} agent call${review.length > 1 ? "s" : ""} to review`), " — choices the lead made without asking.") : null,
     fresh ? h("div", { class: "banner" }, `${fresh} task${fresh > 1 ? "s" : ""} added by agents since you last agreed the plan (marked "new"). Drop what you do not want, then `,

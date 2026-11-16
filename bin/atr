@@ -651,9 +651,14 @@ def op_decide(plan, by, a):
         "why": (a.get("why") or "").strip(),
         "rejected": rejected,
         "undo": "hard" if hard else "easy",
-        "state": "accepted" if who == "you" else "needs_you" if hard else "to_review",
+        # What the owner said in chat is theirs, but in the lead's words: it waits for them to confirm it.
+        "state": "needs_you" if hard else "to_review",
         "note": "",
     }
+    if said:
+        d["said"] = True
+    if who == "you" and not said:
+        d["state"] = "accepted"
     plan["decisions"].append(d)
     if d["state"] != "needs_you":
         return f"{d['id']} on {on}{' (the owner said)' if said and by != 'you' else ''}: {chosen}"
@@ -738,7 +743,7 @@ def op_review(plan, by, a):
     d["state"] = "accepted" if verdict == "accept" else "overturned"
     d["note"] = (a.get("note") or "").strip()
     if verdict == "accept":
-        return f"accepted {d['id']}: {d['chosen']}"
+        return f"{'confirmed' if d.get('said') else 'accepted'} {d['id']}: {d['chosen']}"
     return f'OVERTURNED {d["id"]} on {d["on"]} ("{d["chosen"]}")' + (
         f": {d['note']}" if d["note"] else ""
     )
@@ -884,7 +889,9 @@ def render(plan, since):
         for d in made + overturned:
             tag = {
                 "overturned": "OVERTURNED BY OWNER: ",
-                "to_review": "(not reviewed yet) ",
+                "to_review": "(the owner said this in chat; not confirmed yet) "
+                if d.get("said")
+                else "(not reviewed yet) ",
             }.get(d["state"], "")
             rej = f" | rejected: {'; '.join(d['rejected'])}" if d["rejected"] else ""
             out.append(

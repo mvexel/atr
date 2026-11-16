@@ -192,8 +192,11 @@ class Plan(Base):
         code, out = self.cli("decide", "project", "audio comes from the Mac", "--owner")
         self.assertEqual(code, 0, out)
         d = atr.load("demo")["decisions"][-1]
-        self.assertEqual((d["by"], d["state"]), ("you", "accepted"))
+        self.assertEqual((d["by"], d["state"], d["said"]), ("you", "to_review", True))
+        self.assertIn("said this in chat; not confirmed", self.cli("read")[1])
         self.assertEqual(self.cli("unread")[0], 1)
+        self.you("review", id=d["id"], verdict="accept")
+        self.assertIn("confirmed D1", self.cli("read")[1])
         self.assertEqual(self.cli("decide", "T1", "x", "--owner", "--hard")[0], 2)
 
     def test_wait_returns_owner_changes_and_times_out_without_them(self):
