@@ -23,6 +23,9 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
   text reordered T3 twice instead. Now only the grip drags.
 - **The lead's task note read as part of a decision.** The owner read "tested on a fake device" (T3's note)
   as part of D4, shown right below it. The note is now labelled "Lead's note".
+- **"Can start now" on work only the owner could do.** The owner asked whether it meant "waiting for me".
+  Tasks with `owner=you` now show "your turn", are not offered to the lead, and are listed separately in
+  `atr read`. (This settles the owner-hands pattern noted under T5 and T6.)
 
 ## Observed, not acted on yet
 
