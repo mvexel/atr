@@ -1319,6 +1319,46 @@ class PullRequests(Base):
         self.cli("task", "set", "T3", "status=review", "note=x")
         self.assertEqual(self.task("T3")["status"], "done")  # its PR is merged already
 
+    BODY = "Adds sign in.\r\n\r\n## Before merge\r\n- [ ] Cookie banner checked\r\n- [ ]  tests pass on **CI**\r\n- [x] Design signed off\r\n- [ ] Docs updated"
+
+    def test_a_tied_box_ticks_when_its_task_is_finished_and_names_no_atr_code(self):
+        from unittest import mock
+
+        code, out = self.cli("pr", "G1", URL, "--item", "T1=Tests pass on **CI**", "--drop", "design signed off")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.prs()[0]["for"], ["T1"])  # a tie carries the task
+        self.poll({23: self.pr() | {"body": self.BODY}})
+        read = self.cli("read")[1]
+        self.assertIn("checklist: 1 of 4 ticked", read)
+        self.assertIn("NOT TIED", read)
+        self.assertIn("'Cookie banner checked'; 'Docs updated'", read)  # the dropped box is not listed
+        written = []
+
+        def gh_body(repo, number, body=None):
+            if body is None:
+                return self.BODY
+            written.append(body)
+            return True
+
+        with mock.patch.object(atr, "gh_pr_body", side_effect=gh_body):
+            self.poll({23: self.pr() | {"body": self.BODY}})
+            self.assertEqual(written, [])  # T1 is not finished yet
+            self.cli("task", "set", "T1", "status=done", "note=CI run https://ci.example/run/7, all green")
+            self.poll({23: self.pr() | {"body": self.BODY}})
+            self.poll({23: self.pr() | {"body": self.BODY}})  # ticked once: atr leaves it alone after
+        self.assertEqual(len(written), 1)
+        self.assertIn("- [x]  tests pass on **CI** — done: https://ci.example/run/7\r\n", written[0])
+        self.assertIn("- [ ] Cookie banner checked\r\n", written[0])
+        self.assertNotRegex(written[0], r"\b[GTD]\d+\b")  # nothing atr-specific goes to GitHub
+        self.assertEqual(self.prs()[0]["ticked"], ["T1"])
+        self.assertEqual(atr.boxes(written[0])[1], ["tests pass on **CI**", True])  # its own mark is not the text
+
+    def test_a_box_whose_text_changed_is_a_lost_tie(self):
+        self.cli("pr", "G1", URL, "--item", "T1=Docs updated")
+        self.poll({23: self.pr() | {"body": "- [ ] Docs updated and linked"}})
+        self.assertIn("TIE LOST (no box with that text any more; tie it again): T1 'Docs updated'", self.cli("read")[1])
+        self.assertEqual(self.cli("pr", "G1", URL, "--item", "nonsense")[0], 2)
+
     def test_a_pr_needs_a_github_link_and_tasks_of_its_goal(self):
         self.assertIn("not a GitHub pull request", self.cli("pr", "G1", "https://example.com/x/y/pull/1")[1])
         self.assertIn("not a GitHub pull request", self.cli("pr", "G1", 'https://github.com/a"b/c/pull/1')[1])
