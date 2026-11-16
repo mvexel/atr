@@ -41,3 +41,8 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
 - Goals have no dependencies, only tasks do. The owner had to ask whether accepting G2 and G3 was linked.
   G3 builds on G2, but before either has tasks, only the titles hint at it. Not acted on: cross-goal task
   dependencies may be enough once tasks exist.
+- A card is shaped as a judgment call: atr wants a recommendation first. D5 ("what do you watch with
+  ads?") is a plain question, so the lead had to invent a suggested answer. Cards may need a question-only
+  form.
+- T6 (record and mark an hour of shows) is the owner's work. atr has no way to say a task is waiting on the
+  owner's hands rather than on an answer, so the task's owner field (`owner=`) is the only hint.
