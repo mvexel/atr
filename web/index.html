@@ -78,6 +78,7 @@
   .working .run { all: unset; cursor: pointer; display: block; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
   .working .run .now { padding: 2px 0 0; }
   .dec.folded { all: unset; display: block; cursor: pointer; font-size: 14px; padding: 3px 0; color: var(--text2); }
+  select.b { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
   .pill.ready { background: var(--card); border: 1px solid var(--line); color: var(--text); }
   .st { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; white-space: nowrap; }
   .st i { width: 9px; height: 9px; border-radius: 50%; }
@@ -222,6 +223,14 @@ function card(d) {
 // ---- project view ----
 // When will this task start? A to-do starts once its goal is accepted, everything it comes after is done and
 // no card holds it; the lead then picks it, at most 3 running at once.
+const short = (s, n = 60) => s.length > n ? s.slice(0, n - 1) + "…" : s;
+// True when task `id` waits for `target`, directly or through other tasks.
+function waitsFor(plan, id, target, seen = new Set()) {
+  if (seen.has(id)) return false;
+  seen.add(id);
+  const t = plan.tasks.find(o => o.id === id);
+  return !!t && t.after.some(a => a === target || waitsFor(plan, a, target, seen));
+}
 function startLine(t, plan) {
   if (t.status === "parked") return h("span", { class: "after" }, "won't start until you restore it");
   if (t.status !== "todo") return null;
@@ -232,7 +241,7 @@ function startLine(t, plan) {
   if (plan.decisions.some(d => d.on === t.id && d.state === "needs_you")) return null;  // the card's pill says why
   if (t.owner === "you") return h("span", { class: "pill you" }, "your turn");  // only the owner can do it
   if (S.data.ready.includes(t.id)) return h("span", { class: "pill ready" }, "can start now");
-  return h("span", { class: "after" }, "can start when one of the 3 running tasks finishes");
+  return h("span", { class: "after" }, "next in line (the lead runs 3 at a time)");
 }
 function taskNode(t, plan) {
   const on = plan.decisions.filter(d => d.on === t.id), files = plan.docs.filter(d => d.on === t.id);
@@ -249,7 +258,10 @@ function taskNode(t, plan) {
     status(t.status)));
   if (t.status === "doing") node.append(nowLine(t));
   if (!S.open.has(t.id)) return node;
-  const others = plan.tasks.filter(o => o.id !== t.id && !t.after.includes(o.id) && !["parked", "dropped"].includes(o.status));
+  // Only open tasks make sense to wait for (a done one is already done), and none that already waits for this
+  // one, which would make a loop.
+  const others = plan.tasks.filter(o => o.id !== t.id && !t.after.includes(o.id) && ["todo", "doing", "blocked"].includes(o.status)
+    && !waitsFor(plan, o.id, t.id));
   node.append(h("div", { class: "body" },
     S.editing === "tt" + t.id ? form("tt" + t.id, [{ label: "Title", value: t.title }], title => act("task_set", { id: t.id, title })) : null,
     t.note && h("div", { class: "note" }, h("span", { class: "muted" }, "Lead's note: "), t.note),
@@ -257,9 +269,9 @@ function taskNode(t, plan) {
     on.map(d => decision(d, plan)), docs(files),
     h("div", { class: "btns" },
       t.after.map(a => btn(`after ${a} ✕`, () => act("dep", { id: t.id, other: a, remove: true }))),
-      !pruned && others.length ? h("select", { class: "b", "aria-label": "Add a dependency", onclick: e => e.stopPropagation(),
+      ["todo", "blocked"].includes(t.status) && others.length ? h("select", { class: "b", "aria-label": "Add a dependency", onclick: e => e.stopPropagation(),
         onchange: e => e.target.value && act("dep", { id: t.id, other: e.target.value }) },
-        h("option", { value: "" }, "+ comes after…"), others.map(o => h("option", { value: o.id }, `${o.id} ${o.title}`))) : null),
+        h("option", { value: "" }, "+ comes after…"), others.map(o => h("option", { value: o.id, title: o.title }, `${o.id} ${short(o.title)}`))) : null),
     S.editing === "dc" + t.id ? form("dc" + t.id, [{ label: "What you decided" }, { label: "What you ruled out (optional)" }],
       (chosen, rejected) => act("decide", { on: t.id, chosen, rejected: rejected ? [rejected] : [] }), "Record") : null,
     h("div", { class: "btns" },
