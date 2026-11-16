@@ -158,6 +158,11 @@ def needs_owner(plan, on):
     return [d for d in plan["decisions"] if d["on"] == on and d["state"] == "needs_you"]
 
 
+def held_by(plan, t):
+    """Cards that hold task t: its own, or one on its goal. A question about a goal holds the whole goal."""
+    return needs_owner(plan, t["id"]) + needs_owner(plan, t["goal"])
+
+
 def reaches(plan, start, target):
     """True when `target` is among the tasks `start` comes after, directly or not."""
     seen, todo = set(), [start]
@@ -187,6 +192,7 @@ def ready(plan):
         and t["goal"] not in proposed
         and deps_done(plan, t)
         and not owners_turn(t)
+        and not held_by(plan, t)
     ]
     weight = {
         t["id"]: sum(
@@ -349,9 +355,10 @@ def op_task_set(plan, by, a):
                 raise Refused(
                     f"{t['id']} comes after {', '.join(t['after'])}, which is not all done"
                 )
-            if needs_owner(plan, t["id"]):
+            if held_by(plan, t):
+                d = held_by(plan, t)[0]
                 raise Refused(
-                    f"{t['id']} waits on the owner's answer to {needs_owner(plan, t['id'])[0]['id']}"
+                    f"{t['id']} waits on the owner's answer to {d['id']} (on {d['on']})"
                 )
         if status == "doing":
             t["doing_since"] = now()
@@ -643,7 +650,7 @@ def render(plan, since):
             out.append(f"   done when{guess}: {g['done_when']}")
         for t in (t for t in plan["tasks"] if t["goal"] == g["id"]):
             bits = [f"after {', '.join(t['after'])}"] if t["after"] else []
-            bits += [f"{d['id']} needs owner" for d in needs_owner(plan, t["id"])]
+            bits += [f"{d['id']} needs owner" for d in held_by(plan, t)]
             bits += [t["owner"]] if t["owner"] else []
             out.append(
                 f"   {t['id']:<4} {t['status']:<8} {t['title']}"

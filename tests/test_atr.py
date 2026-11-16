@@ -311,6 +311,14 @@ class Plan(Base):
         self.you("goal_edit", id="G1", done_when="sign-in works")  # the owner's own words
         self.assertNotIn("YOUR GUESS", self.cli("read")[1])
 
+    def test_a_card_on_a_goal_holds_that_goals_tasks(self):
+        self.cli("task", "add", "G1", "build it")
+        self.cli("decide", "G1", "go on-device", "--hard", "--question", "where does it run?")
+        self.assertEqual(atr.ready(atr.load("demo")), [])
+        self.assertEqual(self.cli("task", "set", "T1", "status=doing")[0], 2)
+        self.you("answer", id="D1", choice="go on-device")
+        self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], ["T1"])
+
 
 class Web(Base):
     def setUp(self):
