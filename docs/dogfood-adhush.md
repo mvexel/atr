@@ -19,6 +19,10 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
   doorbell hooks. The page shows "Lead listening" while a wait runs.
 - **The lead could not tell reviewed decisions from unreviewed ones.** `atr read` now marks the owner's
   unreviewed calls with "(not reviewed yet)".
+- **The owner could not select text on the page.** The whole task card was draggable, so trying to select
+  text reordered T3 twice instead. Now only the grip drags.
+- **The lead's task note read as part of a decision.** The owner read "tested on a fake device" (T3's note)
+  as part of D4, shown right below it. The note is now labelled "Lead's note".
 
 ## Observed, not acted on yet
 
