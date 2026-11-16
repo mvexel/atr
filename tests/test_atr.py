@@ -189,6 +189,19 @@ class Plan(Base):
         self.assertEqual([c["what"] for c in got[0]], ['added goal G2 "Recovery"'])
         self.assertFalse(atr.waiting("demo"))
 
+    def test_now_line_shows_progress_only_while_a_task_runs(self):
+        self.cli("task", "add", "G1", "detector")
+        self.assertEqual(self.cli("now", "T1", "warming up")[0], 2)   # not running yet
+        self.cli("task", "set", "T1", "status=doing")
+        self.assertTrue(self.task("T1")["doing_since"])
+        code, out = self.cli("now", "T1", "scoring", "run", "2")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.task("T1")["now"], "scoring run 2")
+        self.assertIn("now: scoring run 2", self.cli("read")[1])
+        self.assertEqual(self.cli("unread")[0], 1)                      # progress is not owner news
+        self.cli("task", "set", "T1", "status=done")
+        self.assertNotIn("now", self.task("T1"))
+
     def test_move_reorders_and_changes_goal(self):
         self.you("goal_add", title="Second")
         for title in ("a", "b"):

@@ -30,12 +30,14 @@ NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 RULES = """\
 ## Plan (atr)
 
-This project's plan lives in atr. You are the lead; workers report to you, only you run atr.
+This project's plan lives in atr. You are the lead; workers report to you, and only you run atr,
+except that a worker may report progress on its own task: `atr now T3 "what is happening"`.
 
 1. Run `atr read` when a turn starts and again before it ends. Act on what the owner changed.
 2. Every task belongs to a goal: `atr task add G1 "title" --after T2`. Work that fits no goal is
    proposed with `atr goal propose "title" --done "what makes it done"`, not started.
-3. Never change goals. Keep status current: `atr task set T3 status=doing thread=URL`.
+3. Never change goals. Keep status current: `atr task set T3 status=doing thread=URL`. While a task
+   runs, say what is happening every few steps, in a few words: `atr now T3 "scoring run 2 of 3"`.
 4. Record every judgment call: `atr decide T3 "what you chose" --why "..." --rejected "..."`.
    If it is hard to undo, add `--hard` and do not act: the task blocks until the owner answers.
    Check earlier decisions before proposing something that was already rejected.
@@ -326,6 +328,11 @@ def op_task_set(plan, by, a):
                 raise Refused(
                     f"{t['id']} waits on the owner's answer to {needs_owner(plan, t['id'])[0]['id']}"
                 )
+        if status == "doing":
+            t["doing_since"] = now()
+        else:  # the progress line belongs to the run that just ended
+            for k in ("now", "now_at"):
+                t.pop(k, None)
         t["status"] = status
         t.pop("blocked_by", None)
         said.append(status)
@@ -333,6 +340,18 @@ def op_task_set(plan, by, a):
         if op_dep(plan, by, {"id": t["id"], "other": dep}):
             said.append(f"after {dep}")
     return f"{label(t)}: {', '.join(said)}" if said else None
+
+
+def op_task_now(plan, by, a):
+    """What is happening on a running task right now: one short line the owner sees without opening it."""
+    t = get(plan, "tasks", a["id"])
+    if t["status"] != "doing":
+        raise Refused(f"{t['id']} is not in progress; first: atr task set {t['id']} status=doing")
+    text = " ".join((a.get("text") or "").split())
+    if not text:
+        raise Refused('say what is happening: atr now T3 "scoring run 2 of 3"')
+    t.update(now=text, now_at=now())
+    return f"{t['id']} now: {text}"
 
 
 def op_task_move(plan, by, a):
@@ -598,6 +617,8 @@ def render(plan, since):
                 f"   {t['id']:<4} {t['status']:<8} {t['title']}"
                 + (f"  ({'; '.join(bits)})" if bits else "")
             )
+            if t.get("now"):
+                out.append(f"        now: {t['now']} ({t['now_at']})")
     made = [d for d in plan["decisions"] if d["state"] in ("accepted", "to_review")]
     if made or overturned:
         out += ["", "DECISIONS (do not re-propose what was rejected):"]
@@ -850,6 +871,9 @@ def main(argv=None):
     x.add_argument("on")
     x.add_argument("src", help="file path or http(s) link")
     x.add_argument("--title")
+    x = sub.add_parser("now", help="say what is happening on a running task (workers may use this)")
+    x.add_argument("id")
+    x.add_argument("text", nargs="+")
     x = sub.add_parser("lead", help="store the lead's thread link")
     x.add_argument("thread")
     a = ap.parse_args(argv)
@@ -974,6 +998,8 @@ def main(argv=None):
             )
         elif a.cmd == "attach":
             fn, args = op_attach, {"on": a.on, "src": a.src, "title": a.title}
+        elif a.cmd == "now":
+            fn, args = op_task_now, {"id": a.id, "text": " ".join(a.text)}
         else:
             fn, args = op_lead, {"thread": a.thread}
         _, note = change(name, by, fn, args)
