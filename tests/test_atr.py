@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -889,6 +890,179 @@ class ReleaseCheck(Base):
             self.assertEqual(atr.Handler.latest["version"], "9.1.0")  # remembered, not asked again
             atr.check_release(now=1000 + atr.CHECK_EVERY)
             self.assertEqual(self.asked, 2)
+
+
+URL = "https://github.com/mvexel/atr/pull/23"
+
+
+class PullRequests(Base):
+    """atr pr puts a PR on its goal; atr serve's poller asks gh (mocked here: no network, no real gh)."""
+
+    def setUp(self):
+        super().setUp()
+        self.cli("task", "add", "G1", "build it")
+        self.cli("task", "add", "G1", "other")
+        self.cli("read")
+        self.calls = []
+
+    def poll(self, *answers):
+        """Run one poll round per answer, with gh patched in: each round's gh call answers with the next of
+        `answers` (a dict of PR number to pullRequest fields, an Exception, or raw stdout). self.calls collects
+        the argv of each gh call. Returns what each round said to wait."""
+        from unittest import mock
+
+        answers = list(answers)
+        rounds = len(answers)
+
+        def run(argv, **kw):
+            self.calls.append(argv)
+            a = answers.pop(0)
+            if isinstance(a, Exception):
+                raise a
+            if isinstance(a, str):
+                return subprocess.CompletedProcess(argv, 1, a, "")
+            query = argv[-1]
+            data = {"rateLimit": a.pop("rateLimit", {"limit": 5000, "remaining": 4000})}
+            for i, num in enumerate(int(x) for x in re.findall(r"pullRequest\(number: (\d+)\)", query)):
+                data[f"p{i}"] = {"pullRequest": a[num]} if num in a else None
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"data": data}), "")
+
+        with (
+            mock.patch.object(atr.shutil, "which", side_effect=lambda c: "/usr/bin/gh" if c == "gh" else None),
+            mock.patch.object(atr.subprocess, "run", side_effect=run),
+        ):
+            return [atr.check_prs() for _ in range(rounds)]
+
+    @staticmethod
+    def pr(state="OPEN", ci="SUCCESS", mergeable="MERGEABLE", draft=False):
+        return {"state": state, "isDraft": draft, "mergeable": mergeable,
+                "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": ci} if ci else None}}]}}
+
+    def prs(self):
+        return atr.load("demo")["goals"][0].get("prs", [])
+
+    def test_a_pr_sits_on_its_goal_for_its_tasks_and_is_the_owners_turn(self):
+        code, out = self.cli("pr", "G1", URL + "/files", "--for", "T1")
+        self.assertEqual(code, 0, out)
+        self.assertIn("PR #23 on G1 for T1", out)
+        p = self.prs()[0]
+        self.assertEqual((p["url"], p["for"], p["state"], p["known"]), (URL, ["T1"], "open", False))
+        read = self.cli("read")[1]
+        self.assertIn("PR #23 for T1: open, state unknown", read)
+        self.assertIn("merge PR #23 on G1", read)
+        self.assertEqual(atr.summary(atr.load("demo"))["needs_you"], 1)
+        self.assertIn("no change", self.cli("pr", "G1", URL, "--for", "T1")[1])
+        self.assertIn("also for T2", self.cli("pr", "G1", URL, "--for", "T2")[1])
+
+    def test_a_pr_needs_a_github_link_and_tasks_of_its_goal(self):
+        self.assertIn("not a GitHub pull request", self.cli("pr", "G1", "https://example.com/x/y/pull/1")[1])
+        self.assertIn("not a GitHub pull request", self.cli("pr", "G1", 'https://github.com/a"b/c/pull/1')[1])
+        self.you("goal_add", title="Other")
+        self.assertIn("T1 is under G1, not G2", self.cli("pr", "G2", URL, "--for", "T1")[1])
+        self.assertIn("no task T9", self.cli("pr", "G1", URL, "--for", "T9")[1])
+
+    def test_one_query_per_round_for_all_open_prs_of_all_projects(self):
+        self.cli("pr", "G1", URL, "--for", "T1")
+        self.cli("pr", "G1", "https://github.com/mvexel/atr/pull/24")
+        os.environ.pop("ATR_PROJECT")
+        repo = Path(self.tmp.name) / "repo2"
+        repo.mkdir()
+        os.chdir(repo)
+        self.cli("init", "second", "Second", "--lead", "none")
+        atr.change("second", "you", atr.op_goal_add, {"title": "x"})
+        self.cli("-p", "second", "pr", "G1", "https://github.com/o/r/pull/7")
+        self.assertEqual(self.poll({23: self.pr(), 24: self.pr(), 7: self.pr()}), [atr.PR_EVERY])
+        self.assertEqual(len(self.calls), 1)
+        argv = self.calls[0]
+        self.assertEqual(argv[1:4], ["api", "graphql", "-f"])
+        for bit in ("rateLimit", "pullRequest(number: 23)", "pullRequest(number: 24)", 'owner: "o", name: "r"', "statusCheckRollup", "mergeable", "isDraft"):
+            self.assertIn(bit, argv[-1])
+        p = atr.load("second")["goals"][0]["prs"][0]
+        self.assertEqual((p["known"], p["ci"], p["mergeable"], p["draft"]), (True, "passing", "mergeable", False))
+
+    def test_no_open_prs_no_gh(self):
+        self.assertEqual(self.poll(), [])
+        self.assertEqual(atr.check_prs(), atr.PR_EVERY)  # no PRs: gh is not asked (no patch, so a call would fail)
+
+    def test_it_slows_down_when_the_rate_limit_runs_low(self):
+        self.cli("pr", "G1", URL)
+        low = {23: self.pr(), "rateLimit": {"limit": 5000, "remaining": 999}}
+        ok = {23: self.pr(), "rateLimit": {"limit": 5000, "remaining": 1000}}
+        self.assertEqual(self.poll(low, ok), [atr.PR_SLOW, atr.PR_EVERY])
+
+    def test_without_gh_or_when_it_fails_the_pr_is_a_link_with_state_unknown(self):
+        self.cli("pr", "G1", URL)
+        self.poll({23: self.pr(ci="FAILURE")})
+        self.cli("read")
+        rev = atr.load("demo")["rev"]
+        self.poll(OSError("gh gone"), "not json", '{"data": null, "errors": [{"message": "bad credentials"}]}')
+        self.assertFalse(self.prs()[0]["known"])
+        self.assertEqual(atr.load("demo")["rev"], rev)  # stored silently: no news, no revision
+        self.assertEqual(atr.unread(atr.load("demo")), [])
+        from unittest import mock
+
+        with mock.patch.object(atr.shutil, "which", return_value=None):
+            self.assertIsNone(atr.gh_graphql("query { x }"))
+        # gh back, still failing: not news again
+        self.poll({23: self.pr(ci="FAILURE")})
+        self.assertEqual(atr.unread(atr.load("demo")), [])
+
+    def test_ci_failing_and_a_conflict_are_news_other_changes_are_silent(self):
+        self.cli("pr", "G1", URL, "--for", "T1")
+        self.poll({23: self.pr(ci="PENDING")}, {23: self.pr(ci="SUCCESS", draft=True)})
+        self.assertEqual(atr.unread(atr.load("demo")), [])
+        self.assertIn("draft", self.cli("read", "--peek")[1])
+        before = atr.sig(atr.load("demo"))
+        self.poll({23: self.pr(ci="FAILURE")})
+        self.assertNotEqual(before, atr.sig(atr.load("demo")))  # the page redraws
+        news = atr.unread(atr.load("demo"))
+        self.assertEqual([c["by"] for c in news], ["github"])
+        self.assertIn("PR #23 on G1: its CI is failing", news[0]["what"])
+        self.poll({23: self.pr(ci="FAILURE", mergeable="CONFLICTING")})
+        read = self.cli("read")[1]
+        self.assertIn("FROM GITHUB", read)
+        self.assertIn("conflicts with its base branch", read)
+        self.assertNotIn("THE OWNER CHANGED", read)
+        self.assertNotIn("merge PR #23", read)  # failing and conflicting: not the owner's turn yet
+        self.assertEqual(atr.summary(atr.load("demo"))["unread"], 0)  # the page's "your changes" count
+        self.poll({23: self.pr(ci="FAILURE", mergeable="CONFLICTING")})
+        self.assertEqual(atr.unread(atr.load("demo")), [])  # unchanged: nothing written
+
+    def test_news_from_github_wakes_a_waiting_lead(self):
+        self.cli("pr", "G1", URL)
+        self.poll({23: self.pr(ci="FAILURE")})
+        self.assertIn("CI is failing", atr.wait("demo", 0)[0]["what"])
+
+    def test_a_merge_moves_the_pr_to_history_and_its_reviewed_tasks_to_done(self):
+        self.cli("pr", "G1", URL, "--for", "T1,T2")
+        self.cli("task", "set", "T1", "status=review", "note=" + URL)
+        self.poll({23: self.pr(state="MERGED")})
+        plan = atr.load("demo")
+        p = plan["goals"][0]["prs"][0]
+        self.assertEqual(p["state"], "merged")
+        self.assertTrue(p["merged_at"])
+        self.assertEqual([t["status"] for t in plan["tasks"]], ["done", "todo"])  # T2 was not in review
+        self.assertFalse(plan["goals"][0].get("met_at"))  # never the goal: that is the owner's call
+        news = atr.unread(plan)
+        self.assertIn("PR #23 on G1 was merged on GitHub; T1 done", news[0]["what"])
+        read = self.cli("read")[1]
+        self.assertNotIn("PR #23 for", read)
+        self.assertNotIn("merge PR #23", read)
+        self.poll()  # a merged PR is not asked about again
+        self.assertEqual(self.calls, [self.calls[0]])
+        self.assertIn("already merged", self.cli("pr", "G1", URL)[1])
+
+    def test_a_closed_pr_leaves_quietly(self):
+        self.cli("pr", "G1", URL, "--for", "T1")
+        self.cli("read")
+        self.poll({23: self.pr(state="CLOSED")})
+        self.assertEqual(self.prs()[0]["state"], "closed")
+        self.assertEqual(atr.unread(atr.load("demo")), [])
+
+    def test_a_bad_round_never_reaches_the_page(self):
+        self.cli("pr", "G1", URL)
+        self.poll({})  # GitHub has no such PR: null beside the others
+        self.assertFalse(self.prs()[0]["known"])
 
 
 class ClaudeCodeExtension(Base):

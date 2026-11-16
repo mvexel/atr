@@ -81,6 +81,21 @@ itself with the same arguments, under `atr service` or in a terminal, and the pa
 Claude Code sessions to load an updated plugin. A release bumps `version` in `pyproject.toml`, the plugin's
 `plugin.json` and `.claude-plugin/marketplace.json` together (a test keeps them equal) and is tagged `vX.Y.Z`.
 
+## Pull requests
+
+A pull request sits on a goal, not a task: `atr pr G1 URL --for T3` (the lead, or the worker that opened it).
+The page shows it in the goal's header as your turn, with a link to merge it on GitHub; atr has no merge
+button. While `atr serve` runs it asks GitHub about every open PR of every project, through your `gh`, in one
+GraphQL query every 15 s (state, draft, mergeable, CI checks), and every 60 s when under a fifth of your
+hourly API limit is left. It stores no token: without `gh`, or when `gh` fails, a PR shows as a link with its
+state unknown. `ATR_PR_CHECK=0` turns the check off.
+
+A merge, CI turning failing and a conflict with the base branch are written to the plan as news from GitHub,
+so `atr read` shows them to the lead and an idle lead is woken; other changes (CI pending or passing, a draft
+marked ready) are stored silently and only redraw the page. When a PR merges it moves into the goal's
+history, and the tasks named with `--for` that are in review are done. The goal is never marked met by it:
+that stays your call. A PR closed without merging also moves into the history, silently.
+
 To open the page from a phone on your tailnet: `atr serve --host 0.0.0.0 --allow-host my-laptop.tailnet.ts.net`.
 The page has no login, so only bind it to networks you trust.
 
@@ -102,6 +117,7 @@ The page has no login, so only bind it to networks you trust.
 | `atr try G1 "prompt B: 15 of 31 caught"` | record one attempt at a goal; when its tries or days run out, its tasks stop until the owner answers a card on the goal |
 | (page) This goal is met | once all of a goal's tasks are done, the owner closes it; met goals take no new tasks until reopened |
 | `atr outlook G1 unsure "half the ads"` | the lead's current read on whether a goal can be met as written (`likely`, `unsure`, `unlikely`) |
+| `atr pr G1 https://github.com/o/r/pull/12 --for T3` | put a pull request on its goal, for the tasks it carries (workers may use it); see [Pull requests](#pull-requests) |
 | `atr attach T3 file-or-link` | link a document; files are copied into the project so they outlive a worktree |
 | `atr lead URL` | store the lead's thread link (or the command that opens it, for a tool without URLs) |
 | `atr lead --start TOOL` | start a lead thread with the provider `atr-lead-TOOL` and store its link (`auto`: the one on `PATH`) |

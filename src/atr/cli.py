@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import zlib
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -31,8 +32,9 @@ RULES = """\
 ## Plan (atr)
 
 This project's plan lives in atr. You are the lead; workers report to you, and only you run atr,
-except that a worker may report progress on its own task, `atr now T3 "what is happening"`, and
-record its own judgment calls with its name: `atr decide T3 "..." --why "..." --by worker-name`.
+except that a worker may report progress on its own task, `atr now T3 "what is happening"`,
+record its own judgment calls with its name: `atr decide T3 "..." --why "..." --by worker-name`,
+and put a pull request it opened on its goal (rule 7).
 
 1. Run `atr read` when a turn starts and again before it ends. Act on what the owner changed.
 2. Every task belongs to a goal: `atr task add G1 "title" --after T2`. Work that fits no goal is
@@ -55,6 +57,10 @@ record its own judgment calls with its name: `atr decide T3 "..." --why "..." --
    A task you set to done while it has decisions the owner has not reviewed goes to review instead,
    and is done once they accept them (an overturn sends it back to you).
    Attach what you write for the owner: `atr attach T3 path/to/findings.md`.
+7. Right after opening a pull request, put it on its goal with the tasks it carries:
+   `atr pr G1 https://github.com/o/r/pull/12 --for T3`, and set those tasks to review. The owner merges
+   it on GitHub; then atr moves them to done (never the goal: that stays the owner's call). `atr read`
+   tells you when it merges, its CI fails or it conflicts: fix those on the same branch.
 """
 
 
@@ -288,10 +294,11 @@ def ready(plan):
 
 
 def unread(plan):
+    """What the lead has not read: the owner's changes, and news from GitHub about the project's PRs."""
     return [
         c
         for c in plan["changes"]
-        if c["by"] == "you" and c["rev"] > plan["lead"]["read_rev"]
+        if c["by"] in ("you", "github") and c["rev"] > plan["lead"]["read_rev"]
     ]
 
 
@@ -898,6 +905,110 @@ def op_attach(plan, by, a):
     return f'attached "{doc["title"]}" to {on}'
 
 
+# ---- pull requests: they sit on a goal, the owner merges them on GitHub ------------------------------------
+# A PR is the owner's turn on its goal. atr serve asks gh about every open PR of every project in one GraphQL
+# query per round and stores what GitHub says; merged, CI turning failing and a conflict are news for the lead.
+
+PR_RE = re.compile(r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/pull/(\d+)(?:[/?#].*)?$")
+
+
+def pr_parse(url):
+    """(owner, repo, number) of a GitHub pull request link."""
+    m = PR_RE.match((url or "").strip())
+    if not m:
+        raise Refused(f"{url} is not a GitHub pull request link (https://github.com/OWNER/REPO/pull/N)")
+    return m[1], m[2], int(m[3])
+
+
+def find_pr(plan, url):
+    for g in plan["goals"]:
+        for p in g.get("prs", []):
+            if p["url"] == url:
+                return g, p
+    return None, None
+
+
+def pr_turn(p):
+    """An open PR is the owner's turn (merge it), unless GitHub says it is a draft, failing or conflicting."""
+    return p["state"] == "open" and not (
+        p.get("known") and (p.get("draft") or p.get("ci") == "failing" or p.get("mergeable") == "conflicting")
+    )
+
+
+def pr_words(p):
+    """What is known of a PR, for the lead: 'open, CI passing, mergeable'."""
+    if p["state"] != "open" or not p.get("known"):
+        return p["state"] if p["state"] != "open" else "open, state unknown (gh did not answer)"
+    return ", ".join(
+        ["draft" if p.get("draft") else "open", f"CI {p.get('ci') or 'none'}"]
+        + [{"conflicting": "CONFLICTS with its base", "mergeable": "mergeable"}.get(p.get("mergeable"), "mergeability unknown")]
+    )
+
+
+def op_pr(plan, by, a):
+    """The lead or a worker puts a PR it opened on its goal, for the tasks it carries (--for)."""
+    g = get(plan, "goals", a.get("goal") or "")
+    if g.get("proposed"):
+        raise Refused(f"{g['id']} is only proposed")
+    if g.get("met_at") and by != "you":
+        raise Refused(f"{g['id']} is met; the owner reopens it first")
+    owner, repo, number = pr_parse(a.get("url"))
+    url = f"https://github.com/{owner}/{repo}/pull/{number}"
+    tasks = list(dict.fromkeys(a.get("for") or []))
+    for tid in tasks:
+        t = get(plan, "tasks", tid)
+        if t["goal"] != g["id"]:
+            raise Refused(f"{tid} is under {t['goal']}, not {g['id']}: a PR sits on the goal of the tasks it carries")
+    on, p = find_pr(plan, url)
+    if p:
+        if on is not g:
+            raise Refused(f"PR #{number} is already on {on['id']}")
+        if p["state"] != "open":
+            raise Refused(f"PR #{number} is already {p['state']}")
+        new = [t for t in tasks if t not in p["for"]]
+        if not new:
+            return None
+        p["for"] += new
+        return f"PR #{number} on {g['id']} is also for {', '.join(new)}"
+    p = {"url": url, "repo": f"{owner}/{repo}", "number": number, "for": tasks, "by": by, "at": now(), "state": "open", "known": False}
+    g.setdefault("prs", []).append(p)
+    return f"PR #{number} on {g['id']}" + (f" for {', '.join(tasks)}" if tasks else "") + f": {url}"
+
+
+def op_pr_seen(plan, by, a):
+    """What GitHub says of a PR now (from the poller). Merged, CI turning failing and a new conflict are news,
+    so they reach the lead; any other change is stored silently. A merge moves the PR into the goal's history
+    and its tasks in review to done; it never says the goal is met: that stays the owner's call."""
+    g, p = find_pr(plan, a.get("url"))
+    if not p or p["state"] != "open":
+        return None
+    if not a.get("known"):
+        p["known"] = False  # gh is missing or failed: the page shows a link, state unknown
+        return None
+    was = dict(p)
+    p.update(known=True, draft=bool(a.get("draft")), mergeable=a.get("mergeable") or "unknown", ci=a.get("ci") or "none")
+    tag = f"PR #{p['number']} on {g['id']}"
+    if a.get("state") == "merged":
+        p.update(state="merged", merged_at=now())
+        done = []
+        for tid in p["for"]:
+            t = next((t for t in plan["tasks"] if t["id"] == tid), None)
+            if t and t["status"] == "review":
+                t["status"] = "done"
+                t.pop("awaits", None)
+                done.append(tid)
+        return f"{tag} was merged on GitHub" + (f"; {', '.join(done)} done" if done else "") + f" ({p['url']})"
+    if a.get("state") == "closed":
+        p.update(state="closed", closed_at=now())
+        return None
+    news = []
+    if p["ci"] == "failing" and was.get("ci") != "failing":
+        news.append("its CI is failing")
+    if p["mergeable"] == "conflicting" and was.get("mergeable") != "conflicting":
+        news.append("it conflicts with its base branch")
+    return f"{tag}: {' and '.join(news)} ({p['url']})" if news else None
+
+
 def op_lead(plan, by, a):
     plan["lead"]["thread"] = (a.get("thread") or "").strip()
     return "set the lead thread"
@@ -943,9 +1054,14 @@ OPS = {
 
 def render(plan, since):
     out = [f"{plan['title']} ({plan['name']}) · revision {plan['rev']}", ""]
-    if since:
+    owner, github = [c for c in since if c["by"] != "github"], [c for c in since if c["by"] == "github"]
+    if owner:
         out.append("THE OWNER CHANGED, since you last read:")
-        out += [f"  - {c['what']}" for c in since]
+        out += [f"  - {c['what']}" for c in owner]
+        out.append("")
+    if github:
+        out.append("FROM GITHUB, since you last read (your PRs):")
+        out += [f"  - {c['what']}" for c in github]
         out.append("")
     workers = from_workers(plan)
     if workers:
@@ -1014,6 +1130,10 @@ def render(plan, since):
             left = [f"{b.get('used', 0)} of {b['tries']} tries used"] if b.get("tries") else []
             left += [f"{b['days']} days from {b['from'][:10]}"] if b.get("days") else []
             out.append(f"   budget: {', '.join(left)}")
+        for p in g.get("prs", []):
+            if p["state"] == "open":
+                carries = f" for {', '.join(p['for'])}" if p["for"] else ""
+                out.append(f"   PR #{p['number']}{carries}: {pr_words(p)} {p['url']}")
         for t in (t for t in plan["tasks"] if t["goal"] == g["id"]):
             bits = [f"after {', '.join(t['after'])}"] if t["after"] else []
             bits += [f"{d['id']} needs owner" for d in held_by(plan, t)]
@@ -1061,13 +1181,14 @@ def render(plan, since):
         and any(t["goal"] == g["id"] and t["status"] == "done" for t in plan["tasks"])
         and not any(t["goal"] == g["id"] and t["status"] in OPEN for t in plan["tasks"])
     ]
-    if yours or finished:
+    if yours or finished or any(pr_turn(p) for g in plan["goals"] for p in g.get("prs", [])):
         out += [
             "",
             "THE OWNER'S TURN (only they can do these; do not start them): "
             + ", ".join(
                 [label(t) for t in yours]
                 + [f"say whether {g['id']} is met (all its tasks are done)" for g in finished]
+                + [f"merge PR #{p['number']} on {g['id']}" for g in plan["goals"] for p in g.get("prs", []) if pr_turn(p)]
             ),
         ]
     nxt = ready(plan)
@@ -1093,15 +1214,18 @@ def summary(plan):
         "running": sum(t["status"] == "doing" for t in tasks),
         "needs_you": sum(d["state"] == "needs_you" for d in plan["decisions"])
         + sum(bool(g.get("proposed")) for g in plan["goals"])
-        + sum(t["status"] == "review" for t in plan["tasks"]),
+        + sum(t["status"] == "review" for t in plan["tasks"])
+        + sum(pr_turn(p) for g in plan["goals"] for p in g.get("prs", [])),
         "to_review": sum(d["state"] == "to_review" for d in plan["decisions"]),
-        "unread": len(unread(plan)),
+        "unread": sum(c["by"] == "you" for c in unread(plan)),
         "lead_waiting": waiting(plan["name"]),
     }
 
 
 def sig(plan):
-    return f"{plan['rev']}.{plan['lead']['read_rev']}.{sum(bool(t.get('stopped')) for t in plan['tasks'])}.{int(waiting(plan['name']))}"
+    # What GitHub says of a PR is stored without a new revision, so the PRs are in the signature too.
+    prs = zlib.crc32(json.dumps([g.get("prs") for g in plan["goals"]], sort_keys=True).encode())
+    return f"{plan['rev']}.{plan['lead']['read_rev']}.{sum(bool(t.get('stopped')) for t in plan['tasks'])}.{int(waiting(plan['name']))}.{prs:x}"
 
 
 # ---- web -----------------------------------------------------------------------------------------
@@ -1182,6 +1306,91 @@ def watch_releases():
     def loop():
         while True:
             time.sleep(check_release())
+
+    threading.Thread(target=loop, daemon=True).start()
+
+
+# ---- pull requests: what GitHub says of them, through the owner's gh ----------------------------------------
+
+PR_EVERY, PR_SLOW = 15, 60  # seconds between rounds; slow when under a fifth of the hourly limit is left
+CI_STATES = {"SUCCESS": "passing", "FAILURE": "failing", "ERROR": "failing", "PENDING": "pending", "EXPECTED": "pending"}
+
+
+def pr_query(prs):
+    """One GraphQL query for all of `prs` [(owner, repo, number)], aliased p0, p1, ..., and the rate limit.
+    pr_parse only lets letters, digits, '.', '_' and '-' into owner and repo, so they cannot break the query."""
+    fields = "state isDraft mergeable commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }"
+    return "query { rateLimit { limit remaining } " + " ".join(
+        f'p{i}: repository(owner: "{o}", name: "{r}") {{ pullRequest(number: {n}) {{ {fields} }} }}'
+        for i, (o, r, n) in enumerate(prs)
+    ) + " }"
+
+
+def gh_graphql(query):
+    """The data gh returns for `query`, or None without gh or when it fails. A PR GitHub cannot find comes back
+    as null beside the others (gh exits 1 then, but still prints the data)."""
+    gh = shutil.which("gh")
+    if not gh:
+        return None
+    try:
+        r = subprocess.run([gh, "api", "graphql", "-f", f"query={query}"], capture_output=True, text=True, timeout=30, check=False)
+        data = json.loads(r.stdout).get("data")
+    except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def pr_fields(pr):
+    """What the poller stores of one pullRequest from the query; {"known": False} when there is none."""
+    if not isinstance(pr, dict):
+        return {"known": False}
+    nodes = (pr.get("commits") or {}).get("nodes") or [{}]
+    rollup = ((nodes[0] or {}).get("commit") or {}).get("statusCheckRollup") or {}
+    return {
+        "known": True,
+        "state": (pr.get("state") or "open").lower(),
+        "draft": bool(pr.get("isDraft")),
+        "mergeable": (pr.get("mergeable") or "unknown").lower(),
+        "ci": CI_STATES.get(rollup.get("state"), "none"),
+    }
+
+
+def check_prs():
+    """One round of the PR poll: one gh query for the open PRs of all projects. A plan is written only when
+    what GitHub says differs from what it holds. Returns the seconds until the next round."""
+    found = []
+    for name in projects():
+        with contextlib.suppress(OSError, ValueError, Refused):
+            for g in load(name)["goals"]:
+                found += [(name, p, pr_parse(p["url"])) for p in g.get("prs", []) if p["state"] == "open"]
+    if not found:
+        return PR_EVERY
+    data = gh_graphql(pr_query([where for *_, where in found])) or {}
+    for i, (name, p, _) in enumerate(found):
+        seen = pr_fields((data.get(f"p{i}") or {}).get("pullRequest"))
+        if any(p.get(k) != v for k, v in seen.items()):
+            with contextlib.suppress(OSError, ValueError, Refused):
+                change(name, "github", op_pr_seen, {"url": p["url"], **seen})
+    limit = data.get("rateLimit") or {}
+    try:
+        slow = limit["remaining"] < 0.2 * limit["limit"]
+    except (KeyError, TypeError):
+        slow = False
+    return PR_SLOW if slow else PR_EVERY
+
+
+def watch_prs():
+    """For atr serve: poll the open PRs in the background, so the page never waits on gh."""
+    import threading
+
+    def loop():
+        while True:
+            try:
+                wait = check_prs()
+            except Exception as e:  # noqa: BLE001 - a bad round must not end the poll
+                print(f"atr: PR check failed: {e}", file=sys.stderr, flush=True)
+                wait = PR_SLOW
+            time.sleep(wait)
 
     threading.Thread(target=loop, daemon=True).start()
 
@@ -1755,6 +1964,13 @@ def main(argv=None):
     )
     x.add_argument("id")
     x.add_argument("text", nargs="+")
+    x = sub.add_parser("pr", help="put a pull request you opened on its goal (workers may use this)")
+    x.add_argument("goal")
+    x.add_argument("url")
+    x.add_argument(
+        "--for", dest="for_", action="append", default=[], metavar="TASK",
+        help="task(s) the PR carries; they go to done when it merges (repeat or comma-separate)",
+    )
     x = sub.add_parser("lead", help="store the lead's thread link, or start a lead thread (--start)")
     x.add_argument("thread", nargs="?")
     x.add_argument("--start", metavar="TOOL", help="start the lead thread with atr-lead-TOOL ('auto': the one on PATH)")
@@ -1788,6 +2004,8 @@ def main(argv=None):
             Handler.started_with = code_stamp()
             if os.environ.get("ATR_UPDATE_CHECK") != "0":
                 watch_releases()
+            if os.environ.get("ATR_PR_CHECK") != "0":
+                watch_prs()
             print(f"atr: {data_dir()} at http://{a.host}:{a.port}/", flush=True)
             return ThreadingHTTPServer((a.host, a.port), Handler).serve_forever()
         if a.cmd == "init":
@@ -1894,6 +2112,8 @@ def main(argv=None):
             fn, args = op_attach, {"on": a.on, "src": a.src, "title": a.title}
         elif a.cmd == "now":
             fn, args = op_task_now, {"id": a.id, "text": " ".join(a.text)}
+        elif a.cmd == "pr":
+            fn, args = op_pr, {"goal": a.goal, "url": a.url, "for": [t for s in a.for_ for t in s.split(",") if t]}
         elif a.start:
             return print(start_lead(name, a.start))
         elif a.claim:
