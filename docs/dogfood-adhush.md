@@ -68,3 +68,7 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
   Added `atr now T8 "..."` (workers may use it), a "Working on" strip at the top of the page, and a progress
   line on each running task. Accepted decisions fold to one line so a task's body stays short.
 - **Answered cards were labelled "decided by the lead, without asking".** Fixed.
+- **Agreeing the plan counted finished tasks as new** ("9 new tasks", 7 of them done or parked). Only open
+  tasks count now. The open question behind it: the lead started and finished tasks the owner had not agreed
+  yet. atr allows that by design ("new" marks a task, it does not hold it back). The owner may want a stricter
+  mode.
