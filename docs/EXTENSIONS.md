@@ -30,7 +30,8 @@ A lead provider is any executable on `PATH` named `atr-lead-<tool>`. atr runs it
 `atr-lead-<tool> PROJECT TITLE`, in the project's repo, with `ATR_PROJECT` set, and waits up to two minutes.
 
 - **Success:** exit 0 and print the lead's link as the last line of stdout. atr stores it as the lead
-  thread (`atr lead`). An `http(s)` link shows on the page as a link; anything else, such as the command
+  thread (`atr lead`). If an earlier line reads `thread-id: ID`, atr makes thread `ID` the lead (see
+  [One lead per project](#one-lead-per-project)), replacing any lead there was. An `http(s)` link shows on the page as a link; anything else, such as the command
   that opens a local session, shows as text to copy.
 - **Failure:** exit non-zero and say why on stderr. atr shows the last line to the owner and stores
   nothing. `atr init` still succeeds.
@@ -64,9 +65,8 @@ installed globally and only act where a `.atr` file exists.
   "lead_waiting": true,
   "unread": [{"rev": 4, "by": "you", "at": "2026-11-15T20:01Z", "what": "answered D1 (…): sqlite",
               "op": "answer", "args": {"id": "D1", "choice": "sqlite", "note": ""}}],
-  "running": [{"id": "T3", "title": "…", "last_news_at": "2026-11-15T19:40Z"}],
-  "own": true,
-  "projects": [{"project": "adhush", "own": true, "…": "the same fields, once per followed project"}]
+  "lead_id": "85aade68-…",
+  "running": [{"id": "T3", "title": "…", "last_news_at": "2026-11-15T19:40Z"}]
 }
 ```
 
@@ -77,13 +77,29 @@ installed globally and only act where a `.atr` file exists.
 - `lead_waiting` is true while an `atr wait` for this project is running. The page shows "Lead listening"
   and tells the owner the lead is being woken. Turn-end checks can use it: if it is false, the doorbell is
   not armed.
-- `projects` lists every project the folder's lead follows: the folder's own (`own: true`) first, then
-  any added with `atr watch NAME` from that folder. The top-level fields repeat the first entry. Cover
-  every entry: read a followed project with `atr -p NAME read`. `atr wait` returns when any of them changes,
-  and exit 2 means the folder has no project and follows none.
+- `lead_id` is the thread that leads the project now, or `""` when none does.
 - `running` lists the tasks in progress and when there was last news of each. A session start should
   show them to the lead and ask it to confirm each still has a worker: workers often die with the
   session that started them, and atr cannot tell.
+
+## One lead per project
+
+A project has one lead thread, and a thread leads one project. An extension whose harness names its
+sessions enforces this with two commands:
+
+| Command | Exit codes | Use |
+| --- | --- | --- |
+| `atr lead --claim ID [--json]` | 0 thread `ID` leads the project (it took the lead, or already had it) · 1 another thread leads it, or `ID` leads another project · 2 error | run at every turn start and end, and before arming the doorbell; it also refreshes the claim |
+| `atr lead --release ID` | 0 | run when the session ends |
+
+`--json` prints `{"lead": true|false, "id": "…", "seen": 1763318400.0, "project": "…"}`: who leads, when it
+was last seen (Unix time), and which project (when `ID` already leads another one, that one).
+
+- Give the lead's jobs (turn start, turn end, doorbell) to the lead only. Tell any other session who leads,
+  that it is not the lead, and that it may work as a worker.
+- A short id that starts the full one names the same thread (a provider may print the short one).
+- A claim not refreshed for 24 hours runs out, so a lead whose session died does not hold the project.
+  The owner can also let go of the lead on the page; the next session to claim becomes the lead.
 
 ## Rules for extensions
 

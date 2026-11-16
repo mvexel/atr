@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """atr for Claude Code: the turn start, turn end and doorbell jobs from docs/EXTENSIONS.md.
 
-Usage (from hooks.json): atr_hook.py session-start | prompt | stop | listen, with the hook's JSON on stdin.
+Usage (from hooks.json): atr_hook.py session-start | prompt | stop | listen | session-end, with the hook's JSON on stdin.
 Finds atr via ATR_BIN or PATH. Silent outside atr projects. ATR_DOORBELL=0 turns the listener (the push) off.
 """
 
@@ -33,16 +33,36 @@ def atr(cwd, *args):
     return r.returncode, r.stdout
 
 
+def lead(cwd, session):
+    """Whether this session leads the folder's project: (True, info), (False, info), or (None, {}) outside one.
+
+    The first session to take a turn leads; the others are told who does. A session the hooks cannot name
+    (no session_id) is treated as the lead, as before atr knew threads.
+    """
+    if not session:
+        code, out = atr(cwd, "unread", "--json")
+        return (None, {}) if code == 2 else (True, {})
+    code, out = atr(cwd, "lead", "--claim", session, "--json")
+    if code not in (0, 1):
+        return None, {}
+    try:
+        return code == 0, json.loads(out)
+    except ValueError:
+        return None, {}
+
+
 def listen(cwd, session):
     """The push (asyncRewake): wait for the owner, then exit 2 with their actions so Claude Code wakes the lead.
 
-    Runs in the background after every turn and at session start. One listener per session: a new one
-    stops the one before it, so a single owner action wakes the lead once.
+    Runs in the background after every turn and at session start, for the lead only. One listener per
+    session: a new one stops the one before it, so a single owner action wakes the lead once.
     """
     import signal
     import tempfile
     from pathlib import Path
 
+    if not lead(cwd, session)[0]:
+        return
     exe = os.environ.get("ATR_BIN") or shutil.which("atr")
     pidfile = Path(tempfile.gettempdir()) / f"atr-listen-{session or 'default'}.pid"
     try:
@@ -68,15 +88,14 @@ def listen(cwd, session):
             break
         if child.returncode != 1:
             return  # not an atr project, or atr failed: stay quiet
+    if not lead(cwd, session)[0]:
+        return  # the owner let another thread lead while this one was idle
     state = json.loads(out)
     lines = ["The owner acted on the atr page while you were idle:"]
-    for p in state.get("projects") or [state]:
-        read = "atr read" if p.get("own", True) else f"atr -p {p['project']} read"
-        for c in p["unread"]:
-            data = json.dumps({"op": c["op"], "args": c["args"]}) if "op" in c else ""
-            lines.append(f"- [{p['project']}] {c['what']} {data}".rstrip())
-        if p["unread"]:
-            lines.append(f"Act on this, and run `{read}` to mark it read.")
+    for c in state["unread"]:
+        data = json.dumps({"op": c["op"], "args": c["args"]}) if "op" in c else ""
+        lines.append(f"- [{state['project']}] {c['what']} {data}".rstrip())
+    lines.append("Act on this, and run `atr read` to mark it read.")
     print("\n".join(lines), file=sys.stderr)
     sys.exit(2)
 
@@ -91,49 +110,61 @@ def main(event):
     except ValueError:
         hook = {}
     cwd = hook.get("cwd") or os.getcwd()
+    session = hook.get("session_id")
     if event == "listen":
         if os.environ.get("ATR_DOORBELL") != "0":
-            listen(cwd, hook.get("session_id"))
+            listen(cwd, session)
+        return
+    if event == "session-end":
+        if session:
+            atr(cwd, "lead", "--release", session)
+        return
+    is_lead, who = lead(cwd, session)
+    if is_lead is None:
+        return  # not an atr project, or atr is not installed
+    if not is_lead:
+        if event == "session-start":
+            code, out = atr(cwd, "unread", "--json")
+            here = json.loads(out)["project"] if code in (0, 1) else "this folder's project"
+            if who["project"] != here:
+                print(
+                    f"This folder is atr project {here}, but this session already leads {who['project']}, "
+                    "and a session leads one project only. You are not the lead here: do not run atr for "
+                    f"{here}; if the owner asked you for work in it, do it as a worker."
+                )
+            else:
+                print(
+                    f"This folder is atr project {here}. Its lead is another session ({who['id']}); you are "
+                    "not the lead. Do not plan, read or change the atr plan as its lead. If the owner asked you "
+                    "for work here, do it as a worker: you may report progress on your own task "
+                    "(`atr now T3 \"...\"`) and record your own judgment calls with `--by`."
+                )
         return
     code, out = atr(cwd, "unread", "--json")
     if code == 2:
-        return  # not an atr project (and following none), or atr is not installed
+        return
     state = json.loads(out)
-    # Every project this folder's lead follows: its own, plus any added with `atr watch NAME`.
-    projects = state.get("projects") or [state]
-
-    def plan(p):
-        return atr(cwd, "read")[1] if p.get("own", True) else atr(cwd, "-p", p["project"], "read")[1]
-
     if event == "session-start":
-        for p in projects:
-            role = "This folder is atr project" if p.get("own", True) else "You follow atr project"
-            print(f"{role} {p['project']}; you are its lead. The plan:\n\n{plan(p)}")
-            if p.get("running"):
-                print(
-                    "\nThese tasks show as in progress. A worker from an earlier session may be gone. Check that "
-                    "each is still running; for any that is not, set it back with "
-                    f"`atr{'' if p.get('own', True) else ' -p ' + p['project']} task set ID status=todo` and say so:\n"
-                    + "\n".join(
-                        f"  - {t['id']} {t['title']} (last news {t['last_news_at'] or 'unknown'})"
-                        for t in p["running"]
-                    )
+        print(f"This folder is atr project {state['project']}; you are its lead. The plan:\n\n{atr(cwd, 'read')[1]}")
+        if state.get("running"):
+            print(
+                "\nThese tasks show as in progress. A worker from an earlier session may be gone. Check that "
+                "each is still running; for any that is not, set it back with "
+                "`atr task set ID status=todo` and say so:\n"
+                + "\n".join(
+                    f"  - {t['id']} {t['title']} (last news {t['last_news_at'] or 'unknown'})"
+                    for t in state["running"]
                 )
+            )
     elif event == "prompt":
-        for p in projects:
-            if p["unread"]:
-                print(f"The owner changed the atr plan of {p['project']} since you last read it:\n\n{plan(p)}")
+        if state["unread"]:
+            print(f"The owner changed the atr plan of {state['project']} since you last read it:\n\n{atr(cwd, 'read')[1]}")
     elif event == "stop":
         if hook.get("stop_hook_active"):
             return  # already continuing because of this hook: let the turn end
-        changed = [p["project"] for p in projects if p["unread"]]
-        if changed:
-            how = " and ".join(
-                "`atr read`" if p.get("own", True) else f"`atr -p {p['project']} read`"
-                for p in projects
-                if p["unread"]
-            )
-            block(f"The owner changed the atr plan while you worked. Run {how} and act on it before ending your turn.")
+        if state["unread"]:
+            block("The owner changed the atr plan while you worked. Run `atr read` and act on it before ending your turn.")
+
 
 if __name__ == "__main__":
     main(sys.argv[1] if len(sys.argv) > 1 else "")

@@ -392,7 +392,12 @@ function drawProject() {
       plan.lead.thread && (/^https?:\/\//.test(plan.lead.thread)
         ? h("a", { href: plan.lead.thread, target: "_blank", rel: "noopener" }, "Lead thread ↗")
         // A local tool's thread has no URL; its provider stores the command that opens it.
-        : h("span", { class: "muted small", title: "Run this in a terminal to open the lead" }, "Lead: ", h("code", { style: "user-select:all" }, plan.lead.thread)))),
+        : h("span", { class: "muted small", title: "Run this in a terminal to open the lead" }, "Lead: ", h("code", { style: "user-select:all" }, plan.lead.thread))),
+      // One session leads; the others in the repo work as workers. Letting go hands the lead to the next
+      // session that takes a turn here (the one you start or talk to next).
+      S.data.lead_claim?.id && h("span", { class: "muted small", title: `Session ${S.data.lead_claim.id}, last seen ${ago(S.data.lead_claim.seen * 1000)}` },
+        plan.lead.thread ? " · led by session " : "Led by session ",h("code", {}, S.data.lead_claim.id.slice(0, 8)), " ",
+        h("button", { class: "link", onclick: () => act("lead_release", {}) }, "let another session lead"))),
     h("h1", {}, plan.title),
     workingOn(plan),
     h("div", { class: "chips" }, ["all", "doing", "blocked", "review", "todo", "done"].map(f =>

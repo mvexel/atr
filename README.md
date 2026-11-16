@@ -93,9 +93,9 @@ The page has no login, so only bind it to networks you trust.
 | (page) This goal is met | once all of a goal's tasks are done, the owner closes it; met goals take no new tasks until reopened |
 | `atr outlook G1 unsure "half the ads"` | the lead's current read on whether a goal can be met as written (`likely`, `unsure`, `unlikely`) |
 | `atr attach T3 file-or-link` | link a document; files are copied into the project so they outlive a worktree |
-| `atr watch NAME` | follow another project from this folder (`--stop` to stop): the hooks and `atr wait` cover it too |
 | `atr lead URL` | store the lead's thread link (or the command that opens it, for a tool without URLs) |
 | `atr lead --start TOOL` | start a lead thread with the provider `atr-lead-TOOL` and store its link (`auto`: the one on `PATH`) |
+| `atr lead --claim ID` / `--release ID` | for extensions: thread `ID` becomes the lead unless another thread is (exit 1), or lets go |
 | `atr projects` | list projects with done, waiting and to-review counts |
 | `atr service install` | keep `atr serve` running in the background (`uninstall` removes it) |
 | `atr rules` | print the rule block for `AGENTS.md` / `CLAUDE.md` |
@@ -112,6 +112,12 @@ lead the owner's changes when a turn starts, holds a turn that is about to end w
 and wakes an idle lead when the owner acts (`atr wait`). It can also ship a lead provider, which
 `atr init` uses to start the lead thread. [docs/EXTENSIONS.md](docs/EXTENSIONS.md) describes
 the commands and rules an extension builds on.
+
+**One lead per project.** An extension that can name its sessions claims the lead for one of them
+(`atr lead --claim`). The first session to take a turn in the repo leads, or the one a lead provider
+started; the others are told who leads and work as workers. A session leads one project at most. The
+lead lets go when its session ends or after 24 hours of silence, and the page's "let another session
+lead" hands the lead to the next session that takes a turn.
 
 Shipped here: [Claude Code](extensions/claude-code/).
 

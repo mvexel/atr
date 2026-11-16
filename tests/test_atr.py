@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -469,23 +470,42 @@ class Plan(Base):
         self.you("task_restore", id="T1")
         self.assertNotIn("pruned_why", self.task("T1"))
 
-    def test_a_lead_follows_another_project_from_its_folder(self):
+    def test_one_thread_leads_a_project_and_leads_only_one(self):
+        self.assertEqual(self.cli("lead", "--claim", "aaaa-1")[0], 0)
+        code, out = self.cli("lead", "--claim", "bbbb-2", "--json")
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(out)["id"], "aaaa-1")
+        self.assertEqual(self.cli("lead", "--claim", "aaaa")[0], 0)  # a short id names the same thread
+        self.assertEqual(atr.read_claim("demo")["id"], "aaaa-1")  # and the full id is kept
+        self.cli("init", "other", "Other", "--lead", "none")
+        code, out = self.cli("-p", "other", "lead", "--claim", "aaaa-1", "--json")
+        self.assertEqual((code, json.loads(out)["project"]), (1, "demo"))  # it already leads demo
+        self.assertEqual(self.cli("-p", "other", "lead", "--claim", "bbbb-2")[0], 0)
+
+    def test_a_lead_lets_go_at_session_end_or_when_the_owner_says(self):
+        self.cli("lead", "--claim", "aaaa-1")
+        self.assertIn("does not lead", self.cli("lead", "--release", "bbbb-2")[1])
+        self.cli("lead", "--release", "aaaa-1")
+        self.assertEqual(self.cli("lead", "--claim", "bbbb-2")[0], 0)
+        with self.assertRaises(atr.Refused):
+            self.agent("lead_release")  # only the owner takes the lead from a thread
+        self.you("lead_release")
+        self.assertEqual(atr.read_claim("demo"), {})
+        self.assertEqual(self.cli("lead", "--claim", "cccc-3")[0], 0)
+
+    def test_a_silent_lead_runs_out(self):
+        self.cli("lead", "--claim", "aaaa-1")
+        atr.claim_file("demo").write_text(json.dumps({"id": "aaaa-1", "seen": time.time() - atr.CLAIM_LIFE - 1}))
+        self.assertEqual(self.cli("lead", "--claim", "bbbb-2")[0], 0)
+
+    def test_a_lead_outside_the_repo_is_told_to_lead_from_it(self):
         elsewhere = tempfile.TemporaryDirectory()
         self.addCleanup(elsewhere.cleanup)
-        os.environ.pop("ATR_PROJECT")
         self.cli("read")
         os.chdir(elsewhere.name)
-        self.assertEqual(self.cli("unread")[0], 2)  # no project here, none followed
-        self.assertEqual(self.cli("watch", "nope")[0], 2)
-        self.assertIn("follows: demo", self.cli("watch", "demo")[1])
-        self.assertNotIn("NOTE: you are in", self.cli("-p", "demo", "read")[1])
-        self.assertEqual(self.cli("unread")[0], 1)
-        self.you("goal_add", title="Second")
-        code, out = self.cli("unread", "--json")
-        self.assertEqual(code, 0)
-        self.assertEqual(json.loads(out)["projects"][0]["project"], "demo")
-        self.assertEqual(self.cli("wait", "--timeout", "1")[0], 0)
-        self.assertIn("no other projects", self.cli("watch", "demo", "--stop")[1])
+        out = self.cli("-p", "demo", "read")[1]
+        self.assertIn("NOTE: you are in", out)
+        self.assertNotIn("atr watch", out)
 
     def test_only_the_owner_says_a_goal_is_met_and_met_goals_take_no_new_work(self):
         self.cli("goal", "propose", "Mute ads", "--done", "most ads muted")
@@ -702,6 +722,7 @@ class LeadProviders(Base):
         args = json.loads((Path(self.tmp.name) / "claude-args").read_text())
         self.assertEqual(args[:3], ["--bg", "-n", "fresh · lead"])
         self.assertIn("atr rules", args[3])
+        self.assertEqual(atr.read_claim("fresh")["id"], "85aade68")  # the session it started is the lead
 
     def test_claude_code_provider_passes_claudes_complaint_on(self):
         self.fake_claude("print('Workspace not trusted. Run claude once.'); raise SystemExit(1)")
@@ -789,16 +810,34 @@ class ClaudeCodeExtension(Base):
         self.assertIn("may be gone", out)
         self.assertIn("T1 long run", out)
 
-    def test_watched_projects_reach_a_lead_in_another_folder(self):
-        elsewhere = tempfile.TemporaryDirectory()
-        self.addCleanup(elsewhere.cleanup)
+    def test_only_the_lead_session_hears_the_owner(self):
+        self.assertIn("you are its lead", self.hook("session-start", session_id="lead-1"))
+        out = self.hook("session-start", session_id="other-2")
+        self.assertIn("Its lead is another session (lead-1)", out)
+        self.assertNotIn("G1 Sign in", out)
+        self.assertEqual(self.hook("prompt", session_id="other-2"), "")
+        self.assertEqual(self.hook("stop", session_id="other-2"), "")
+        self.you("goal_add", title="More")
+        self.assertEqual(self.hook("prompt", session_id="other-2"), "")
+        self.assertIn("THE OWNER CHANGED", self.hook("prompt", session_id="lead-1"))
+
+    def test_a_non_lead_listener_stays_quiet(self):
+        self.hook("session-start", session_id="lead-1")
+        proc, payload = self.listener(session="other-2")
+        out, err = proc.communicate(payload, timeout=10)
+        self.assertEqual((proc.returncode, err), (0, ""))
+
+    def test_a_session_that_leads_one_project_is_not_the_lead_of_another(self):
+        self.hook("session-start", session_id="lead-1")
         os.environ.pop("ATR_PROJECT")
-        os.chdir(elsewhere.name)
-        self.assertEqual(self.hook("prompt", cwd=elsewhere.name), "")
-        self.cli("watch", "demo")
-        self.assertIn("You follow atr project demo", self.hook("session-start", cwd=elsewhere.name))
-        self.you("goal_add", title="Second")
-        self.assertIn("plan of demo", self.hook("prompt", cwd=elsewhere.name))
+        repo = Path(self.tmp.name) / "repo2"
+        repo.mkdir()
+        os.chdir(repo)
+        self.cli("init", "second", "Second", "--lead", "none")
+        out = self.hook("session-start", cwd=str(repo), session_id="lead-1")
+        self.assertIn("already leads demo", out)
+        self.hook("session-end", session_id="lead-1")  # it ends: it no longer leads demo
+        self.assertIn("you are its lead", self.hook("session-start", cwd=str(repo), session_id="lead-1"))
 
     def test_silent_outside_an_atr_project(self):
         os.environ.pop("ATR_PROJECT")
