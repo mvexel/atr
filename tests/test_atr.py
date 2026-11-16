@@ -787,6 +787,12 @@ class Versions(unittest.TestCase):
         self.assertEqual({atr.version(), plugin, market}, {atr.version()})
         self.assertGreater(atr.vtuple(atr.version()), (0, 3, 0))  # past the last release before versions were kept
 
+    def test_the_command_line_reports_the_version(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+            atr.main(["--version"])
+        self.assertEqual(out.getvalue().strip(), f"atr {atr.version()}")
+
     def test_a_checkout_upgrades_with_a_fast_forward_pull(self):
         self.assertEqual(atr.install_kind(), "checkout")
         try:

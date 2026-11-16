@@ -84,6 +84,13 @@
   .st { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; white-space: nowrap; }
   .st i { width: 9px; height: 9px; border-radius: 50%; }
   .st.done i { background: var(--good); } .st.review i { background: var(--warn); } .st.doing i { background: var(--info); } .st.blocked i { background: var(--warn); }
+  /* A slow pulse marks what is alive right now: a task in progress, a lead that is listening. */
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--info) 55%, transparent); }
+    70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+  .st.doing i, .live::before { animation: pulse 2s ease-out infinite; }
+  .live { display: inline-flex; align-items: center; gap: 6px; }
+  .live::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--info); }
+  @media (prefers-reduced-motion: reduce) { .st.doing i, .live::before { animation: none; } }
   .st.todo i { border: 1.5px solid var(--muted); } .st.dropped i { background: var(--bad); } .st.parked i { background: var(--muted); }
   .body { border-top: 1px solid var(--line); padding: 10px 12px 12px; font-size: 14px; }
   .body .note { margin-bottom: 8px; }
@@ -373,7 +380,7 @@ function workingOn(plan) {
   if (!running.length) return h("div", { class: "working muted" }, "Nothing is running right now.");
   return h("div", { class: "working" }, h("div", { class: "k" }, "Working on"),
     running.map(t => h("button", { class: "run", onclick: () => { S.open.add(t.id); draw(); document.querySelector(`[data-id="${t.id}"]`)?.scrollIntoView({ block: "center" }); } },
-      h("span", { class: "id" }, t.id), " ", h("span", {}, t.title), nowLine(t))));
+      h("span", { class: "live" }, h("span", { class: "id" }, t.id), " ", h("span", {}, t.title)), nowLine(t))));
 }
 function drawProject() {
   const { plan, unread, lead_waiting: listening } = S.data;
@@ -389,7 +396,7 @@ function drawProject() {
   document.title = (waiting.length + proposed.length ? `(${waiting.length + proposed.length}) ` : "") + plan.title + " · atr";
   mount(app,
     h("div", { class: "top" }, h("button", { class: "back", onclick: () => location.hash = "" }, "← All projects"), h("span", { class: "sp" }),
-      listening && h("span", { class: "muted small", title: "Your changes wake the lead right away" }, "Lead listening"),
+      listening && h("span", { class: "muted small live", title: "Your changes wake the lead right away" }, "Lead listening"),
       plan.lead.thread && (/^https?:\/\//.test(plan.lead.thread)
         ? h("a", { href: plan.lead.thread, target: "_blank", rel: "noopener" }, "Lead thread ↗")
         // A local tool's thread has no URL; its provider stores the command that opens it.
