@@ -14,6 +14,10 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
   in conversation and then read its own entry as news. The decision still belongs to the owner (accepted,
   `by: you`), but the change is logged as the lead's. `--owner --hard` is refused (it would be a contradiction).
 
+- **Page actions did not reach the lead.** Added `atr wait` and a generic extension contract
+  (docs/EXTENSIONS.md), plus a Claude Code extension (extensions/claude-code) with turn-start, turn-end and
+  doorbell hooks. The page shows "Lead listening" while a wait runs.
+
 ## Observed, not acted on yet
 
 - Goal proposals start as a vague brief and the owner accepts them one at a time; the lead can plan only
@@ -22,6 +26,9 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
 - The first owner answer (the audio source) arrived in chat, not on the page. `--owner` covers it, but the
   owner never sees it as a card to confirm. Watch whether that matters.
 - Each fix lands as its own commit on the branch, with a test, and is logged here.
-- Accepting a goal on the page does nothing until the lead's next turn: the owner has to message the lead
-  as well, so every page action costs a chat message too. The turn hook and the doorbell (README, Plugins)
-  are what would close this; neither exists yet. A Claude Code version is the first candidate.
+- `atr init` does not put atr on the PATH, but the rules tell the lead to type plain `atr`. On adhush the
+  lead used the full path to `bin/atr` throughout. An install step (or `uv tool install`, since there is a
+  pyproject) is missing.
+- The lead session for adhush runs in `~/dev/atr`, not in `~/dev/adhush`. Hooks key on the session's
+  working directory, so the extension stays silent for this session. A lead should be started in its
+  project's repo; the docs say so, but nothing warns when it is not.
