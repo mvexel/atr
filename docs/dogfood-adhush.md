@@ -49,3 +49,12 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
 - T5 got stuck on something only the owner can do (grant macOS audio permission from their own terminal).
   The lead could only mark the task `blocked` and explain it in the note. That's the second case of owner
   work after T6: a task waiting on the owner's hands is a recurring shape, not an exception.
+- A card on a goal (D15, live latency on G3) blocks no task. Cards block only the task they are on, so the
+  lead could start G3 work whose design hangs on the answer. Here it did not matter (the window length is a
+  setting), but a goal-level card arguably should hold that goal's tasks, or say plainly that it does not.
+- The owner made T4 wait for T8, removed both of T4's dependencies, then parked it. The lead sees every
+  step as a separate change, with no idea what the owner meant. A park with a reason (`note`) would say
+  more than the trail of steps does.
+- A worker agent did T8. Only the lead runs atr, so the worker's ~10 judgment calls came back in its
+  report and the lead had to record them by hand, condensing them into 4 decisions. Workers need a way to
+  record decisions (`--by worker-name`?), or atr should accept a batch of them.
