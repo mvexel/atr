@@ -378,6 +378,13 @@ class Plan(Base):
         (bindir / "atr").write_text("someone else's")
         self.assertEqual(self.cli("install", "--dir", str(bindir))[0], 2)
 
+    def test_the_lead_is_told_when_it_works_from_another_folder(self):
+        self.assertNotIn("NOTE: you are in", self.cli("read")[1])
+        elsewhere = tempfile.TemporaryDirectory()
+        self.addCleanup(elsewhere.cleanup)
+        os.chdir(elsewhere.name)
+        self.assertIn("NOTE: you are in", self.cli("read")[1])
+
 
 class Web(Base):
     def setUp(self):

@@ -1017,6 +1017,44 @@ def install(where):
         print(f"{where} is not on your PATH: add it in your shell profile, e.g. export PATH=\"{where}:$PATH\"")
 
 
+def repo_root(here):
+    """The git checkout `here` is in (its main checkout, for a worktree), or `here` outside git."""
+    try:
+        r = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=here,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if r.returncode == 0:
+            return Path(r.stdout.strip()).parent.resolve()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return here.resolve()
+
+
+def op_set_repo(plan, by, a):
+    plan["repo"] = a["repo"]  # bookkeeping, not news: no note
+
+
+def wrong_folder(plan):
+    """A warning when the lead works on this project from outside its repo: the turn hooks key on the
+    folder a session runs in, so they stay silent for this project."""
+    repo = plan.get("repo")
+    if not repo:
+        return ""
+    here = repo_root(Path.cwd())
+    if here == Path(repo) or Path(repo) in here.parents:
+        return ""
+    return (
+        f"NOTE: you are in {here}, but {plan['name']}'s repo is {repo}. The atr hooks only see the project "
+        f"of the folder a session runs in, so the owner's changes will not reach you by themselves: "
+        f"run `atr read -p {plan['name']}` at every turn, or start the lead in {repo}.\n"
+    )
+
+
 def find_project(explicit):
     if explicit or os.environ.get("ATR_PROJECT"):
         return explicit or os.environ["ATR_PROJECT"]
@@ -1178,6 +1216,7 @@ def main(argv=None):
                     "docs": [],
                     "changes": [],
                     "seq": {"G": 0, "T": 0, "D": 0, "A": 0},
+                    "repo": str(repo_root(Path.cwd())),
                 }
             )
             if not Path(".atr").exists():
@@ -1188,7 +1227,10 @@ def main(argv=None):
         name = find_project(a.project)
         if a.cmd == "read":
             plan = load(name)
-            print(render(plan, unread(plan)))
+            if not plan.get("repo") and not (a.project or os.environ.get("ATR_PROJECT")):
+                # found through this folder's .atr: this is the project's repo (projects made before atr kept it)
+                plan = change(name, by, op_set_repo, {"repo": str(repo_root(Path.cwd()))})[0]
+            print(wrong_folder(plan) + render(plan, unread(plan)))
             if not a.peek:
                 change(name, by, op_mark_read)
             return
