@@ -298,8 +298,11 @@ function waitsFor(plan, id, target, seen = new Set()) {
   const t = plan.tasks.find(o => o.id === id);
   return !!t && t.after.some(a => a === target || waitsFor(plan, a, target, seen));
 }
+// A task a PR carries is checked by merging that PR, not on its own (rule 7).
+const openPr = (plan, t) => (plan.goals.find(g => g.id === t.goal)?.prs || []).find(p => p.state === "open" && p.for.includes(t.id));
 function startLine(t, plan) {
   if (t.status === "parked") return h("span", { class: "after" }, "won't start until you restore it" + (t.pruned_why ? ` · ${short(t.pruned_why, 50)}` : ""));
+  if (t.status === "review" && openPr(plan, t)) return h("span", { class: "after" }, `done when PR #${openPr(plan, t).number} merges`);
   if (t.status === "review") return h("span", { class: "pill you" }, "your turn: check it");
   if (t.status !== "todo") return null;
   const waits = t.after.filter(a => plan.tasks.find(o => o.id === a)?.status !== "done");
@@ -340,7 +343,9 @@ function taskNode(t, plan) {
     t.note && t.status !== "review" && h("div", { class: "note" }, h("span", { class: "muted" }, "Lead's note: "), t.note),
     (t.owner || t.thread) && h("div", { class: "muted small" }, t.owner && `Worker: ${t.owner} `, t.thread && threadLink(t.thread)),
     on.map(d => decision(d, plan)), docs(files),
-    t.status === "review" && h("div", { class: "card" }, h("div", { class: "k" }, "The lead asks you to check this"), t.note && h("div", {}, t.note),
+    t.status === "review" && openPr(plan, t) && h("div", { class: "note" }, `Merging `, h("a", { href: openPr(plan, t).url, target: "_blank", rel: "noopener" }, `PR #${openPr(plan, t).number} ↗`),
+      ` on GitHub finishes this` + (unreviewed.length ? ` and accepts ${unreviewed.map(d => d.id).join(", ")}` : "") + ".", t.note && [h("br"), h("span", { class: "muted" }, t.note)]),
+    t.status === "review" && !openPr(plan, t) && h("div", { class: "card" }, h("div", { class: "k" }, "The lead asks you to check this"), t.note && h("div", {}, t.note),
       // One judgment (G13): passing the task accepts its calls still to review; overturn one above first if it is wrong.
       unreviewed.length ? h("div", { class: "muted small" }, `It's right also accepts ${unreviewed.map(d => d.id).join(", ")}, shown above; overturn one there first if it is wrong.`) : null,
       h("div", { class: "btns" }, btn(unreviewed.length ? `It's right, accept ${unreviewed.map(d => d.id).join(", ")}` : "It's right", () => act("task_check", { id: t.id, ok: true }), "p"),
@@ -483,7 +488,7 @@ function drawProject() {
   const waiting = plan.decisions.filter(d => d.state === "needs_you"), proposed = plan.goals.filter(g => g.proposed);
   const review = plan.decisions.filter(d => d.state === "to_review" && !d.said);
   const said = plan.decisions.filter(d => d.state === "to_review" && d.said);
-  const checks = plan.tasks.filter(t => t.status === "review");
+  const checks = plan.tasks.filter(t => t.status === "review" && !openPr(plan, t));
   const met = plan.goals.filter(g => g.met_at);
   const unstopped = plan.tasks.filter(t => t.pruned_by && t.stopped === false);
   const gone = plan.tasks.filter(t => ["parked", "dropped"].includes(t.status) && t.stopped !== false);
