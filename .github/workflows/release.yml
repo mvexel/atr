@@ -1,0 +1,56 @@
+# Every push to main is a release (D35): test, bump the patch (or take a version bumped by hand), commit,
+# tag and publish the GitHub release that atr serve's upgrade check and `claude plugin update` look for.
+# The workflow's own push uses GITHUB_TOKEN, which does not start a workflow, so it does not loop.
+name: release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m unittest discover -s tests
+
+  release:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    # one release at a time, in order; each starts from main as it is then (with the last release commit)
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m unittest discover -s tests
+      - id: version
+        run: echo "version=$(python scripts/release_version.py)" >> "$GITHUB_OUTPUT"
+      - name: Commit, tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet; then
+            git commit -am "Release v$VERSION"
+            git push origin HEAD:main
+          fi
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+          gh release create "v$VERSION" --title "v$VERSION" --generate-notes

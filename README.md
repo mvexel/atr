@@ -79,8 +79,13 @@ restart**. The server picks the command from how atr is installed: `git pull --f
 (refused when it is not on `main` or has local changes: upgrade it by hand), `uv tool upgrade atr` for a uv
 tool install, plus `claude plugin update atr@atr` when the Claude Code plugin is installed. It then restarts
 itself with the same arguments, under `atr service` or in a terminal, and the page reloads. Restart your
-Claude Code sessions to load an updated plugin. A release bumps `version` in `pyproject.toml`, the plugin's
-`plugin.json` and `.claude-plugin/marketplace.json` together (a test keeps them equal) and is tagged `vX.Y.Z`.
+Claude Code sessions to load an updated plugin.
+
+**Releases.** Every push to `main` is a release: `.github/workflows/release.yml` runs the tests, bumps the
+patch version in `pyproject.toml`, `uv.lock`, the plugin's `plugin.json` and `.claude-plugin/marketplace.json`
+(a test keeps them equal), commits `Release vX.Y.Z`, tags `vX.Y.Z` and publishes the GitHub release. For a
+minor or major release, bump the version by hand in the PR (`scripts/release_version.py` shows the files): a
+version with no tag yet is released as it is. Failing tests stop the release.
 
 ## Side questions
 
