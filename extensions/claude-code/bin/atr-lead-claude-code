@@ -2,7 +2,8 @@
 """atr lead provider for Claude Code: start the project's lead as a background Claude Code session.
 
 Usage (from `atr init` or `atr lead --start`): atr-lead-claude-code PROJECT [TITLE], run in the project's repo.
-Prints the command that opens the lead (`claude attach <id>`), which atr stores as the lead link.
+Prints the session's id (`thread-id: <id>`), so atr knows which session leads, then the command that opens
+the lead (`claude attach <id>`), which atr stores as the lead link.
 Finds Claude Code via CLAUDE_BIN or PATH.
 """
 
@@ -44,6 +45,7 @@ def main(argv):
     if r.returncode or not m:
         print(r.stderr.strip() or r.stdout.strip() or f"claude exited {r.returncode}", file=sys.stderr)
         return 1
+    print(f"thread-id: {m.group(1)}")
     print(f"claude attach {m.group(1)}")
     return 0
 

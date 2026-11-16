@@ -66,6 +66,11 @@ class Stale(Exception):
     """The plan changed since the caller last saw it."""
 
 
+def ago_s(epoch):
+    m = int((time.time() - float(epoch)) / 60)
+    return "just now" if m < 1 else f"{m} min ago" if m < 60 else f"{m // 60} h ago"
+
+
 def now():
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%MZ")
 
@@ -343,38 +348,62 @@ def wait_all(names, timeout):
                     m.unlink()
 
 
-# ---- watching: a lead that runs in one folder and follows projects whose repos are elsewhere ----------
+# ---- the lead's claim: which thread leads a project (one lead per project, one project per lead) ----------
+# Kept beside plan.json, not in it: the hooks refresh it every turn, and a plan revision per turn would
+# make the owner's page edits stale while they type.
+
+CLAIM_LIFE = 24 * 3600  # a lead silent this long has let go: another thread may lead
 
 
-def watch_file():
-    return data_dir() / "watch.json"
+def claim_file(name):
+    return project_dir(name) / "lead.json"
 
 
-def watched(folder):
-    """Projects the lead in `folder` follows besides the folder's own (atr watch NAME)."""
+def read_claim(name):
+    """{"id", "seen"} for the thread that leads `name`, or {} when none does (or its claim has run out)."""
     try:
-        return json.loads(watch_file().read_text()).get(str(folder), [])
-    except (OSError, ValueError):
-        return []
+        c = json.loads(claim_file(name).read_text())
+        return c if c.get("id") and time.time() - float(c["seen"]) < CLAIM_LIFE else {}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
 
 
-def set_watch(folder, name, on):
+def same_thread(a, b):
+    """True when two ids name one thread: a provider may print a short id that starts the full one
+    (claude --bg prints 85aade68; the session's hooks get 85aade68-...)."""
+    return bool(a and b) and (a.startswith(b) or b.startswith(a))
+
+
+def write_claim(name, thread):
+    tmp = claim_file(name).with_suffix(".tmp")
+    tmp.write_text(json.dumps({"id": thread, "seen": time.time()}))
+    os.replace(tmp, claim_file(name))
+
+
+def claim(name, thread):
+    """Make `thread` the lead of `name` if it may be. Returns (is_lead, who leads): the thread may lead when
+    the project has no live lead or it already is the lead, and it leads no other project."""
     data_dir().mkdir(parents=True, exist_ok=True)
-    with open(data_dir() / ".watch.lock", "w") as lock:
+    with open(data_dir() / ".claim.lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
-            data = json.loads(watch_file().read_text())
-        except (OSError, ValueError):
-            data = {}
-        names = [n for n in data.get(str(folder), []) if n != name] + ([name] if on else [])
-        if names:
-            data[str(folder)] = names
-        else:
-            data.pop(str(folder), None)
-        tmp = watch_file().with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=1))
-        os.replace(tmp, watch_file())
-    return names
+        cur = read_claim(name)
+        if cur and not same_thread(cur["id"], thread):
+            return False, {**cur, "project": name}
+        for other in projects():
+            c = read_claim(other) if other != name else {}
+            if c and same_thread(c["id"], thread):
+                return False, {**c, "project": other}
+        write_claim(name, max(thread, cur.get("id", ""), key=len))  # keep the full id once a hook has sent it
+        return True, {**read_claim(name), "project": name}
+
+
+def release(name, thread=None):
+    """Let go of the lead: the thread's own claim (thread given), or whoever holds it (the owner)."""
+    cur = read_claim(name)
+    if cur and (thread is None or same_thread(cur["id"], thread)):
+        claim_file(name).unlink(missing_ok=True)
+        return True
+    return False
 
 
 # ---- operations: fn(plan, by, args) -> note ------------------------------------------------------
@@ -874,6 +903,14 @@ def op_lead(plan, by, a):
     return "set the lead thread"
 
 
+def op_lead_release(plan, by, a):
+    if by != "you":
+        raise Refused("only the owner lets go of the lead for it; a lead ends its own claim with atr lead --release ID")
+    if not release(plan["name"]):
+        raise Refused("no thread leads this project now")
+    return "let go of the lead thread: the next session to start a turn in the repo becomes the lead"
+
+
 def op_mark_read(plan, by, a):
     plan["lead"].update(read_rev=plan["rev"], read_at=now())
 
@@ -893,6 +930,7 @@ OPS = {
     "task_check": op_task_check,
     "task_restore": op_task_restore,
     "agree": op_agree,
+    "lead_release": op_lead_release,
     "dep": op_dep,
     "decide": op_decide,
     "answer": op_answer,
@@ -1127,6 +1165,7 @@ class Handler(BaseHTTPRequestHandler):
                         "plan": plan,
                         "unread": unread(plan),
                         "lead_waiting": waiting(parts[2]),
+                        "lead_claim": read_claim(parts[2]),
                         "ready": [t["id"] for t in ready(plan)],
                         "sig": sig(plan),
                     }
@@ -1338,11 +1377,16 @@ def start_lead(name, tool="auto"):
         )
     except (OSError, subprocess.SubprocessError) as e:
         return f"atr-lead-{tool} could not start the lead: {e}"
-    link = (r.stdout.strip().splitlines() or [""])[-1].strip()
+    lines = [x.strip() for x in r.stdout.strip().splitlines()]
+    link = (lines or [""])[-1]
+    thread = next((x.split(":", 1)[1].strip() for x in lines if x.startswith("thread-id:")), "")
     if r.returncode or not link:
         why = (r.stderr.strip() or r.stdout.strip() or f"exit {r.returncode}").splitlines()[-1]
         return f"atr-lead-{tool} did not start the lead: {why}\nTo try again: atr lead --start {tool}"
     change(name, "agent", op_lead, {"thread": link})
+    if thread:  # the owner started this thread to lead: it takes over from any lead there was
+        release(name)
+        claim(name, thread)
     return f"started the lead in {tool}: {link}"
 
 
@@ -1375,12 +1419,12 @@ def wrong_folder(plan):
     if not repo:
         return ""
     here = repo_root(Path.cwd())
-    if here == Path(repo) or Path(repo) in here.parents or plan["name"] in watched(here):
+    if here == Path(repo) or Path(repo) in here.parents:
         return ""
     return (
         f"NOTE: you are in {here}, but {plan['name']}'s repo is {repo}. The atr hooks only see the project "
         f"of the folder a session runs in, so the owner's changes will not reach you by themselves: "
-        f"run `atr watch {plan['name']}` here so they do, or start the lead in {repo}.\n"
+        f"lead it from {repo}.\n"
     )
 
 
@@ -1409,47 +1453,27 @@ def find_project(explicit):
     )
 
 
-def followed(explicit):
-    """The projects this folder's lead follows, and which of them is the folder's own: -p (just that one),
-    else its own .atr plus atr watch."""
-    if explicit or os.environ.get("ATR_PROJECT"):
-        n = find_project(explicit)
-        return [n], [n]
-    try:
-        own = [find_project(None)]
-    except Refused:
-        own = []
-    names = own + [n for n in watched(repo_root(Path.cwd())) if n not in own and n in projects()]
-    if not names:
-        find_project(None)  # raises the usual "which project?"
-    return names, own
-
-
 def report(a):
-    """atr unread / atr wait. The first project is the folder's own; the top-level fields describe it."""
-    names, own = followed(a.project)
-    found = (
-        {n: unread(load(n)) for n in names} if a.cmd == "unread" else wait_all(names, a.timeout)
-    )
+    """atr unread / atr wait."""
+    name = find_project(a.project)
+    found = unread(load(name)) if a.cmd == "unread" else wait(name, a.timeout)
     if a.json:
-        each = []
-        for n in names:
-            plan = load(n)
-            each.append(
+        plan = load(name)
+        print(
+            json.dumps(
                 {
-                    "project": n,
+                    "project": name,
                     "lead_thread": plan["lead"]["thread"],
-                    "lead_waiting": waiting(n),
-                    "unread": found[n],
+                    "lead_id": read_claim(name).get("id", ""),
+                    "lead_waiting": waiting(name),
+                    "unread": found,
                     "running": running(plan),
-                    "own": n in own,
                 }
             )
-        print(json.dumps({**each[0], "projects": each}))
+        )
     else:
-        many = len(names) > 1
-        print("\n".join(f"{n}: {c['what']}" if many else c["what"] for n in names for c in found[n]))
-    return 0 if any(found.values()) else 1
+        print("\n".join(c["what"] for c in found))
+    return 0 if found else 1
 
 
 def main(argv=None):
@@ -1504,11 +1528,6 @@ def main(argv=None):
     )
     x.add_argument("--timeout", type=float, default=3600, help="seconds (default 3600)")
     x.add_argument("--json", action="store_true")
-    x = sub.add_parser(
-        "watch", help="follow another project from this folder: the hooks and atr wait then cover it too"
-    )
-    x.add_argument("name", nargs="?", help="project to follow (none: list what this folder follows)")
-    x.add_argument("--stop", action="store_true", help="stop following it")
     sub.add_parser("next", help="unblocked tasks to start now")
     x = sub.add_parser("goal", help="propose a goal to the owner")
     x.add_argument("action", choices=["propose", "add"])
@@ -1570,6 +1589,9 @@ def main(argv=None):
     x = sub.add_parser("lead", help="store the lead's thread link, or start a lead thread (--start)")
     x.add_argument("thread", nargs="?")
     x.add_argument("--start", metavar="TOOL", help="start the lead thread with atr-lead-TOOL ('auto': the one on PATH)")
+    x.add_argument("--claim", metavar="ID", help="for extensions: make thread ID the lead unless another thread is (exit 1)")
+    x.add_argument("--release", metavar="ID", help="for extensions: thread ID stops leading (its session ended)")
+    x.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     by = "you" if os.environ.get("ATR_AS") == "you" else "agent"
     try:
@@ -1623,16 +1645,6 @@ def main(argv=None):
             if a.lead != "none":
                 print(start_lead(a.name, a.lead))
             return print("Next: add goals on the page (atr serve), and add `atr rules` to AGENTS.md or CLAUDE.md.")
-        if a.cmd == "watch":
-            here = repo_root(Path.cwd())
-            if a.name:
-                load(a.name)
-                names = set_watch(here, a.name, not a.stop)
-            else:
-                names = watched(here)
-            return print(
-                f"{here} follows: {', '.join(names)}" if names else f"{here} follows no other projects"
-            )
         if a.cmd in ("unread", "wait"):
             return report(a)
         name = find_project(a.project)
@@ -1713,6 +1725,17 @@ def main(argv=None):
             fn, args = op_task_now, {"id": a.id, "text": " ".join(a.text)}
         elif a.start:
             return print(start_lead(name, a.start))
+        elif a.claim:
+            ok, who = claim(name, a.claim)
+            if a.json:
+                print(json.dumps({"lead": ok, **who}))
+            elif ok:
+                print(f"you lead {name}")
+            else:
+                print(f"thread {who['id']} leads {who['project']} (seen {ago_s(who['seen'])})")
+            return 0 if ok else 1
+        elif a.release:
+            return print("released" if release(name, a.release) else "this thread does not lead the project")
         elif not a.thread:
             raise Refused("usage: atr lead LINK, or atr lead --start TOOL")
         else:
