@@ -1370,7 +1370,7 @@ def sig(plan):
 # ---- versions: is there a newer atr, and how this one upgrades itself ---------------------------------------
 
 RELEASES = "https://api.github.com/repos/mvexel/atr/releases/latest"
-CHECK_EVERY = 6 * 3600
+CHECK_EVERY = 15 * 60  # every push to main is a release (D35): 4 asks an hour, of the 60 GitHub allows
 
 
 def version():
@@ -1412,9 +1412,9 @@ def latest_release():
 
 
 def check_release(now=None):
-    """One round of the release check: ask GitHub unless it was asked less than 6 h ago (by this server or the
+    """One round of the release check: ask GitHub unless it was asked less than 15 min ago (by this server or the
     one before a restart), and keep what it said in Handler.latest. Returns the seconds until the next round.
-    When GitHub does not answer, the page hears nothing and atr asks again in 6 h."""
+    When GitHub does not answer, the page hears nothing and atr asks again in 15 min."""
     now = time.time() if now is None else now
     cache = data_dir() / ".release.json"
     try:
@@ -1424,7 +1424,7 @@ def check_release(now=None):
     if seen.get("latest"):
         Handler.latest = seen["latest"]
     wait = seen.get("checked", -CHECK_EVERY) + CHECK_EVERY - now
-    if 0 < wait <= CHECK_EVERY:  # more than 6 h ahead: the clock went back, so ask
+    if 0 < wait <= CHECK_EVERY:  # further ahead than one round: the clock went back, so ask
         return wait
     found = latest_release()
     if found:
@@ -1436,7 +1436,7 @@ def check_release(now=None):
 
 
 def watch_releases():
-    """For atr serve: check for a newer release now and every 6 h, in the background, so the page never waits."""
+    """For atr serve: check for a newer release now and every 15 min, in the background, so the page never waits."""
     import threading
 
     def loop():
