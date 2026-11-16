@@ -79,6 +79,7 @@
   .working .run .now { padding: 2px 0 0; }
   .dec.folded { all: unset; display: block; cursor: pointer; font-size: 14px; padding: 3px 0; color: var(--text2); }
   select.b { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
+  .pill.outlook.likely { color: var(--good); } .pill.outlook.unlikely { background: var(--warn-soft); border: 1px solid var(--bad); color: var(--text); }
   .pill.ready { background: var(--card); border: 1px solid var(--line); color: var(--text); }
   .st { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; white-space: nowrap; }
   .st i { width: 9px; height: 9px; border-radius: 50%; }
@@ -307,7 +308,8 @@ function goalNode(g, plan, tasks) {
     localStorage.setItem(collapsedKey(), JSON.stringify([...c]));
   });
   node.append(h("summary", {}, h("span", { class: "id" }, g.id), h("span", { class: "gt" }, g.title),
-    g.proposed && h("span", { class: "pill you" }, "proposed by the lead"), needs ? h("span", { class: "pill you" }, `${needs} waiting on you`) : null,
+    g.proposed && h("span", { class: "pill you" }, "proposed by the lead"),
+    g.outlook && h("span", { class: "pill outlook " + g.outlook.level, title: `The lead's outlook, ${ago(g.outlook.at)}: ${g.outlook.text}` }, "lead: " + g.outlook.level), needs ? h("span", { class: "pill you" }, `${needs} waiting on you`) : null,
     h("span", { class: "count" }, `${done} of ${live.length} done` + (added ? ` · ${added} new from agents` : ""))));
   node.append(h("div", { class: "gbody" },
     S.editing === "g" + g.id
@@ -319,6 +321,7 @@ function goalNode(g, plan, tasks) {
             h("button", { class: "link", onclick: () => act("goal_confirm_test", { id: g.id }) }, "That's my test"), " · "],
           h("button", { class: "link", onclick: edit("g" + g.id) }, "Edit"),
           !tasks.length && !g.proposed ? [" · ", h("button", { class: "link", onclick: () => act("goal_remove", { id: g.id }) }, "Remove")] : null),
+    g.outlook && h("div", { class: "small" }, h("b", {}, `Lead's outlook: ${g.outlook.level}. `), g.outlook.text, h("span", { class: "muted" }, " · " + ago(g.outlook.at))),
     budgetLine(g),
     on.map(d => decision(d, plan)), docs(files),
     shown.map(t => taskNode(t, plan)),

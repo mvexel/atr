@@ -42,6 +42,7 @@ except that a worker may report progress on its own task: `atr now T3 "what is h
    If it is hard to undo, add `--hard` and do not act: the task blocks until the owner answers.
    Check earlier decisions before proposing something that was already rejected.
 5. Record each attempt at a goal (a run, an approach, a tuning round): `atr try G1 "prompt B: 15 of 31"`.
+   Keep each goal's outlook current, especially after a try: `atr outlook G1 unsure "half the ads"`.
    When `atr read` says a goal is OUT OF BUDGET, stop its work and ask the owner how it goes on.
    A goal whose method is unproven starts with one small task that checks it can work at all.
 6. Start work from `atr next` (at most 3 tasks running). Work only the owner can do (record, test by
@@ -449,6 +450,24 @@ def op_task_now(plan, by, a):
     return f"{t['id']} now: {text}"
 
 
+OUTLOOKS = ("likely", "unsure", "unlikely")
+
+
+def op_goal_outlook(plan, by, a):
+    """The lead's current read on whether a goal can be met as written. One line, kept current."""
+    g = get(plan, "goals", a["id"])
+    if g.get("proposed"):
+        raise Refused(f"{g['id']} is only proposed")
+    level = a.get("level")
+    if level not in OUTLOOKS:
+        raise Refused(f"the outlook is one of: {', '.join(OUTLOOKS)}")
+    text = " ".join((a.get("text") or "").split())
+    if not text:
+        raise Refused('say why, in a line: atr outlook G1 unsure "catches half the ads; edges late"')
+    g["outlook"] = {"level": level, "text": text, "at": now()}
+    return f"{g['id']} outlook: {level}, {text}"
+
+
 def op_task_move(plan, by, a):
     owner_only(by, "rearrange the plan")
     t = get(plan, "tasks", a["id"])
@@ -729,6 +748,13 @@ def render(plan, since):
         if g["done_when"]:
             guess = " (YOUR GUESS, the owner has not confirmed it: treat it as a hypothesis)" if g.get("test_guess") else ""
             out.append(f"   done when{guess}: {g['done_when']}")
+        o = g.get("outlook")
+        if o:
+            out.append(f"   your outlook ({o['at']}): {o['level']}, {o['text']}")
+        elif not g.get("proposed") and any(
+            t["goal"] == g["id"] and t["status"] in OPEN for t in plan["tasks"]
+        ):
+            out.append(f'   no outlook yet: atr outlook {g["id"]} likely|unsure|unlikely "why"')
         b = g.get("budget")
         if b:
             left = [f"{b.get('used', 0)} of {b['tries']} tries used"] if b.get("tries") else []
@@ -983,6 +1009,12 @@ def main(argv=None):
     x.add_argument("--done", default="")
     x.add_argument("--tries", help="attempts the goal gets before the owner is asked how to go on")
     x.add_argument("--days", help="days the goal gets before the owner is asked how to go on")
+    x = sub.add_parser(
+        "outlook", help="say how likely a goal is to be met as written, and why"
+    )
+    x.add_argument("id")
+    x.add_argument("level", help="likely, unsure or unlikely")
+    x.add_argument("text", nargs="+")
     x = sub.add_parser("try", help="record one attempt at a goal (counts against its tries)")
     x.add_argument("id")
     x.add_argument("text", nargs="+")
@@ -1103,6 +1135,8 @@ def main(argv=None):
                 "tries": a.tries,
                 "days": a.days,
             }
+        elif a.cmd == "outlook":
+            fn, args = op_goal_outlook, {"id": a.id, "level": a.level, "text": " ".join(a.text)}
         elif a.cmd == "try":
             fn, args = op_goal_try, {"id": a.id, "text": " ".join(a.text)}
         elif a.cmd == "task" and a.action == "add":

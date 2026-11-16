@@ -346,6 +346,15 @@ class Plan(Base):
         self.you("goal_edit", id="G1", days=0)  # the owner lifts the limit
         self.assertNotIn("budget", atr.get(atr.load("demo"), "goals", "G1"))
 
+    def test_the_lead_keeps_an_outlook_per_goal(self):
+        self.cli("task", "add", "G1", "x")
+        self.assertIn("no outlook yet", self.cli("read")[1])
+        self.assertEqual(self.cli("outlook", "G1", "maybe", "x")[0], 2)
+        code, out = self.cli("outlook", "G1", "unlikely", "catches", "half")
+        self.assertEqual(code, 0, out)
+        self.assertIn("your outlook", self.cli("read")[1])
+        self.assertEqual(atr.load("demo")["goals"][0]["outlook"]["level"], "unlikely")
+
 
 class Web(Base):
     def setUp(self):
