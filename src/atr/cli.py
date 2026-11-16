@@ -64,8 +64,10 @@ and put a pull request it opened on its goal (rule 7).
    Attach what you write for the owner: `atr attach T3 path/to/findings.md`.
 7. Right after opening a pull request, put it on its goal with the tasks it carries:
    `atr pr G1 https://github.com/o/r/pull/12 --for T3`, and set those tasks to review. The owner merges
-   it on GitHub; then atr moves them to done (never the goal: that stays the owner's call). `atr read`
-   tells you when it merges, its CI fails or it conflicts: fix those on the same branch.
+   it on GitHub: that is their check, so such a task needs no review note and gets no check of its own;
+   the merge moves it to done and accepts its decisions (never the goal: that stays the owner's call).
+   `atr read` tells you when it merges, its CI fails or it conflicts: fix those on the same branch.
+   atr codes (G1, T3, D5) mean nothing on GitHub: PR titles, bodies and commits say what changed in words.
 8. When `atr read` says a worker went silent (no news for 30 min) or ended, check it: `atr alive T3`.
    If it is not running, bring it back with `atr resume T3`, or set the task back to todo and say why.
 """
@@ -636,7 +638,9 @@ def op_task_set(plan, by, a):
             # done only counts once the owner has seen the calls made on the way
             status = "review"  # the page lists the decisions beside the check: no note needed to name them
             t["awaits"] = unreviewed
-        if status == "review" and not (a.get("note") or t["note"] or t.get("awaits")):
+        if status == "review" and by != "you" and not unreviewed and task_pr(plan, t, "merged"):
+            status = "done"  # its PR is merged already: the owner checked it then
+        if status == "review" and not (a.get("note") or t["note"] or t.get("awaits") or task_pr(plan, t, "open")):
             raise Refused(f'say what the owner should check: atr task set {t["id"]} status=review note="..."')
         if status == "doing":
             if not deps_done(plan, t):
@@ -1054,6 +1058,20 @@ def find_pr(plan, url):
     return None, None
 
 
+def task_pr(plan, t, state=None):
+    """The PR that carries task t (atr pr --for), or None; with state, only a PR in that state."""
+    for p in next((g.get("prs", []) for g in plan["goals"] if g["id"] == t["goal"]), []):
+        if t["id"] in p["for"] and (state is None or p["state"] == state):
+            return p
+    return None
+
+
+def check_of(plan, t):
+    """Whether task t waits for the owner's own check: in review, and no open PR carries it (a PR is
+    checked by merging it, so its tasks are not a second thing to check)."""
+    return t["status"] == "review" and not task_pr(plan, t, "open")
+
+
 def pr_turn(p):
     """An open PR is the owner's turn (merge it), unless GitHub says it is a draft, failing or conflicting."""
     return p["state"] == "open" and not (
@@ -1123,7 +1141,12 @@ def op_pr_seen(plan, by, a):
                 t["status"] = "done"
                 t.pop("awaits", None)
                 done.append(tid)
-        return f"{tag} was merged on GitHub" + (f"; {', '.join(done)} done" if done else "") + f" ({p['url']})"
+        # merging is the owner's one judgment of the work (G13): the calls made on it are accepted with it
+        accepted = [d for d in plan["decisions"] if d["on"] in done and d["state"] == "to_review"]
+        for d in accepted:
+            d.update(state="accepted", note="")
+        return (f"{tag} was merged on GitHub" + (f"; {', '.join(done)} done" if done else "")
+                + (f", accepting {', '.join(d['id'] for d in accepted)}" if accepted else "") + f" ({p['url']})")
     if a.get("state") == "closed":
         p.update(state="closed", closed_at=now())
         return None
@@ -1306,7 +1329,7 @@ def render(plan, since):
         t
         for t in plan["tasks"]
         if (t["status"] in ("todo", "doing") and owners_turn(t) and deps_done(plan, t))
-        or t["status"] == "review"
+        or check_of(plan, t)
     ]
     finished = [
         g
@@ -1349,7 +1372,7 @@ def summary(plan):
         "running": sum(t["status"] == "doing" for t in tasks),
         "needs_you": sum(d["state"] == "needs_you" for d in plan["decisions"])
         + sum(bool(g.get("proposed")) for g in plan["goals"])
-        + sum(t["status"] == "review" for t in plan["tasks"])
+        + sum(check_of(plan, t) for t in plan["tasks"])
         + sum(pr_turn(p) for g in plan["goals"] for p in g.get("prs", [])),
         "to_review": sum(d["state"] == "to_review" for d in plan["decisions"]),
         "unread": sum(c["by"] == "you" for c in unread(plan)),

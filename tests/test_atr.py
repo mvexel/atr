@@ -1298,6 +1298,25 @@ class PullRequests(Base):
         self.assertIn("no change", self.cli("pr", "G1", URL, "--for", "T1")[1])
         self.assertIn("also for T2", self.cli("pr", "G1", URL, "--for", "T2")[1])
 
+    def test_the_merge_is_the_check_for_the_tasks_a_pr_carries(self):
+        self.cli("decide", "T1", "stdlib only")
+        self.cli("pr", "G1", URL, "--for", "T1")
+        self.assertEqual(self.cli("task", "set", "T1", "status=review")[0], 0)  # no note: the PR is the evidence
+        read = self.cli("read")[1]
+        self.assertIn("merge PR #23 on G1", read)
+        self.assertNotIn('T1 "build it"', read.split("THE OWNER'S TURN")[1])  # not a second thing to check
+        self.assertEqual(atr.summary(atr.load("demo"))["needs_you"], 1)
+        self.poll({23: self.pr(state="MERGED")})
+        plan = atr.load("demo")
+        self.assertEqual((atr.get(plan, "tasks", "T1")["status"], plan["decisions"][0]["state"]), ("done", "accepted"))
+        self.assertIn("T1 done, accepting D1", plan["changes"][-1]["what"])
+        self.cli("task", "add", "G1", "late")  # T3: the merged PR carried it too, but it reaches review only now
+        plan = atr.load("demo")
+        atr.get(plan, "goals", "G1")["prs"][0]["for"].append("T3")
+        atr.save(plan)
+        self.cli("task", "set", "T3", "status=review", "note=x")
+        self.assertEqual(self.task("T3")["status"], "done")  # its PR is merged already
+
     def test_a_pr_needs_a_github_link_and_tasks_of_its_goal(self):
         self.assertIn("not a GitHub pull request", self.cli("pr", "G1", "https://example.com/x/y/pull/1")[1])
         self.assertIn("not a GitHub pull request", self.cli("pr", "G1", 'https://github.com/a"b/c/pull/1')[1])
