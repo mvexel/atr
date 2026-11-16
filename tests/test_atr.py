@@ -1225,7 +1225,7 @@ class ReleaseCheck(Base):
             (Path(self.tmp.name) / ".release.json").unlink()
             self.assertEqual(atr.Handler.latest, {})
 
-    def test_asks_at_most_once_a_round_even_across_restarts(self):
+    def test_asks_at_most_every_six_hours_even_across_restarts(self):
         with self.github({"tag_name": "v9.1.0", "html_url": "u"}):
             self.assertEqual(atr.check_release(now=1000), atr.CHECK_EVERY)
             atr.Handler.latest = {}  # a restarted server
@@ -1234,6 +1234,8 @@ class ReleaseCheck(Base):
             self.assertEqual(atr.Handler.latest["version"], "9.1.0")  # remembered, not asked again
             atr.check_release(now=1000 + atr.CHECK_EVERY)
             self.assertEqual(self.asked, 2)
+            atr.check_release(now=1000 + atr.CHECK_EVERY + 60, force=True)  # the page's Check for updates
+            self.assertEqual(self.asked, 3)
 
 
 URL = "https://github.com/mvexel/atr/pull/23"
