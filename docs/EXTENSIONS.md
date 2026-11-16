@@ -17,7 +17,9 @@ An extension can do any of these three jobs. Each one is useful on its own.
    lead is never held forever.
 3. **Doorbell.** While the lead is idle, wake it when the owner acts. Run `atr wait`. When it exits 0, wake
    the lead in whatever way the harness offers, for example a message to `lead_thread` or a background job
-   that re-invokes the session. Then run `atr wait` again.
+   that re-invokes the session. Hand the lead the owner's changes from `atr wait --json` (`what`, `op`,
+   `args`) so it can act without asking. Then run `atr wait` again. The Claude Code extension does this
+   with an `asyncRewake` hook, so the lead never has to arm it.
 
 ## The contract
 
