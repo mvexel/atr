@@ -72,3 +72,9 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
   tasks count now. The open question behind it: the lead started and finished tasks the owner had not agreed
   yet. atr allows that by design ("new" marks a task, it does not hold it back). The owner decided (2026-11-15):
   no stricter mode. Agent-added tasks stay startable; "new" only marks them.
+- **The lead missed an answered card for several turns.** The owner answered D15. The lead was working on atr
+  itself and did not run `atr read` for adhush for the next several turns, until the owner asked. Rule 1 alone
+  did not hold when the lead's attention was elsewhere. The turn hook in the Claude Code extension exists
+  for this, but is not installed, and this session's folder is the atr repo, so it would stay silent anyway.
+  Leading one project from another project's folder is a real pattern: the extension could take a list of
+  projects to watch, not only the one in the folder.
