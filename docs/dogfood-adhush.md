@@ -78,3 +78,7 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
   for this, but is not installed, and this session's folder is the atr repo, so it would stay silent anyway.
   Leading one project from another project's folder is a real pattern: the extension could take a list of
   projects to watch, not only the one in the folder.
+- **Progress lines work.** The T10 worker posted 4 `atr now` lines over ~20 minutes, at natural milestones,
+  with no extra prompting beyond the brief. The worker's decisions still came back only in its report, so
+  the lead recorded them by hand (D16-D18).
+- Workers run `atr` by its full path (`~/dev/atr/bin/atr -p adhush`), because atr is not on the PATH yet.
