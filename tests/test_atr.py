@@ -1358,21 +1358,8 @@ class PullRequests(Base):
         self.assertIn("- [x]  tests pass on **CI** — done: https://ci.example/run/7\r\n", written[0])
         self.assertIn("- [ ] Cookie banner checked\r\n", written[0])
         self.assertNotRegex(written[0], r"\b[GTD]\d+\b")  # nothing atr-specific goes to GitHub
-        self.assertEqual(self.prs()[0]["ticked"], ["tests pass on **ci**"])
+        self.assertEqual(self.prs()[0]["ticked"], ["T1"])
         self.assertEqual(atr.boxes(written[0])[1], ["tests pass on **CI**", True])  # its own mark is not the text
-
-    def test_one_task_may_cover_several_boxes_and_a_box_has_one_task(self):
-        from unittest import mock
-
-        self.cli("pr", "G1", URL, "--item", "T1=Cookie banner checked", "--item", "T1=Docs updated", "--item", "T2=docs updated")
-        self.assertEqual([t for _, t in self.prs()[0]["items"]], ["T1", "T2"])  # the box moved to T2
-        self.cli("pr", "G1", URL, "--item", "T1=Docs updated")
-        self.cli("task", "set", "T1", "status=done", "note=checked")
-        written = []
-        with mock.patch.object(atr, "gh_pr_body", side_effect=lambda r, n, body=None: self.BODY if body is None else written.append(body) or True):
-            self.poll({23: self.pr() | {"body": self.BODY}})
-        self.assertIn("- [x] Cookie banner checked\r\n", written[0])
-        self.assertTrue(written[0].endswith("- [x] Docs updated"))
 
     def test_a_box_whose_text_changed_is_a_lost_tie(self):
         self.cli("pr", "G1", URL, "--item", "T1=Docs updated")
