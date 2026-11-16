@@ -282,6 +282,19 @@ function taskNode(t, plan) {
   return node;
 }
 
+// How much of its budget a goal has used. When it runs out, the lead stops and asks you how the goal goes on.
+function budgetLine(g) {
+  const b = g.budget, tries = g.tries || [];
+  if (!b && !tries.length) return null;
+  const bits = [];
+  if (b?.tries) bits.push(`${b.used || 0} of ${b.tries} tries used`);
+  if (b?.days) { const left = b.days - (Date.now() - new Date(b.from)) / 864e5; bits.push(left > 0 ? `${left < 1 ? "under a day" : Math.floor(left) + " days"} left` : "out of time"); }
+  if (!b) bits.push(`${tries.length} tr${tries.length === 1 ? "y" : "ies"}, no limit set`);
+  const out = b && ((b.tries && (b.used || 0) >= b.tries) || bits.includes("out of time"));
+  return h("details", { class: "small", style: "margin:4px 0" }, h("summary", { class: out ? "" : "muted" }, "Budget: " + bits.join(" · "),
+      out ? h("span", { class: "pill you", style: "margin-left:6px" }, "out: the lead will ask you how to go on") : null),
+    tries.length ? h("ol", { style: "margin:4px 0" }, tries.map(t => h("li", {}, t.what, h("span", { class: "muted" }, " · " + ago(t.at))))) : h("span", { class: "muted" }, "No tries recorded yet."));
+}
 function goalNode(g, plan, tasks) {
   const live = tasks.filter(t => !["parked", "dropped"].includes(t.status));
   const done = live.filter(t => t.status === "done").length, added = live.filter(isNew).length;
@@ -298,12 +311,15 @@ function goalNode(g, plan, tasks) {
     h("span", { class: "count" }, `${done} of ${live.length} done` + (added ? ` · ${added} new from agents` : ""))));
   node.append(h("div", { class: "gbody" },
     S.editing === "g" + g.id
-      ? form("g" + g.id, [{ label: "Goal", value: g.title }, { label: "Done when…", value: g.done_when }], (title, done_when) => act("goal_edit", { id: g.id, title, done_when }))
+      ? form("g" + g.id, [{ label: "Goal", value: g.title }, { label: "Done when…", value: g.done_when },
+          { label: "Tries (blank: no limit)", value: g.budget?.tries ? String(g.budget.tries) : "" }, { label: "Days (blank: no limit)", value: g.budget?.days ? String(g.budget.days) : "" }],
+          (title, done_when, tries, days) => act("goal_edit", { id: g.id, title, done_when, tries: tries || 0, days: days || 0 }))
       : h("div", { class: "muted small" }, g.done_when ? "Done when: " + g.done_when + " " : "No done test yet. ",
           g.test_guess && [h("span", { class: "pill you", title: "The lead wrote this test. Is it what you want?" }, "the lead's guess"), " ",
             h("button", { class: "link", onclick: () => act("goal_confirm_test", { id: g.id }) }, "That's my test"), " · "],
           h("button", { class: "link", onclick: edit("g" + g.id) }, "Edit"),
           !tasks.length && !g.proposed ? [" · ", h("button", { class: "link", onclick: () => act("goal_remove", { id: g.id }) }, "Remove")] : null),
+    budgetLine(g),
     on.map(d => decision(d, plan)), docs(files),
     shown.map(t => taskNode(t, plan)),
     !g.proposed && S.filter === "all" ? form(null, [{ label: "Add a task to " + g.id }], title => title && act("task_add", { goal: g.id, title }), "Add") : null));

@@ -41,7 +41,10 @@ except that a worker may report progress on its own task: `atr now T3 "what is h
 4. Record every judgment call: `atr decide T3 "what you chose" --why "..." --rejected "..."`.
    If it is hard to undo, add `--hard` and do not act: the task blocks until the owner answers.
    Check earlier decisions before proposing something that was already rejected.
-5. Start work from `atr next` (at most 3 tasks running). Work only the owner can do (record, test by
+5. Record each attempt at a goal (a run, an approach, a tuning round): `atr try G1 "prompt B: 15 of 31"`.
+   When `atr read` says a goal is OUT OF BUDGET, stop its work and ask the owner how it goes on.
+   A goal whose method is unproven starts with one small task that checks it can work at all.
+6. Start work from `atr next` (at most 3 tasks running). Work only the owner can do (record, test by
    hand, grant a permission) gets `atr task set T3 owner=you`: it shows as their turn, not yours.
    Attach what you write for the owner: `atr attach T3 path/to/findings.md`.
 """
@@ -163,6 +166,43 @@ def held_by(plan, t):
     return needs_owner(plan, t["id"]) + needs_owner(plan, t["goal"])
 
 
+def budget_out(g):
+    """Why goal g has used up its budget (tries or days), or "" while it has some left."""
+    b = g.get("budget") or {}
+    if b.get("tries") and b.get("used", 0) >= b["tries"]:
+        return f"used all {b['tries']} tries"
+    if b.get("days"):
+        start = datetime.strptime(b["from"], "%Y-%m-%dT%H:%MZ").replace(tzinfo=UTC)
+        if (datetime.now(UTC) - start).total_seconds() >= b["days"] * 86400:
+            return f"ran past its {b['days']} day{'s' if b['days'] != 1 else ''}"
+    return ""
+
+
+def set_budget(g, a):
+    """Apply tries= / days= from args (blank or 0 clears one); a changed budget starts fresh."""
+    b = dict(g.get("budget") or {})
+    changed = False
+    for k in ("tries", "days"):
+        if a.get(k) in (None, ""):
+            continue
+        try:
+            n = float(a[k]) if k == "days" else int(a[k])
+        except (TypeError, ValueError):
+            raise Refused(f"{k} is a number") from None
+        if n < 0:
+            raise Refused(f"{k} is a number")
+        n = (int(n) if n == int(n) else n) if n else None
+        if n != b.get(k):
+            b[k], changed = n, True
+    if changed:
+        b.update(used=0, **{"from": now()})
+        if b.get("tries") or b.get("days"):
+            g["budget"] = b
+        else:
+            g.pop("budget", None)
+    return changed
+
+
 def reaches(plan, start, target):
     """True when `target` is among the tasks `start` comes after, directly or not."""
     seen, todo = set(), [start]
@@ -183,7 +223,7 @@ def owners_turn(t):
 
 def ready(plan):
     """Unblocked tasks the lead can start now: at most MAX_RUNNING running, most-depended-on first."""
-    proposed = {g["id"] for g in plan["goals"] if g.get("proposed")}
+    proposed = {g["id"] for g in plan["goals"] if g.get("proposed") or budget_out(g)}
     running = sum(t["status"] == "doing" for t in plan["tasks"])
     cand = [
         t
@@ -260,6 +300,7 @@ def op_goal_add(plan, by, a):
         "done_when": (a.get("done_when") or "").strip(),
         "proposed": by != "you",
     }
+    set_budget(g, a)
     # A done test the lead wrote is its guess at what the owner wants, not the owner's word: it stays marked
     # until the owner confirms or rewrites it (on adhush a lead-written test went unquestioned for days).
     if by != "you" and g["done_when"]:
@@ -276,7 +317,22 @@ def op_goal_edit(plan, by, a):
             g[k] = a[k].strip()
     if a.get("done_when") is not None:
         g.pop("test_guess", None)
+    set_budget(g, a)
     return f"edited goal {label(g)}"
+
+
+def op_goal_try(plan, by, a):
+    """The lead records one attempt at a goal: a run, an approach, a tuning round. Counts against tries=."""
+    g = get(plan, "goals", a["id"])
+    text = " ".join((a.get("text") or "").split())
+    if not text:
+        raise Refused('say what was tried and how it went: atr try G1 "prompt B: 15 of 31 caught"')
+    b = g.get("budget")
+    if b:
+        b["used"] = b.get("used", 0) + 1
+    g.setdefault("tries", []).append({"at": now(), "what": text})
+    count = f" ({b['used']} of {b['tries']})" if b and b.get("tries") else ""
+    return f"{g['id']} try{count}: {text}"
 
 
 def op_goal_accept(plan, by, a):
@@ -354,6 +410,11 @@ def op_task_set(plan, by, a):
             if not deps_done(plan, t):
                 raise Refused(
                     f"{t['id']} comes after {', '.join(t['after'])}, which is not all done"
+                )
+            out = budget_out(get(plan, "goals", t["goal"]))
+            if out:
+                raise Refused(
+                    f"{t['goal']} {out}: ask the owner how it goes on first (a --hard card on {t['goal']})"
                 )
             if held_by(plan, t):
                 d = held_by(plan, t)[0]
@@ -539,6 +600,10 @@ def op_answer(plan, by, a):
         if t.get("blocked_by") == d["id"]:
             t["status"] = t.pop("was", "todo")
             del t["blocked_by"]
+    if d["on"].startswith("G"):  # the owner has said how the goal goes on: it gets a fresh budget
+        g = get(plan, "goals", d["on"])
+        if g.get("budget"):
+            g["budget"].update(used=0, **{"from": now()})
     return (
         f"answered {d['id']} ({d['question'] or d.get('recommended', '')}): {choice}"
         + (f" — {d['note']}" if d["note"] else "")
@@ -628,6 +693,22 @@ def render(plan, since):
             for t in stop
         ]
         out.append("")
+    spent = [
+        g
+        for g in plan["goals"]
+        if not g.get("proposed") and budget_out(g) and not needs_owner(plan, g["id"])
+    ]
+    if spent:
+        out.append(
+            "OUT OF BUDGET (stop work on these goals and ask the owner how they go on):"
+        )
+        out += [
+            f"  - {label(g)} {budget_out(g)}. Post: atr decide {g['id']} \"<your recommendation>\" --hard "
+            f'--question "..." --why "<what the tries showed>" with the other options as --rejected: '
+            "keep going, change the done test, change the method, drop the goal"
+            for g in spent
+        ]
+        out.append("")
     waiting = [d for d in plan["decisions"] if d["state"] == "needs_you"]
     proposed = [g for g in plan["goals"] if g.get("proposed")]
     if waiting or proposed:
@@ -648,6 +729,11 @@ def render(plan, since):
         if g["done_when"]:
             guess = " (YOUR GUESS, the owner has not confirmed it: treat it as a hypothesis)" if g.get("test_guess") else ""
             out.append(f"   done when{guess}: {g['done_when']}")
+        b = g.get("budget")
+        if b:
+            left = [f"{b.get('used', 0)} of {b['tries']} tries used"] if b.get("tries") else []
+            left += [f"{b['days']} days from {b['from'][:10]}"] if b.get("days") else []
+            out.append(f"   budget: {', '.join(left)}")
         for t in (t for t in plan["tasks"] if t["goal"] == g["id"]):
             bits = [f"after {', '.join(t['after'])}"] if t["after"] else []
             bits += [f"{d['id']} needs owner" for d in held_by(plan, t)]
@@ -895,6 +981,11 @@ def main(argv=None):
     x.add_argument("action", choices=["propose", "add"])
     x.add_argument("title")
     x.add_argument("--done", default="")
+    x.add_argument("--tries", help="attempts the goal gets before the owner is asked how to go on")
+    x.add_argument("--days", help="days the goal gets before the owner is asked how to go on")
+    x = sub.add_parser("try", help="record one attempt at a goal (counts against its tries)")
+    x.add_argument("id")
+    x.add_argument("text", nargs="+")
     x = sub.add_parser("task", help="add or update a task")
     x.add_argument("action", choices=["add", "set", "stopped"])
     x.add_argument("args", nargs="+")
@@ -1006,7 +1097,14 @@ def main(argv=None):
         if a.cmd == "goal":
             if a.action == "add" and by != "you":
                 raise Refused("only the owner adds goals; use: atr goal propose")
-            fn, args = op_goal_add, {"title": a.title, "done_when": a.done}
+            fn, args = op_goal_add, {
+                "title": a.title,
+                "done_when": a.done,
+                "tries": a.tries,
+                "days": a.days,
+            }
+        elif a.cmd == "try":
+            fn, args = op_goal_try, {"id": a.id, "text": " ".join(a.text)}
         elif a.cmd == "task" and a.action == "add":
             if len(a.args) != 2:
                 raise Refused('usage: atr task add G1 "title" [--after T1,T2]')

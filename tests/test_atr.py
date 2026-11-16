@@ -319,6 +319,33 @@ class Plan(Base):
         self.you("answer", id="D1", choice="go on-device")
         self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], ["T1"])
 
+    def test_a_goal_out_of_tries_holds_until_the_owner_says_how_it_goes_on(self):
+        self.cli("goal", "propose", "Detect ads", "--done", "x", "--tries", "2")
+        self.you("goal_accept", id="G2")
+        self.cli("task", "add", "G2", "tune")
+        self.cli("try", "G2", "prompt A: 12 of 33")
+        self.you("goal_edit", id="G2", title="Detect ads well", tries=2)  # same budget: not a reset
+        self.cli("try", "G2", "prompt B: 15 of 31")
+        self.assertEqual(atr.ready(atr.load("demo")), [])
+        self.assertEqual(self.cli("task", "set", "T1", "status=doing")[0], 2)
+        self.assertIn("OUT OF BUDGET", self.cli("read")[1])
+        self.cli("decide", "G2", "change the method", "--hard", "--rejected", "keep going")
+        self.assertNotIn("OUT OF BUDGET", self.cli("read")[1])  # asked already
+        self.you("answer", id="D1", choice="change the method")
+        self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], ["T1"])
+        self.assertEqual(atr.get(atr.load("demo"), "goals", "G2")["budget"]["used"], 0)
+
+    def test_a_goal_out_of_days_holds(self):
+        self.you("goal_edit", id="G1", days=1)
+        self.cli("task", "add", "G1", "x")
+        def backdate(plan, by, a):
+            plan["goals"][0]["budget"]["from"] = "2020-01-01T00:00Z"
+            return "backdated"
+        atr.change("demo", "agent", backdate)
+        self.assertEqual(atr.ready(atr.load("demo")), [])
+        self.you("goal_edit", id="G1", days=0)  # the owner lifts the limit
+        self.assertNotIn("budget", atr.get(atr.load("demo"), "goals", "G1"))
+
 
 class Web(Base):
     def setUp(self):
