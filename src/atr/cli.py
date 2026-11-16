@@ -52,6 +52,8 @@ record its own judgment calls with its name: `atr decide T3 "..." --why "..." --
 6. Start work from `atr next` (at most 3 tasks running). Work only the owner can do (record, test by
    hand, grant a permission) gets `atr task set T3 owner=you`: it shows as their turn, not yours.
    Work you did that only counts once the owner checks it: `atr task set T3 status=review note="check .."`.
+   A task you set to done while it has decisions the owner has not reviewed goes to review instead,
+   and is done once they accept them (an overturn sends it back to you).
    Attach what you write for the owner: `atr attach T3 path/to/findings.md`.
 """
 
@@ -522,6 +524,15 @@ def op_task_set(plan, by, a):
             raise Refused(f"status is one of: {', '.join(AGENT_STATUSES)}")
         if t["status"] == "review" and status == "done" and by != "you":
             raise Refused(f"{t['id']} waits for the owner's check; only they can pass it")
+        unreviewed = [d["id"] for d in plan["decisions"] if d["on"] == t["id"] and d["state"] == "to_review"]
+        if status == "done" and by != "you" and unreviewed:
+            # done only counts once the owner has seen the calls made on the way
+            status = "review"
+            t["awaits"] = unreviewed
+            a["note"] = a.get("note") or f"review {', '.join(unreviewed)}"
+            if t["note"] != a["note"]:
+                t["note"] = a["note"]
+                said.append("note")
         if status == "review" and not (a.get("note") or t["note"]):
             raise Refused(f'say what the owner should check: atr task set {t["id"]} status=review note="..."')
         if status == "doing":
@@ -559,6 +570,7 @@ def op_task_check(plan, by, a):
     t = get(plan, "tasks", a["id"])
     if t["status"] != "review":
         raise Refused(f"{t['id']} is not waiting for a check")
+    t.pop("awaits", None)
     if a.get("ok"):
         t["status"] = "done"
         return f"checked {label(t)}: it is right"
@@ -820,6 +832,14 @@ def op_review(plan, by, a):
         raise Refused("verdict is accept or overturn")
     d["state"] = "accepted" if verdict == "accept" else "overturned"
     d["note"] = (a.get("note") or "").strip()
+    t = next((t for t in plan["tasks"] if t["id"] == d["on"] and t["status"] == "review" and t.get("awaits")), None)
+    if t:  # the task went to review only for its decisions: they settle it
+        if verdict == "overturn":
+            t["status"] = "todo"
+            t.pop("awaits")
+        elif not any(x["on"] == t["id"] and x["state"] == "to_review" for x in plan["decisions"]):
+            t["status"] = "done"
+            t.pop("awaits")
     if verdict == "accept":
         return f"{'confirmed' if d.get('said') else 'accepted'} {d['id']}: {d['chosen']}"
     return f'OVERTURNED {d["id"]} on {d["on"]} ("{d["chosen"]}")' + (

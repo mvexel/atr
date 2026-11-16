@@ -14,6 +14,11 @@ Same format as [dogfood-adhush.md](dogfood-adhush.md): what happened, what it sa
   The lead read it and spent several steps researching, but the page showed nothing until the owner asked.
   The rules now say: when a goal has no tasks, add a planning task and set it to doing first.
 
+- **A task showed Done while its decision still waited for the owner.** The lead set the planning task T1
+  to done right after recording D1 on it. Now a task the lead sets to done while it has unreviewed
+  decisions goes to review ("review D1"), and becomes done once the owner accepts them. An overturn sends
+  it back to the lead.
+
 ## Observed, not acted on yet
 
 - **The server had to be restarted twice in one session** for new operations to work on the page. T11 now

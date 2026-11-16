@@ -415,6 +415,26 @@ class Plan(Base):
         self.you("task_check", id="T1", ok=True)
         self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], ["T2"])
 
+    def test_a_task_is_not_done_while_its_decisions_wait_for_review(self):
+        self.cli("task", "add", "G1", "plan it")
+        self.cli("task", "add", "G1", "build", "--after", "T1")
+        self.cli("decide", "T1", "spike two paths")
+        self.cli("decide", "T1", "stdlib only")
+        self.cli("task", "set", "T1", "status=done")
+        self.assertEqual((self.task("T1")["status"], self.task("T1")["note"]), ("review", "review D1, D2"))
+        self.you("review", id="D1", verdict="accept")
+        self.assertEqual(self.task("T1")["status"], "review")
+        self.you("review", id="D2", verdict="accept")
+        self.assertEqual(self.task("T1")["status"], "done")
+        self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], ["T2"])
+
+    def test_an_overturned_decision_sends_its_waiting_task_back(self):
+        self.cli("task", "add", "G1", "plan it")
+        self.cli("decide", "T1", "spike two paths")
+        self.cli("task", "set", "T1", "status=done")
+        self.you("review", id="D1", verdict="overturn", note="one is enough")
+        self.assertEqual(self.task("T1")["status"], "todo")
+
     def test_parking_with_a_reason_tells_the_lead_why(self):
         self.cli("task", "add", "G1", "later")
         self.cli("read")
