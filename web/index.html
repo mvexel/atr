@@ -71,6 +71,13 @@
   .task.s-done .tt, .task.s-dropped .tt, .task.s-parked .tt { color: var(--muted); }
   .task.s-dropped .tt { text-decoration: line-through; }
   .after { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+  .now { font-size: 13.5px; padding: 0 12px 8px 46px; }
+  .now.quiet .muted:last-child::after { content: " · no news for a while"; color: var(--warn); }
+  .working { margin: 4px 0 14px; display: grid; gap: 6px; }
+  .working .k { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .working .run { all: unset; cursor: pointer; display: block; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+  .working .run .now { padding: 2px 0 0; }
+  .dec.folded { all: unset; display: block; cursor: pointer; font-size: 14px; padding: 3px 0; color: var(--text2); }
   .pill.ready { background: var(--card); border: 1px solid var(--line); color: var(--text); }
   .st { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; white-space: nowrap; }
   .st i { width: 9px; height: 9px; border-radius: 50%; }
@@ -152,6 +159,19 @@ async function act(op, args) {
 
 // ---- small pieces ----
 const btn = (text, onclick, cls) => h("button", { class: "b " + (cls || ""), onclick: e => { e.stopPropagation(); onclick(e); } }, text);
+const ago = ts => {
+  const m = Math.round((Date.now() - new Date(ts)) / 60000);
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
+};
+const quietFor = ts => (Date.now() - new Date(ts)) / 60000;
+// One line that says what is happening on a running task, readable without opening it.
+function nowLine(t) {
+  if (t.status !== "doing") return null;
+  const said = t.now ? [h("b", {}, "Now: "), t.now, h("span", { class: "muted" }, " · " + ago(t.now_at))]
+    : [h("span", { class: "muted" }, "No update yet" + (t.doing_since ? " · started " + ago(t.doing_since) : ""))];
+  const last = t.now_at || t.doing_since;
+  return h("div", { class: "now" + (last && quietFor(last) > 30 ? " quiet" : "") }, said);
+}
 const isNew = t => !t.agreed && !["parked", "dropped"].includes(t.status);
 const status = s => h("span", { class: "st " + s }, h("i"), LABEL[s]);
 function form(key, fields, save, saveLabel) {
@@ -167,14 +187,18 @@ function form(key, fields, save, saveLabel) {
 const edit = key => () => { S.editing = key; draw(); };
 
 function decision(d, plan) {
-  const who = d.by === "you" ? "you" : "the lead, without asking";
+  const who = d.options ? "you, from the lead's options" : d.by === "you" ? "you" : "the lead, without asking";
+  if (d.state === "accepted" && !S.open.has(d.id))
+    return h("button", { class: "dec folded", title: "Show the whole decision", onclick: e => { e.stopPropagation(); S.open.add(d.id); draw(); } },
+      h("b", {}, d.id), " ", d.chosen, h("span", { class: "muted" }, " · accepted"));
   const state = { needs_you: "waiting on you", to_review: "not reviewed yet", accepted: "accepted", overturned: "overturned by you" }[d.state];
   const rows = [];
   const row = (k, v) => v && rows.push(h("dt", {}, k), h("dd", {}, v));
   row("Question", d.question); row("Chosen", d.chosen); row("Suggested", d.state === "needs_you" && d.recommended);
   row("Why", d.why); row("Rejected", (d.rejected || []).join(" · ")); row("Your note", d.note);
   return h("div", { class: "dec " + d.state },
-    h("div", {}, h("b", {}, d.id), ` · decided by ${who} · ${d.undo} to undo · `, h("span", { class: "muted" }, state)),
+    h("div", {}, h("b", {}, d.id), ` · decided by ${who} · ${d.undo} to undo · `, h("span", { class: "muted" }, state),
+      d.state === "accepted" && [" · ", h("button", { class: "link", onclick: e => { e.stopPropagation(); S.open.delete(d.id); draw(); } }, "fold")]),
     h("dl", {}, rows),
     d.state === "to_review" && h("div", { class: "btns" }, btn("Accept", () => act("review", { id: d.id, verdict: "accept" }), "p"),
       S.editing === "ov" + d.id ? form("ov" + d.id, [{ label: "Why, and what instead" }], note => act("review", { id: d.id, verdict: "overturn", note }), "Overturn")
@@ -222,6 +246,7 @@ function taskNode(t, plan) {
     files.length ? h("span", { class: "after" }, `📄 ${files.length}`) : null,
     pruned && t.stopped === false ? h("span", { class: "pill you" }, "lead has not stopped it yet") : null,
     status(t.status)));
+  if (t.status === "doing") node.append(nowLine(t));
   if (!S.open.has(t.id)) return node;
   const others = plan.tasks.filter(o => o.id !== t.id && !t.after.includes(o.id) && !["parked", "dropped"].includes(o.status));
   node.append(h("div", { class: "body" },
@@ -267,6 +292,14 @@ function goalNode(g, plan, tasks) {
   return node;
 }
 
+// The first thing on the page: what is running and what it is doing right now.
+function workingOn(plan) {
+  const running = plan.tasks.filter(t => t.status === "doing");
+  if (!running.length) return h("div", { class: "working muted" }, "Nothing is running right now.");
+  return h("div", { class: "working" }, h("div", { class: "k" }, "Working on"),
+    running.map(t => h("button", { class: "run", onclick: () => { S.open.add(t.id); draw(); document.querySelector(`[data-id="${t.id}"]`)?.scrollIntoView({ block: "center" }); } },
+      h("span", { class: "id" }, t.id), " ", h("span", {}, t.title), nowLine(t))));
+}
 function drawProject() {
   const { plan, unread, lead_waiting: listening } = S.data;
   const waiting = plan.decisions.filter(d => d.state === "needs_you"), proposed = plan.goals.filter(g => g.proposed);
@@ -281,6 +314,7 @@ function drawProject() {
       listening && h("span", { class: "muted small", title: "Your changes wake the lead right away" }, "Lead listening"),
       plan.lead.thread && h("a", { href: plan.lead.thread, target: "_blank", rel: "noopener" }, "Lead thread ↗")),
     h("h1", {}, plan.title),
+    workingOn(plan),
     h("div", { class: "chips" }, ["all", "doing", "blocked", "todo", "done"].map(f =>
       h("button", { class: "chip", "aria-pressed": String(S.filter === f), onclick: () => { S.filter = f; draw(); } }, f === "all" ? "All" : LABEL[f]))),
     unread.length ? h("div", { class: "banner" }, `The lead has not read your ${unread.length} change${unread.length > 1 ? "s" : ""} yet. ${listening ? "It is being woken now." : "It picks them up on its next turn; nudge it in its thread if it is idle."}`,
