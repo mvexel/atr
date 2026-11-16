@@ -41,6 +41,54 @@ def atr(cwd, *args):
     return r.returncode, r.stdout
 
 
+def listen(cwd, session):
+    """The push (asyncRewake): wait for the owner, then exit 2 with their actions so Claude Code wakes the lead.
+
+    Runs in the background after every turn and at session start. One listener per session: a new one
+    stops the one before it, so a single owner action wakes the lead once.
+    """
+    import signal
+    import tempfile
+    from pathlib import Path
+
+    exe = os.environ.get("ATR_BIN") or shutil.which("atr")
+    pidfile = Path(tempfile.gettempdir()) / f"atr-listen-{session or 'default'}.pid"
+    try:
+        os.kill(int(pidfile.read_text()), signal.SIGTERM)
+    except (OSError, ValueError):
+        pass
+    pidfile.write_text(str(os.getpid()))
+    child = None
+
+    def stop(*_):
+        if child:
+            child.terminate()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, stop)
+    env = {k: v for k, v in os.environ.items() if k != "ATR_AS"}
+    while True:
+        child = subprocess.Popen(
+            [exe, "wait", "--timeout", "3500", "--json"], cwd=cwd, env=env, stdout=subprocess.PIPE, text=True
+        )
+        out, _ = child.communicate()
+        if child.returncode == 0:
+            break
+        if child.returncode != 1:
+            return  # not an atr project, or atr failed: stay quiet
+    state = json.loads(out)
+    lines = ["The owner acted on the atr page while you were idle:"]
+    for p in state.get("projects") or [state]:
+        read = "atr read" if p.get("own", True) else f"atr -p {p['project']} read"
+        for c in p["unread"]:
+            data = json.dumps({"op": c["op"], "args": c["args"]}) if "op" in c else ""
+            lines.append(f"- [{p['project']}] {c['what']} {data}".rstrip())
+        if p["unread"]:
+            lines.append(f"Act on this, and run `{read}` to mark it read.")
+    print("\n".join(lines), file=sys.stderr)
+    sys.exit(2)
+
+
 def block(reason):
     print(json.dumps({"decision": "block", "reason": reason}))
 
@@ -51,13 +99,16 @@ def main(event):
     except ValueError:
         hook = {}
     cwd = hook.get("cwd") or os.getcwd()
+    if event == "listen":
+        return listen(cwd, hook.get("session_id"))
     code, out = atr(cwd, "unread", "--json")
     if code == 2:
         return  # not an atr project (and following none), or atr is not installed
     state = json.loads(out)
     # Every project this folder's lead follows: its own, plus any added with `atr watch NAME`.
     projects = state.get("projects") or [state]
-    doorbell = os.environ.get("ATR_DOORBELL", "1") != "0"
+    # The listen hook pushes the owner's changes now; the old ask-the-lead-to-arm-atr-wait doorbell is opt-in.
+    doorbell = os.environ.get("ATR_DOORBELL") == "bash"
     listening = all(p["lead_waiting"] for p in projects)
 
     def plan(p):
