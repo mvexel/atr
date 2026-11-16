@@ -113,6 +113,7 @@
 </head>
 <body>
 <main id="app"></main>
+<footer id="ver" class="muted small" style="text-align:center;padding:8px 0 16px"></footer>
 <aside id="panel" hidden><header><b id="ptitle"></b><button class="b" id="pclose">Close</button></header><div class="md" id="pbody"></div></aside>
 <div id="toast" hidden role="status"></div>
 <script>
@@ -537,16 +538,50 @@ const typing = () => ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeEle
 // quietly out of date reads as the truth (T8 looked "in progress" after the lead had finished it).
 const stale = document.body.appendChild(h("div", { class: "stale", role: "status", hidden: true },
   "The plan has changed. It will refresh when you finish typing."));
-// The page is read from disk on every load, the server's code only when it starts: after an update the two
-// disagree, and a button that needs new server code fails for no visible reason.
-const outdated = document.body.appendChild(h("div", { class: "banner", role: "status", hidden: true,
-  style: "position:fixed;top:8px;left:50%;transform:translateX(-50%);border:1px solid var(--warn);background:var(--warn-soft);z-index:20" },
-  "atr was updated. Restart ", h("code", {}, "atr serve"), " to run the new version."));
+// The server's own news: a newer atr is out (offer to upgrade), or the code on disk changed under the running
+// server (offer to restart it). The page is read from disk on every load, the server's code only when it
+// starts: after an update the two disagree, and a button that needs new server code fails for no visible reason.
+const server = document.body.appendChild(h("div", { class: "banner", role: "status", hidden: true,
+  style: "position:fixed;top:8px;left:50%;transform:translateX(-50%);border:1px solid var(--warn);background:var(--warn-soft);z-index:20" }));
+S.server = "";
+function drawServer(info) {
+  const say = S.busy ? S.busy
+    : info?.latest ? [`atr ${info.latest.version} is out (you run ${info.version}). `,
+        info.latest.url && [h("a", { href: info.latest.url, target: "_blank", rel: "noopener" }, "What is new ↗"), " "],
+        btn("Upgrade and restart", () => serverAct("upgrade", `Upgrading atr to ${info.latest.version}…`), "p")]
+    : info?.outdated ? ["atr was updated on disk. ", btn("Restart the page server", () => serverAct("restart", "Restarting…"), "p")]
+    : null;
+  const key = JSON.stringify([S.busy, info?.latest, info?.outdated]);
+  if (key === S.server) return;
+  S.server = key;
+  server.hidden = !say;
+  if (say) mount(server, say);
+}
+async function serverAct(what, busy) {
+  S.busy = busy; drawServer();
+  try {
+    const r = await fetch("/api/" + what, { method: "POST", headers: { "X-Atr": "1" } });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || r.statusText);
+    if ((body.log || []).some(l => l.startsWith("the Claude Code plugin: upgraded")))
+      sessionStorage.setItem("atr:toast", "atr is upgraded. Restart your Claude Code sessions to load the new plugin.");
+    S.busy = "Restarting the page server…"; drawServer();
+    // The server answers, then replaces itself: wait for it to go and come back, then load the new page.
+    await new Promise(ok => setTimeout(ok, 1500));
+    for (let i = 0; i < 60; i++) {
+      try { await get("/api/sig"); return location.reload(); } catch (e) { await new Promise(ok => setTimeout(ok, 1000)); }
+    }
+    throw new Error("the page server did not come back: start atr serve again");
+  } catch (e) { S.busy = null; S.server = ""; toast(e.message); }
+}
+if (sessionStorage.getItem("atr:toast")) { toast(sessionStorage.getItem("atr:toast")); sessionStorage.removeItem("atr:toast"); }
 async function poll() {
   if (document.hidden) return;
   try {
     const sigs = await get("/api/sig");
-    outdated.hidden = !sigs[""]?.outdated;
+    if (!S.busy) drawServer(sigs[""]);
+    const ver = sigs[""]?.version ? "atr " + sigs[""].version : "";
+    if (document.getElementById("ver").textContent !== ver) document.getElementById("ver").textContent = ver;
     delete sigs[""];
     if (!project()) { const all = JSON.stringify(sigs); if (all !== S.all) { S.all = all; drawProjects(); } }
     else if (sigs[project()] && sigs[project()] !== S.sig) { if (typing() || S.dragging) stale.hidden = false; else load(); }
