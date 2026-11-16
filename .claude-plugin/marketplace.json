@@ -1,0 +1,17 @@
+{
+  "name": "atr",
+  "owner": {
+    "name": "Martijn van Exel"
+  },
+  "metadata": {
+    "description": "Extensions that connect agent tools to atr."
+  },
+  "plugins": [
+    {
+      "name": "atr",
+      "description": "Keep a Claude Code lead in step with its atr plan.",
+      "version": "0.1.0",
+      "source": "./extensions/claude-code"
+    }
+  ]
+}
