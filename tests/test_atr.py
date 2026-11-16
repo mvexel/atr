@@ -555,6 +555,32 @@ class Web(Base):
         self.assertEqual(self.call("/api/doc/demo/A9")[0], 404)
 
 
+class Service(Base):
+    cmd = ["/py", "/my atr/atr", "serve", "--port", "9"]
+
+    def test_launchd_agent_runs_the_command_and_restarts_it(self):
+        path, text, start, stop = atr.service_files(self.cmd, {"ATR_DATA_DIR": "/d&d"}, Path("/h"), "Darwin")
+        self.assertEqual(path, Path("/h/Library/LaunchAgents/atr.serve.plist"))
+        for want in ("<string>/my atr/atr</string>", "<key>KeepAlive</key><true/>", "<string>/d&amp;d</string>"):
+            self.assertIn(want, text)
+        self.assertEqual(start[-1][:2], ["launchctl", "bootstrap"])
+        self.assertEqual(stop[0][:2], ["launchctl", "bootout"])
+
+    def test_systemd_unit_quotes_the_command(self):
+        path, text, start, stop = atr.service_files(self.cmd, {}, Path("/h"), "Linux")
+        self.assertEqual(path, Path("/h/.config/systemd/user/atr.service"))
+        self.assertIn('ExecStart="/py" "/my atr/atr" "serve" "--port" "9"', text)
+        self.assertIn("Restart=on-failure", text)
+        self.assertIn("enable", start[-1])
+
+    def test_a_throwaway_uvx_environment_is_refused(self):
+        real = atr.sys.executable
+        self.addCleanup(setattr, atr.sys, "executable", real)
+        atr.sys.executable = "/c/uv/archive-v0/abc/bin/python"
+        with self.assertRaises(atr.Refused):
+            atr.serve_command()
+
+
 class ClaudeCodeExtension(Base):
     HOOK = ROOT / "extensions/claude-code/hooks/atr_hook.py"
 

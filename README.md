@@ -48,6 +48,12 @@ Python 3.13+ on macOS or Linux (tested on 3.14), no dependencies.
    Answer its cards on the page; it sees your answers on its next `atr read`.
 7. **Optional:** install an [extension](#extensions) so the lead is shown your changes without being asked.
 
+**Keep the page running.** `atr service install` registers a login service (launchd on macOS, a systemd
+user unit on Linux) that runs `atr serve` at login and restarts it if it stops. It takes `serve`'s
+`--host`, `--port` and `--allow-host`, and passes on `ATR_DATA_DIR` if set. Run it again after
+`uv tool upgrade atr` to restart on the new code; `atr service uninstall` removes it. It needs a real
+install (`uv tool install` or a checkout), not `uvx`. Logs: `/tmp/atr.log` on macOS, `journalctl --user -u atr` on Linux.
+
 To open the page from a phone on your tailnet: `atr serve --host 0.0.0.0 --allow-host my-laptop.tailnet.ts.net`.
 The page has no login, so only bind it to networks you trust.
 
@@ -73,6 +79,7 @@ The page has no login, so only bind it to networks you trust.
 | `atr watch NAME` | follow another project from this folder (`--stop` to stop): the hooks and `atr wait` cover it too |
 | `atr lead URL` | store the lead's thread link |
 | `atr projects` | list projects with done, waiting and to-review counts |
+| `atr service install` | keep `atr serve` running in the background (`uninstall` removes it) |
 | `atr rules` | print the rule block for `AGENTS.md` / `CLAUDE.md` |
 | `atr unread`, `atr wait` | for extensions: whether the owner changed something unread; block until they do (`--timeout`, default 3600 s). See Extensions |
 

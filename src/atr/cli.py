@@ -1185,6 +1185,84 @@ def install(where):
         print(f"{where} is not on your PATH: add it in your shell profile, e.g. export PATH=\"{where}:$PATH\"")
 
 
+def serve_command():
+    """The command a background service runs: this Python, this atr. Not a throwaway `uvx` environment."""
+    py = Path(sys.executable)
+    if any(p.startswith("archive-v") for p in py.parts):
+        raise Refused("this atr runs from a temporary uvx environment: uv tool install it first")
+    launcher = HERE.parent.parent / "bin" / "atr"
+    return [str(py), str(launcher)] if launcher.exists() else [str(py), "-m", "atr"]
+
+
+def service_files(cmd, env, home, system):
+    """(path, text, start, stop) for a login service running `cmd`; pure, so it can be tested."""
+    if system == "Darwin":
+        path = home / "Library/LaunchAgents/atr.serve.plist"
+        esc = lambda x: x.replace("&", "&amp;").replace("<", "&lt;")  # noqa: E731
+        args = "".join(f"\n    <string>{esc(a)}</string>" for a in cmd)
+        envs = "".join(f"\n    <key>{k}</key><string>{esc(v)}</string>" for k, v in env.items())
+        text = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+            f"<plist version=\"1.0\"><dict>\n  <key>Label</key><string>atr.serve</string>\n"
+            f"  <key>ProgramArguments</key><array>{args}\n  </array>\n"
+            + (f"  <key>EnvironmentVariables</key><dict>{envs}\n  </dict>\n" if env else "")
+            + "  <key>RunAtLoad</key><true/>\n  <key>KeepAlive</key><true/>\n"
+            "  <key>StandardErrorPath</key><string>/tmp/atr.log</string>\n</dict></plist>\n"
+        )
+        dom = f"gui/{os.getuid()}"
+        return (
+            path,
+            text,
+            [["launchctl", "bootout", dom, str(path)], ["launchctl", "bootstrap", dom, str(path)]],
+            [["launchctl", "bootout", dom, str(path)]],
+        )
+    path = home / ".config/systemd/user/atr.service"
+    q = lambda x: '"' + x.replace("\\", "\\\\").replace('"', '\\"') + '"'  # noqa: E731
+    text = (
+        "[Unit]\nDescription=atr page\n\n[Service]\n"
+        + "".join(f"Environment={q(f'{k}={v}')}\n" for k, v in env.items())
+        + f"ExecStart={' '.join(q(a) for a in cmd)}\nRestart=on-failure\n\n"
+        "[Install]\nWantedBy=default.target\n"
+    )
+    return (
+        path,
+        text,
+        [["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "--now", "atr.service"]],
+        [["systemctl", "--user", "disable", "--now", "atr.service"]],
+    )
+
+
+def service(a):
+    """Install or remove a login service that keeps `atr serve` running."""
+    import platform
+
+    system = platform.system()
+    if system not in ("Darwin", "Linux"):
+        raise Refused(f"no service support on {system}")
+    cmd = [*serve_command(), "serve", "--host", a.host, "--port", str(a.port)]
+    for h in a.allow_host:
+        cmd += ["--allow-host", h]
+    env = {"ATR_DATA_DIR": os.environ["ATR_DATA_DIR"]} if os.environ.get("ATR_DATA_DIR") else {}
+    path, text, start, stop = service_files(cmd, env, Path.home(), system)
+    if a.action == "uninstall":
+        for c in stop:
+            subprocess.run(c, check=False, capture_output=True)
+        path.unlink(missing_ok=True)
+        return print(f"removed {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():  # stop the old one first, so a changed host or port takes effect
+        for c in stop:
+            subprocess.run(c, check=False, capture_output=True)
+    path.write_text(text)
+    for c in start:
+        r = subprocess.run(c, check=False, capture_output=True, text=True)
+        if r.returncode and c[1] not in ("bootout",):
+            raise Refused(f"{' '.join(c)} failed: {r.stderr.strip()}")
+    print(f"wrote {path}\natr serve now runs at login and restarts if it stops: http://{a.host}:{a.port}/")
+    print("after upgrading atr, run `atr service install` again to restart it on the new code")
+
+
 def repo_root(here):
     """The git checkout `here` is in (its main checkout, for a worktree), or `here` outside git."""
     try:
@@ -1306,6 +1384,11 @@ def main(argv=None):
     x.add_argument("title", nargs="?")
     x = sub.add_parser("install", help="put atr on your PATH (a link to this file)")
     x.add_argument("--dir", default="~/.local/bin", help="where the link goes (default ~/.local/bin)")
+    x = sub.add_parser("service", help="keep `atr serve` running in the background (launchd or systemd)")
+    x.add_argument("action", choices=["install", "uninstall"])
+    x.add_argument("--host", default="127.0.0.1")
+    x.add_argument("--port", type=int, default=8787)
+    x.add_argument("--allow-host", action="append", default=[], help="as for atr serve")
     sub.add_parser("rules", help="print the rule block for AGENTS.md / CLAUDE.md")
     sub.add_parser("projects", help="list projects")
     x = sub.add_parser("serve", help="run the page")
@@ -1402,6 +1485,8 @@ def main(argv=None):
     try:
         if a.cmd == "install":
             return install(Path(a.dir).expanduser())
+        if a.cmd == "service":
+            return service(a)
         if a.cmd == "rules":
             return print(RULES, end="")
         if a.cmd == "projects":
