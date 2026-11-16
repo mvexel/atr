@@ -22,7 +22,8 @@ Each project is one `plan.json` (plus a `docs/` folder) under `~/.local/share/at
 Python 3 on macOS or Linux (tested on 3.14), no dependencies.
 
 ```sh
-bin/atr serve                      # the page, at http://127.0.0.1:8787/
+bin/atr install                    # links ~/.local/bin/atr to this checkout (--dir for elsewhere)
+atr serve                          # the page, at http://127.0.0.1:8787/
 cd ~/dev/my-repo
 atr init my-project "My project"   # creates the project and a .atr pointer file here; commit it
 atr rules >> AGENTS.md             # the five rules the lead follows (or CLAUDE.md)

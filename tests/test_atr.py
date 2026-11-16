@@ -367,6 +367,17 @@ class Plan(Base):
         self.assertNotIn("FROM YOUR WORKERS", self.cli("read")[1])  # once
         self.assertEqual(self.cli("decide", "T1", "x", "--by", "W 1")[0], 2)
 
+    def test_install_links_atr_onto_the_path(self):
+        bindir = Path(self.tmp.name) / "bin"
+        code, out = self.cli("install", "--dir", str(bindir))
+        self.assertEqual(code, 0, out)
+        self.assertEqual((bindir / "atr").resolve(), SOURCE.resolve())
+        self.assertIn("not on your PATH", out)
+        self.assertIn("already points", self.cli("install", "--dir", str(bindir))[1])
+        (bindir / "atr").unlink()
+        (bindir / "atr").write_text("someone else's")
+        self.assertEqual(self.cli("install", "--dir", str(bindir))[0], 2)
+
 
 class Web(Base):
     def setUp(self):

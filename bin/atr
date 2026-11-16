@@ -990,6 +990,22 @@ class Handler(BaseHTTPRequestHandler):
 # ---- command line --------------------------------------------------------------------------------
 
 
+def install(where):
+    """Link `where`/atr to this file, so a git pull updates the installed atr too."""
+    me, link = Path(__file__).resolve(), where / "atr"
+    if link.is_symlink() and link.resolve() == me:
+        print(f"{link} already points at {me}")
+    elif link.exists() or link.is_symlink():
+        raise Refused(f"{link} exists and is not this atr; move it away first")
+    else:
+        where.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(me)
+        print(f"linked {link} -> {me}")
+    dirs = [Path(p).expanduser().resolve() for p in os.environ.get("PATH", "").split(os.pathsep) if p]
+    if where.resolve() not in dirs:
+        print(f"{where} is not on your PATH: add it in your shell profile, e.g. export PATH=\"{where}:$PATH\"")
+
+
 def find_project(explicit):
     if explicit or os.environ.get("ATR_PROJECT"):
         return explicit or os.environ["ATR_PROJECT"]
@@ -1028,6 +1044,8 @@ def main(argv=None):
     x = sub.add_parser("init", help="create a project and point this folder at it")
     x.add_argument("name")
     x.add_argument("title", nargs="?")
+    x = sub.add_parser("install", help="put atr on your PATH (a link to this file)")
+    x.add_argument("--dir", default="~/.local/bin", help="where the link goes (default ~/.local/bin)")
     sub.add_parser("rules", help="print the rule block for AGENTS.md / CLAUDE.md")
     sub.add_parser("projects", help="list projects")
     x = sub.add_parser("serve", help="run the page")
@@ -1110,6 +1128,8 @@ def main(argv=None):
     a = ap.parse_args(argv)
     by = "you" if os.environ.get("ATR_AS") == "you" else "agent"
     try:
+        if a.cmd == "install":
+            return install(Path(a.dir).expanduser())
         if a.cmd == "rules":
             return print(RULES, end="")
         if a.cmd == "projects":
