@@ -121,6 +121,9 @@
   .side .form { margin: 4px 0; }
   .sq { margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); font-size: 14px; }
   .sq .q { font-weight: 650; margin: 6px 0 2px; } .sq .q:first-child { margin-top: 0; }
+  .sqh { display: flex; gap: 8px; align-items: center; }
+  .sqt { all: unset; cursor: pointer; flex: 1; font-weight: 650; overflow-wrap: anywhere; }
+  .sqh button.b { min-height: 28px; padding: 2px 10px; font-size: 13px; }
   .sq .a { overflow-wrap: anywhere; } .sq .a p { margin: 4px 0; } .sq .a.failed { color: var(--bad); }
   .sq .meta { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
   #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px;
@@ -136,7 +139,7 @@
 <script>
 "use strict";
 const LABEL = { todo: "To do", doing: "In progress", blocked: "Blocked", review: "Your check", done: "Done", parked: "Parked", dropped: "Dropped" };
-const S = { data: null, sig: "", filter: "all", open: new Set(), editing: null, dragging: null, drafts: new Map() };
+const S = { data: null, sig: "", filter: "all", open: new Set(), editing: null, dragging: null, drafts: new Map(), sideOpen: new Set(), sideShut: new Set() };
 const app = document.getElementById("app");
 
 function h(tag, props, ...kids) {
@@ -458,10 +461,26 @@ async function askSide(question, id) {
   } catch (e) { toast("Not asked: the atr server did not answer."); return false; }
   await load();
 }
-function sideQuestion(e) {
+// Each side question folds to its question line; the newest is open. Dismiss hides it for good (on every device).
+async function dismissSide(id, hide) {
+  try {
+    const r = await fetch("/api/side/" + encodeURIComponent(project()), { method: "POST", headers: { "Content-Type": "application/json", "X-Atr": "1" },
+      body: JSON.stringify({ id, hide }) });
+    if (!r.ok) toast((await r.json()).error || "That did not save.");
+  } catch (e) { toast("Not saved: the atr server did not answer."); }
+  await load();
+}
+function sideQuestion(e, newest) {
   const last = e.turns[e.turns.length - 1], busy = last.state === "thinking";
-  return h("div", { class: "sq" },
-    e.turns.map(t => [h("div", { class: "q" }, t.q),
+  const open = S.sideOpen.has(e.id) || (newest && !S.sideShut.has(e.id)) || busy;
+  const toggle = () => { if (open) { S.sideOpen.delete(e.id); S.sideShut.add(e.id); } else { S.sideShut.delete(e.id); S.sideOpen.add(e.id); } draw(); };
+  const head = h("div", { class: "sqh" },
+    h("button", { class: "sqt", "aria-expanded": String(open), onclick: toggle }, (open ? "▾ " : "▸ ") + e.turns[0].q,
+      !open && e.turns.length > 1 ? h("span", { class: "muted" }, ` · ${e.turns.length} questions`) : null),
+    e.hidden ? btn("Bring back", () => dismissSide(e.id, false)) : !busy && btn("Dismiss", () => dismissSide(e.id, true)));
+  if (!open) return h("div", { class: "sq" }, head);
+  return h("div", { class: "sq" }, head,
+    e.turns.map((t, i) => [i ? h("div", { class: "q" }, t.q) : null,
       t.state === "thinking" ? h("div", { class: "muted live" }, "Thinking…")
         : h("div", { class: "a" + (t.state === "failed" ? " failed" : "") }, t.state === "failed" ? t.a : markdown(t.a))]),
     !busy && e.thread && form(null, [{ label: "Follow up" }], q => q && askSide(q, e.id), "Ask", "side" + e.id),
@@ -469,11 +488,13 @@ function sideQuestion(e) {
       e.thread && e.tool === "claude-code" && [" · go on in a terminal: ", h("code", { style: "user-select:all" }, "claude --resume " + e.thread)]));
 }
 function sideQuestions(list) {
-  const recent = [...(list || [])].reverse(), shown = recent.slice(0, 3), older = recent.slice(3);
+  const recent = [...(list || [])].reverse(), kept = recent.filter(e => !e.hidden), gone = recent.filter(e => e.hidden);
+  const shown = kept.slice(0, 3), older = kept.slice(3);
   return h("div", { class: "side" },
     form(null, [{ label: "Ask a side question about this project (it only reads; the lead is not told)" }], q => q && askSide(q), "Ask", "side"),
-    shown.map(sideQuestion),
-    older.length ? h("details", {}, h("summary", { class: "muted small" }, `${older.length} earlier side question${older.length > 1 ? "s" : ""}`), older.map(sideQuestion)) : null);
+    shown.map((e, i) => sideQuestion(e, i === 0)),
+    older.length ? h("details", {}, h("summary", { class: "muted small" }, `${older.length} earlier side question${older.length > 1 ? "s" : ""}`), older.map(e => sideQuestion(e))) : null,
+    gone.length ? h("details", {}, h("summary", { class: "muted small" }, `${gone.length} dismissed`), gone.map(e => sideQuestion(e))) : null);
 }
 function workingOn(plan) {
   const running = plan.tasks.filter(t => t.status === "doing");

@@ -1098,6 +1098,11 @@ class SideQuestions(LeadProviders):
         self.assertEqual(body["side"][0]["turns"][0]["a"], "Yes.")
         self.assertNotEqual(call("/api/sig")[1]["demo"], sig)  # the page redraws when an answer comes
         self.assertEqual(body["sig"], call("/api/sig")[1]["demo"])
+        self.assertEqual(call("/api/side/demo", {"id": "Q1", "hide": True}), (200, {"ok": True}))
+        self.assertTrue(atr.side_load("demo")[0]["hidden"])  # dismissed on every device, not only this page
+        call("/api/side/demo", {"id": "Q1", "hide": False})
+        self.assertNotIn("hidden", atr.side_load("demo")[0])
+        self.assertEqual(call("/api/side/demo", {"id": "Q9", "hide": True})[0], 400)
 
 
 class Versions(unittest.TestCase):

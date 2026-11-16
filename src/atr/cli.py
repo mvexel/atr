@@ -1919,6 +1919,9 @@ class Handler(BaseHTTPRequestHandler):
         if len(parts) == 3 and parts[:2] == ["api", "side"]:  # the page's side-question box
             try:
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+                if "hide" in body:  # the page's Dismiss / Bring back
+                    side_hide(parts[2], body.get("id"), bool(body["hide"]))
+                    return self.send_json({"ok": True})
                 return self.send_json({"ok": True, "id": side_ask(parts[2], body.get("question"), body.get("id"))})
             except Refused as e:
                 return self.send_json({"error": str(e)}, 400)
@@ -2302,6 +2305,21 @@ def side_sig(name):
         return f".{side_file(name).stat().st_mtime_ns:x}"
     except OSError:
         return ""
+
+
+def side_hide(name, qid, hide=True):
+    """Dismiss a side question from the page (or bring it back). Kept in side.json, so it stays dismissed."""
+
+    def mark(items):
+        e = next((x for x in items if x["id"] == qid), None)
+        if not e:
+            raise Refused(f"no side question {qid}")
+        if hide:
+            e["hidden"] = True
+        else:
+            e.pop("hidden", None)
+
+    side_update(name, mark)
 
 
 def side_ask(name, question, qid=None):
