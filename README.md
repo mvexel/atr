@@ -21,11 +21,15 @@ Each project is one `plan.json` (plus a `docs/` folder) under `~/.local/share/at
 
 Python 3.13+ on macOS or Linux (tested on 3.14), no dependencies.
 
-1. **Install the command.** From this checkout:
+1. **Install the command.** Either way gives you `atr` on your `PATH`:
    ```sh
+   uv tool install git+https://github.com/mvexel/atr   # installed copy; update with uv tool upgrade atr
+   # or, from a checkout (a git pull updates it):
    bin/atr install                    # links ~/.local/bin/atr to this checkout (--dir for elsewhere)
    ```
-   Make sure `~/.local/bin` is on your `PATH`.
+   To try it without installing, prefix any command with `uvx --from git+https://github.com/mvexel/atr`,
+   e.g. `uvx --from git+https://github.com/mvexel/atr atr serve`. Agents and the extension hooks need
+   `atr` on `PATH`, so install it for real use. `~/.local/bin` must be on your `PATH`.
 2. **Start the page.** Leave it running:
    ```sh
    atr serve                          # http://127.0.0.1:8787/

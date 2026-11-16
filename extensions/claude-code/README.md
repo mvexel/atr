@@ -22,7 +22,7 @@ The plugin does nothing in folders without a `.atr` file.
 atr has to be on your `PATH`, or set `ATR_BIN` to its full path:
 
 ```sh
-ln -s ~/dev/atr/bin/atr ~/.local/bin/atr
+uv tool install git+https://github.com/mvexel/atr   # or, from a checkout: bin/atr install
 ```
 
 Then in Claude Code:

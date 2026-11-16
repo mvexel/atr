@@ -16,8 +16,10 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE = Path(__file__).resolve().parent.parent / "bin/atr"
-loader = importlib.machinery.SourceFileLoader("atr", str(SOURCE))
+ROOT = Path(__file__).resolve().parent.parent
+SOURCE = ROOT / "bin/atr"  # the checkout launcher
+CODE = ROOT / "src/atr/cli.py"
+loader = importlib.machinery.SourceFileLoader("atr", str(CODE))
 atr = importlib.util.module_from_spec(importlib.util.spec_from_loader("atr", loader))
 loader.exec_module(atr)
 
@@ -537,7 +539,7 @@ class Web(Base):
     def test_the_page_hears_when_the_server_runs_older_code(self):
         atr.Handler.started_with = atr.code_stamp()
         self.assertFalse(self.call("/api/sig")[1][""]["outdated"])
-        atr.Handler.started_with = (0, 0)  # as if bin/atr changed after the server started
+        atr.Handler.started_with = (0, 0)  # as if the code changed after the server started
         self.assertTrue(self.call("/api/sig")[1][""]["outdated"])
 
     def test_signature_changes_when_the_lead_reads(self):
@@ -554,7 +556,7 @@ class Web(Base):
 
 
 class ClaudeCodeExtension(Base):
-    HOOK = SOURCE.parent.parent / "extensions/claude-code/hooks/atr_hook.py"
+    HOOK = ROOT / "extensions/claude-code/hooks/atr_hook.py"
 
     def hook(self, event, cwd=None, **payload):
         env = {**os.environ, "ATR_BIN": str(SOURCE)}
