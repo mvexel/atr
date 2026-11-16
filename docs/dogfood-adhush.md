@@ -103,3 +103,7 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
   had granted the terminal Accessibility permission. atr had no part in that. But T15 is an odd task: done by
   the lead, and only valid once the owner checks the marks. That is a third kind of "owner's turn" (review)
   that `owner=you` does not express.
+- The lead could not revise its own goal proposals. While writing up adhush, the lead wanted to widen G2 (in
+  the follow-up project `atr`) before the owner had accepted it. `goal edit` is owner-only, even for
+  proposals that have not been accepted, so the lead proposed G5 instead. The lead should probably be able
+  to edit or withdraw its own proposals until they are accepted.

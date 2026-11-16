@@ -37,9 +37,34 @@ itself has been discarded. The follow-up work is the atr project `atr`, run from
    - A card on a goal holds back none of its tasks.
    - Goals can't depend on each other.
 
+## The brief against what we built
+
+The brief was "deliberately vague": mute the commercials. That was the point, and atr did turn it into
+questions. But the lead then wrote a precise done test for G2: each break edge within 5 s, at most 1 false
+mute per hour. The owner accepted it, and from then on nobody asked whether it was the right test.
+
+- **The test came from the lead, not from the owner.** Nothing showed the owner needed 5-second edges.
+  "Mute most ads within a minute, Mute now for the rest" might have been a good product. Nobody asked.
+- **A precise test made tuning feel like progress.** Every run moved a number, so the next step was always
+  another prompt, another description, another sampling fix. That was six or more runs over two test sets.
+  The numbers swung from missing most ads to muting most of the programme. That pointed to the wrong method,
+  not to the wrong settings.
+- **The evidence came early.** The first NFL run caught 12 of 33 ad windows. That was the moment to re-open
+  the goal and D6 (on-device only), the decision that boxed the method in. Instead D6 was re-opened only at
+  the very end, in D22.
+- **The owner raised the reality check, not the lead.** The lead had the numbers all along.
+- **atr had nothing to catch it.** An accepted goal is never revisited. Its done test is static, no matter
+  who wrote it. There is no time box or limit on attempts. Nothing turns repeated misses into a question
+  for the owner.
+
+The lesson for leads: when the brief is vague, a sharp done test is a guess about what the owner wants,
+not a fact. Test that guess the way you test the code, and test it early. That means a quick feasibility
+check before planning detail, and a card back to the owner as soon as the numbers say the goal as written
+won't be met.
+
 ## The plan
 
-Four goals, proposed in the atr project `atr`. Tasks come once a goal is accepted.
+Five goals, proposed in the atr project `atr`. Tasks come once a goal is accepted.
 
 - **G1. Workers report through atr.**
   - Workers record their own decisions (marked as the worker's, for the lead to review).
@@ -59,6 +84,11 @@ Four goals, proposed in the atr project `atr`. Tasks come once a goal is accepte
   - Review tasks ("done by the lead, waiting for your check").
   - Chat answers shown as cards to confirm.
   - Park with a reason.
+- **G5. Goals get questioned, not only pursued.**
+  - A done test the lead wrote is marked as the lead's guess until the owner confirms it as their own.
+  - A goal can carry a time box or a number of attempts. When it runs out, the lead must post a card: keep
+    going, change the test, change the method, or drop the goal.
+  - A new goal with an unproven method starts with a feasibility check before any other tasks.
 
-The order is G1 and G2 first. They would have changed the outcome on adhush (hand-copied decisions, the
-late reality check). G3 is mostly packaging, and G4 is polish on a part that already mostly works.
+The order is G5, G2 and G1 first. G5 and G2 together would have stopped the detector tuning hours earlier,
+and G1 would have saved the hand-copied decisions. G3 is mostly packaging, and G4 is polish on a part that already mostly works.
