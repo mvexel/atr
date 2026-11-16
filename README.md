@@ -1,15 +1,27 @@
 # atr
 
-A goal tree, tasks and decisions for a team of coding agents, on one page you can touch.
+A goal tree, tasks and decisions for a team of coding agents, and a locally hosted tracking page.
 
-atr answers three questions that get lost when several agents work at once: why does this task exist,
-what was decided, and how did the plan grow. It does not run, start or message agents; your agent tool does that.
+`atr` answers three questions I very often have when working with a team of agents on a project or larger task: 
+
+1. why does this task exist,
+2. what was decided, 
+3. how did the plan grow.
+
+YMMV: working with agents in a team setting is something that has not been figured out yet, and I believe we should all figure it out for ourselves and share our approaches. It's the only way to learn and grow.
+
+My design principles for this project were:
+- KISS
+- YAGNI
+- harness-agnostic
+- extensible
 
 ## How it works
 
-- **You** own the goals. On the page you answer cards, review the lead's judgment calls, drag tasks between
+- Every project starts with one or more goals. **You** own these and only these fully. 
+- On the page you answer cards, review the lead's judgment calls, drag tasks between
   goals, set what comes after what, and drop or park tasks.
-- **The lead agent** adds tasks under your goals, keeps status current, records every judgment call with
+- The lead agent adds tasks under your goals, keeps status current, records every judgment call with
   what it rejected, and attaches documents. It uses the `atr` command.
 - **Nothing is pushed to agents.** The lead runs `atr read` when a turn starts and before it ends, and sees
   what you changed. The page shows when the lead has not read your changes yet; nudge it in its thread.
