@@ -107,6 +107,14 @@ class Plan(Base):
         self.cli("decide", "T1", "x", "--hard")
         self.assertEqual(self.you("answer", id="D1", choice="x")["tasks"][0]["status"], "doing")
 
+    def test_the_lead_sees_which_of_its_calls_the_owner_reviewed(self):
+        self.cli("decide", "project", "use sqlite")
+        self.cli("decide", "project", "use tabs")
+        self.you("review", id="D1", verdict="accept")
+        out = self.cli("read")[1]
+        self.assertIn("D1 project: use sqlite", out)
+        self.assertIn("D2 project: (not reviewed yet) use tabs", out)
+
     def test_overturn_and_rejections_reach_the_lead(self):
         self.cli("task", "add", "G1", "build")
         self.cli("decide", "T1", "library A", "--rejected", "library B")

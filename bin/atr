@@ -602,7 +602,9 @@ def render(plan, since):
     if made or overturned:
         out += ["", "DECISIONS (do not re-propose what was rejected):"]
         for d in made + overturned:
-            tag = "OVERTURNED BY OWNER: " if d["state"] == "overturned" else ""
+            tag = {"overturned": "OVERTURNED BY OWNER: ", "to_review": "(not reviewed yet) "}.get(
+                d["state"], ""
+            )
             rej = f" | rejected: {'; '.join(d['rejected'])}" if d["rejected"] else ""
             out.append(
                 f"  - {d['id']} {d['on']}: {tag}{d['chosen']}{rej}"
