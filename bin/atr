@@ -31,7 +31,8 @@ RULES = """\
 ## Plan (atr)
 
 This project's plan lives in atr. You are the lead; workers report to you, and only you run atr,
-except that a worker may report progress on its own task: `atr now T3 "what is happening"`.
+except that a worker may report progress on its own task, `atr now T3 "what is happening"`, and
+record its own judgment calls with its name: `atr decide T3 "..." --why "..." --by worker-name`.
 
 1. Run `atr read` when a turn starts and again before it ends. Act on what the owner changed.
 2. Every task belongs to a goal: `atr task add G1 "title" --after T2`. Work that fits no goal is
@@ -251,6 +252,15 @@ def unread(plan):
         c
         for c in plan["changes"]
         if c["by"] == "you" and c["rev"] > plan["lead"]["read_rev"]
+    ]
+
+
+def from_workers(plan):
+    """Decisions workers recorded since the lead last read: the lead reviews them (it answers for its workers)."""
+    return [
+        c
+        for c in plan["changes"]
+        if c["by"].startswith("worker:") and c["rev"] > plan["lead"]["read_rev"]
     ]
 
 
@@ -572,7 +582,13 @@ def op_decide(plan, by, a):
         raise Refused(
             "--owner records an answer the owner already gave; it cannot also be --hard"
         )
-    who = "you" if said else by
+    worker = (a.get("worker") or "").strip()
+    if worker:
+        if not NAME_RE.match(worker):
+            raise Refused("a worker name is lowercase letters, digits and dashes")
+        if said:
+            raise Refused("--by records a worker's call; --owner records the owner's")
+    who = "you" if said else f"worker:{worker}" if worker else by
     d = {
         "id": new_id(plan, "D"),
         "on": on,
@@ -702,6 +718,13 @@ def render(plan, since):
     if since:
         out.append("THE OWNER CHANGED, since you last read:")
         out += [f"  - {c['what']}" for c in since]
+        out.append("")
+    workers = from_workers(plan)
+    if workers:
+        out.append(
+            "FROM YOUR WORKERS, since you last read (check each; overturn by recording your own call):"
+        )
+        out += [f"  - {c['by'][7:]}: {c['what']}" for c in workers]
         out.append("")
     stop = [t for t in plan["tasks"] if t.get("pruned_by") and not t.get("stopped")]
     if stop:
@@ -1041,6 +1064,9 @@ def main(argv=None):
     x.add_argument(
         "--owner", action="store_true", help="the owner decided this in conversation"
     )
+    x.add_argument(
+        "--by", default="", metavar="WORKER", help="a worker records its own call (its name)"
+    )
     x = sub.add_parser("attach", help="link a document to a task or goal")
     x.add_argument("on")
     x.add_argument("src", help="file path or http(s) link")
@@ -1179,6 +1205,7 @@ def main(argv=None):
                     "question": a.question,
                     "hard": a.hard,
                     "owner": a.owner,
+                    "worker": a.by,
                 },
             )
         elif a.cmd == "attach":
@@ -1187,6 +1214,8 @@ def main(argv=None):
             fn, args = op_task_now, {"id": a.id, "text": " ".join(a.text)}
         else:
             fn, args = op_lead, {"thread": a.thread}
+        if a.cmd == "decide" and a.by:
+            by = f"worker:{a.by}"
         _, note = change(name, by, fn, args)
         print(note or "no change")
     except Refused as e:

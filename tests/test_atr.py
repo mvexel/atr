@@ -355,6 +355,18 @@ class Plan(Base):
         self.assertIn("your outlook", self.cli("read")[1])
         self.assertEqual(atr.load("demo")["goals"][0]["outlook"]["level"], "unlikely")
 
+    def test_workers_record_their_own_calls_for_the_lead_to_check(self):
+        self.cli("task", "add", "G1", "x")
+        self.cli("read")
+        code, out = self.cli("decide", "T1", "use AAC", "--why", "small", "--by", "w1")
+        self.assertEqual(code, 0, out)
+        d = atr.load("demo")["decisions"][0]
+        self.assertEqual((d["by"], d["state"]), ("worker:w1", "to_review"))
+        self.assertEqual(self.cli("unread")[0], 1)  # not owner news
+        self.assertIn("FROM YOUR WORKERS", self.cli("read")[1])
+        self.assertNotIn("FROM YOUR WORKERS", self.cli("read")[1])  # once
+        self.assertEqual(self.cli("decide", "T1", "x", "--by", "W 1")[0], 2)
+
 
 class Web(Base):
     def setUp(self):

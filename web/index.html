@@ -189,7 +189,7 @@ function form(key, fields, save, saveLabel) {
 const edit = key => () => { S.editing = key; draw(); };
 
 function decision(d, plan) {
-  const who = d.options ? "you, from the lead's options" : d.by === "you" ? "you" : "the lead, without asking";
+  const who = d.options ? "you, from the lead's options" : d.by === "you" ? "you" : d.by.startsWith("worker:") ? `worker ${d.by.slice(7)}, without asking` : "the lead, without asking";
   if (d.state === "accepted" && !S.open.has(d.id))
     return h("button", { class: "dec folded", title: "Show the whole decision", onclick: e => { e.stopPropagation(); S.open.add(d.id); draw(); } },
       h("b", {}, d.id), " ", d.chosen, h("span", { class: "muted" }, " · accepted"));
