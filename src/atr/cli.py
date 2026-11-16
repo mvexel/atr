@@ -147,13 +147,14 @@ def change(name, by, fn, args=None, base_rev=None):
         plan = load(name)
         if base_rev is not None and base_rev != plan["rev"]:
             raise Stale()
-        note = fn(plan, by, args or {})
+        args = dict(args or {})
+        note = fn(plan, by, args)
         if note:
             plan["rev"] += 1
-            plan["changes"] = (
-                plan["changes"]
-                + [{"rev": plan["rev"], "by": by, "at": now(), "what": note}]
-            )[-300:]
+            c = {"rev": plan["rev"], "by": by, "at": now(), "what": note}
+            if by == "you":  # the owner's action as data, so a push can hand it to the lead as is
+                c.update(op=next((k for k, f in OPS.items() if f is fn), fn.__name__), args=args)
+            plan["changes"] = (plan["changes"] + [c])[-300:]
         save(plan)
         return plan, note
 

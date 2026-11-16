@@ -428,6 +428,17 @@ class Plan(Base):
         self.assertEqual(self.task("T1")["status"], "done")
         self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], ["T2"])
 
+    def test_owner_changes_carry_the_action_as_data(self):
+        self.cli("task", "add", "G1", "build")
+        self.cli("decide", "T1", "which db?", "--hard")
+        self.cli("read")
+        self.you("answer", id="D1", choice="sqlite", note="keep it local")
+        code, out = self.cli("unread", "--json")
+        (c,) = json.loads(out)["unread"]
+        self.assertEqual((c["op"], c["args"]), ("answer", {"id": "D1", "choice": "sqlite", "note": "keep it local"}))
+        lead = [c for c in atr.load("demo")["changes"] if c["by"] != "you"]
+        self.assertTrue(lead and not any("op" in c for c in lead))  # the lead's own changes stay as they were
+
     def test_an_overturned_decision_sends_its_waiting_task_back(self):
         self.cli("task", "add", "G1", "plan it")
         self.cli("decide", "T1", "spike two paths")

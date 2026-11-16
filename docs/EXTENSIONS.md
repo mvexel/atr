@@ -41,14 +41,18 @@ installed globally and only act where a `.atr` file exists.
   "project": "adhush",
   "lead_thread": "https://…",
   "lead_waiting": true,
-  "unread": [{"rev": 4, "by": "you", "at": "2026-11-15T20:01Z", "what": "accepted goal G1 \"…\""}],
+  "unread": [{"rev": 4, "by": "you", "at": "2026-11-15T20:01Z", "what": "answered D1 (…): sqlite",
+              "op": "answer", "args": {"id": "D1", "choice": "sqlite", "note": ""}}],
   "running": [{"id": "T3", "title": "…", "last_news_at": "2026-11-15T19:40Z"}],
   "own": true,
   "projects": [{"project": "adhush", "own": true, "…": "the same fields, once per followed project"}]
 }
 ```
 
-- `unread` lists only the owner's changes. The lead's own changes never wake it.
+- `unread` lists only the owner's changes. The lead's own changes never wake it. Each one has `what`,
+  a sentence for the lead, and `op` and `args`: the page action and what the owner sent with it (the
+  card's answer, the decision's verdict, a task's new goal). Pass them on as they are. Changes recorded
+  before atr kept `op` have only `what`.
 - `lead_waiting` is true while an `atr wait` for this project is running. The page shows "Lead listening"
   and tells the owner the lead is being woken. Turn-end checks can use it: if it is false, the doorbell is
   not armed.
