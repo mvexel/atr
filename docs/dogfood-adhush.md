@@ -22,3 +22,6 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
 - The first owner answer (the audio source) arrived in chat, not on the page. `--owner` covers it, but the
   owner never sees it as a card to confirm. Watch whether that matters.
 - Each fix lands as its own commit on the branch, with a test, and is logged here.
+- Accepting a goal on the page does nothing until the lead's next turn: the owner has to message the lead
+  as well, so every page action costs a chat message too. The turn hook and the doorbell (README, Plugins)
+  are what would close this; neither exists yet. A Claude Code version is the first candidate.
