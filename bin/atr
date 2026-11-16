@@ -23,8 +23,9 @@ from typing import ClassVar
 
 SRC = Path(__file__).resolve().parent.parent
 MAX_RUNNING = 3
-AGENT_STATUSES = ("todo", "doing", "blocked", "done", "dropped")
-OPEN = ("todo", "doing", "blocked")
+# review: the lead did it, but it only counts once the owner checks it (a test set the lead marked, say).
+AGENT_STATUSES = ("todo", "doing", "blocked", "review", "done", "dropped")
+OPEN = ("todo", "doing", "blocked", "review")
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 
 RULES = """\
@@ -49,6 +50,7 @@ record its own judgment calls with its name: `atr decide T3 "..." --why "..." --
    A goal whose method is unproven starts with one small task that checks it can work at all.
 6. Start work from `atr next` (at most 3 tasks running). Work only the owner can do (record, test by
    hand, grant a permission) gets `atr task set T3 owner=you`: it shows as their turn, not yours.
+   Work you did that only counts once the owner checks it: `atr task set T3 status=review note="check .."`.
    Attach what you write for the owner: `atr attach T3 path/to/findings.md`.
 """
 
@@ -445,6 +447,10 @@ def op_task_set(plan, by, a):
     if status and status != t["status"]:
         if status not in AGENT_STATUSES:
             raise Refused(f"status is one of: {', '.join(AGENT_STATUSES)}")
+        if t["status"] == "review" and status == "done" and by != "you":
+            raise Refused(f"{t['id']} waits for the owner's check; only they can pass it")
+        if status == "review" and not (a.get("note") or t["note"]):
+            raise Refused(f'say what the owner should check: atr task set {t["id"]} status=review note="..."')
         if status == "doing":
             if not deps_done(plan, t):
                 raise Refused(
@@ -472,6 +478,22 @@ def op_task_set(plan, by, a):
         if op_dep(plan, by, {"id": t["id"], "other": dep}):
             said.append(f"after {dep}")
     return f"{label(t)}: {', '.join(said)}" if said else None
+
+
+def op_task_check(plan, by, a):
+    """The owner checks a task in review: it passes (done), or goes back to the lead with what is wrong."""
+    owner_only(by, "check a task")
+    t = get(plan, "tasks", a["id"])
+    if t["status"] != "review":
+        raise Refused(f"{t['id']} is not waiting for a check")
+    if a.get("ok"):
+        t["status"] = "done"
+        return f"checked {label(t)}: it is right"
+    why = (a.get("note") or "").strip()
+    if not why:
+        raise Refused("say what is wrong, so the lead can fix it")
+    t["status"] = "todo"
+    return f"checked {label(t)}: NOT RIGHT, {why}"
 
 
 def op_task_now(plan, by, a):
@@ -761,6 +783,7 @@ OPS = {
     "task_set": op_task_set,
     "task_move": op_task_move,
     "task_prune": op_task_prune,
+    "task_check": op_task_check,
     "task_restore": op_task_restore,
     "agree": op_agree,
     "dep": op_dep,
@@ -871,7 +894,8 @@ def render(plan, since):
     yours = [
         t
         for t in plan["tasks"]
-        if t["status"] in ("todo", "doing") and owners_turn(t) and deps_done(plan, t)
+        if (t["status"] in ("todo", "doing") and owners_turn(t) and deps_done(plan, t))
+        or t["status"] == "review"
     ]
     if yours:
         out += [
@@ -900,7 +924,8 @@ def summary(plan):
         "done": sum(t["status"] == "done" for t in tasks),
         "running": sum(t["status"] == "doing" for t in tasks),
         "needs_you": sum(d["state"] == "needs_you" for d in plan["decisions"])
-        + sum(bool(g.get("proposed")) for g in plan["goals"]),
+        + sum(bool(g.get("proposed")) for g in plan["goals"])
+        + sum(t["status"] == "review" for t in plan["tasks"]),
         "to_review": sum(d["state"] == "to_review" for d in plan["decisions"]),
         "unread": len(unread(plan)),
         "lead_waiting": waiting(plan["name"]),

@@ -83,7 +83,7 @@
   .pill.ready { background: var(--card); border: 1px solid var(--line); color: var(--text); }
   .st { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; white-space: nowrap; }
   .st i { width: 9px; height: 9px; border-radius: 50%; }
-  .st.done i { background: var(--good); } .st.doing i { background: var(--info); } .st.blocked i { background: var(--warn); }
+  .st.done i { background: var(--good); } .st.review i { background: var(--warn); } .st.doing i { background: var(--info); } .st.blocked i { background: var(--warn); }
   .st.todo i { border: 1.5px solid var(--muted); } .st.dropped i { background: var(--bad); } .st.parked i { background: var(--muted); }
   .body { border-top: 1px solid var(--line); padding: 10px 12px 12px; font-size: 14px; }
   .body .note { margin-bottom: 8px; }
@@ -117,7 +117,7 @@
 <div id="toast" hidden role="status"></div>
 <script>
 "use strict";
-const LABEL = { todo: "To do", doing: "In progress", blocked: "Blocked", done: "Done", parked: "Parked", dropped: "Dropped" };
+const LABEL = { todo: "To do", doing: "In progress", blocked: "Blocked", review: "Your check", done: "Done", parked: "Parked", dropped: "Dropped" };
 const S = { data: null, sig: "", filter: "all", open: new Set(), editing: null, dragging: null };
 const app = document.getElementById("app");
 
@@ -174,7 +174,7 @@ function nowLine(t) {
   const last = t.now_at || t.doing_since;
   return h("div", { class: "now" + (last && quietFor(last) > 30 ? " quiet" : "") }, said);
 }
-const isNew = t => !t.agreed && ["todo", "doing", "blocked"].includes(t.status);  // finished work is not news
+const isNew = t => !t.agreed && ["todo", "doing", "blocked", "review"].includes(t.status);  // finished work is not news
 const status = s => h("span", { class: "st " + s }, h("i"), LABEL[s]);
 function form(key, fields, save, saveLabel) {
   // An inline form; `key` keeps it open across redraws.
@@ -235,6 +235,7 @@ function waitsFor(plan, id, target, seen = new Set()) {
 }
 function startLine(t, plan) {
   if (t.status === "parked") return h("span", { class: "after" }, "won't start until you restore it");
+  if (t.status === "review") return h("span", { class: "pill you" }, "your turn: check it");
   if (t.status !== "todo") return null;
   const waits = t.after.filter(a => plan.tasks.find(o => o.id === a)?.status !== "done");
   if (waits.length) return h("span", { class: "after" }, "starts after " + waits.join(", "));
@@ -271,6 +272,9 @@ function taskNode(t, plan) {
     t.note && h("div", { class: "note" }, h("span", { class: "muted" }, "Lead's note: "), t.note),
     (t.owner || t.thread) && h("div", { class: "muted small" }, t.owner && `Worker: ${t.owner} `, t.thread && h("a", { href: t.thread, target: "_blank", rel: "noopener" }, "Open thread ↗")),
     on.map(d => decision(d, plan)), docs(files),
+    t.status === "review" && h("div", { class: "card" }, h("div", { class: "k" }, "The lead asks you to check this"), t.note && h("div", {}, t.note),
+      h("div", { class: "btns" }, btn("It's right", () => act("task_check", { id: t.id, ok: true }), "p"),
+        S.editing === "ck" + t.id ? form("ck" + t.id, [{ label: "What is wrong?" }], note => act("task_check", { id: t.id, note }), "Send back") : btn("Not right…", edit("ck" + t.id)))),
     h("div", { class: "btns" },
       t.after.map(a => btn(`after ${a} ✕`, () => act("dep", { id: t.id, other: a, remove: true }))),
       ["todo", "blocked"].includes(t.status) && others.length ? h("select", { class: "b", "aria-label": "Add a dependency", onclick: e => e.stopPropagation(),
@@ -353,7 +357,7 @@ function drawProject() {
       plan.lead.thread && h("a", { href: plan.lead.thread, target: "_blank", rel: "noopener" }, "Lead thread ↗")),
     h("h1", {}, plan.title),
     workingOn(plan),
-    h("div", { class: "chips" }, ["all", "doing", "blocked", "todo", "done"].map(f =>
+    h("div", { class: "chips" }, ["all", "doing", "blocked", "review", "todo", "done"].map(f =>
       h("button", { class: "chip", "aria-pressed": String(S.filter === f), onclick: () => { S.filter = f; draw(); } }, f === "all" ? "All" : LABEL[f]))),
     unread.length ? h("div", { class: "banner" }, `The lead has not read your ${unread.length} change${unread.length > 1 ? "s" : ""} yet. ${listening ? "It is being woken now." : "It picks them up on its next turn; nudge it in its thread if it is idle."}`,
       h("ul", {}, unread.slice(-5).map(c => h("li", {}, c.what)))) : null,

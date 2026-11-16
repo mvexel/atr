@@ -396,6 +396,20 @@ class Plan(Base):
         self.assertEqual(self.task("T1")["status"], "todo")
         self.assertEqual(self.cli("ask", "T1", "")[0], 2)
 
+    def test_a_task_in_review_counts_only_once_the_owner_checks_it(self):
+        self.cli("task", "add", "G1", "mark the test set")
+        self.cli("task", "add", "G1", "score it", "--after", "T1")
+        self.assertEqual(self.cli("task", "set", "T1", "status=review")[0], 2)  # needs what to check
+        self.cli("task", "set", "T1", "status=review", "note=check the break edges")
+        self.assertIn("THE OWNER'S TURN", self.cli("read")[1])
+        self.assertEqual(self.cli("task", "set", "T1", "status=done")[0], 2)
+        self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], [])
+        self.you("task_check", id="T1", note="break 2 ends at 6:20")
+        self.assertEqual(self.task("T1")["status"], "todo")
+        self.cli("task", "set", "T1", "status=review")
+        self.you("task_check", id="T1", ok=True)
+        self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], ["T2"])
+
 
 class Web(Base):
     def setUp(self):
