@@ -49,6 +49,7 @@ The page has no login, so only bind it to networks you trust.
 | `atr now T3 "scoring run 2 of 3"` | one line on what a running task is doing (workers may use it) |
 | `atr goal propose "title" --done ".." --tries 5 --days 3` | suggest a goal; it gets no tasks until the owner accepts it. The done test shows as the lead's guess until the owner confirms it. `--tries`/`--days` give it a budget |
 | `atr try G1 "prompt B: 15 of 31 caught"` | record one attempt at a goal; when its tries or days run out, its tasks stop until the owner answers a card on the goal |
+| (page) This goal is met | once all of a goal's tasks are done, the owner closes it; met goals take no new tasks until reopened |
 | `atr outlook G1 unsure "half the ads"` | the lead's current read on whether a goal can be met as written (`likely`, `unsure`, `unlikely`) |
 | `atr attach T3 file-or-link` | link a document; files are copied into the project so they outlive a worktree |
 | `atr watch NAME` | follow another project from this folder (`--stop` to stop): the hooks and `atr wait` cover it too |

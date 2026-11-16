@@ -317,6 +317,7 @@ function goalNode(g, plan, tasks) {
   });
   node.append(h("summary", {}, h("span", { class: "id" }, g.id), h("span", { class: "gt" }, g.title),
     g.proposed && h("span", { class: "pill you" }, "proposed by the lead"),
+    g.met_at && h("span", { class: "pill ready" }, "✓ met"),
     g.outlook && h("span", { class: "pill outlook " + g.outlook.level, title: `The lead's outlook, ${ago(g.outlook.at)}: ${g.outlook.text}` }, "lead: " + g.outlook.level), needs ? h("span", { class: "pill you" }, `${needs} waiting on you`) : null,
     h("span", { class: "count" }, `${done} of ${live.length} done` + (added ? ` · ${added} new from agents` : ""))));
   node.append(h("div", { class: "gbody" },
@@ -331,9 +332,14 @@ function goalNode(g, plan, tasks) {
           !tasks.length && !g.proposed ? [" · ", h("button", { class: "link", onclick: () => act("goal_remove", { id: g.id }) }, "Remove")] : null),
     g.outlook && h("div", { class: "small" }, h("b", {}, `Lead's outlook: ${g.outlook.level}. `), g.outlook.text, h("span", { class: "muted" }, " · " + ago(g.outlook.at))),
     budgetLine(g),
+    !g.proposed && !g.met_at && live.length && live.every(t => t.status === "done")
+      ? h("div", { class: "card" }, h("div", { class: "k" }, `All of ${g.id}'s tasks are done`), h("div", {}, g.done_when ? "Does it pass its done test? " + g.done_when : "Is this goal met?"),
+          h("div", { class: "btns" }, btn("This goal is met", () => act("goal_met", { id: g.id }), "p"), h("span", { class: "muted small" }, "Not yet? Add a task below saying what is missing.")))
+      : null,
+    g.met_at && h("div", { class: "small" }, h("span", { class: "pill ready" }, "✓ met " + ago(g.met_at)), " ", h("button", { class: "link", onclick: () => act("goal_reopen", { id: g.id }) }, "Reopen")),
     on.map(d => decision(d, plan)), docs(files),
     shown.map(t => taskNode(t, plan)),
-    !g.proposed && S.filter === "all" ? form(null, [{ label: "Add a task to " + g.id }], title => title && act("task_add", { goal: g.id, title }), "Add") : null));
+    !g.proposed && !g.met_at && S.filter === "all" ? form(null, [{ label: "Add a task to " + g.id }], title => title && act("task_add", { goal: g.id, title }), "Add") : null));
   return node;
 }
 
@@ -351,6 +357,7 @@ function drawProject() {
   const review = plan.decisions.filter(d => d.state === "to_review" && !d.said);
   const said = plan.decisions.filter(d => d.state === "to_review" && d.said);
   const checks = plan.tasks.filter(t => t.status === "review");
+  const met = plan.goals.filter(g => g.met_at);
   const unstopped = plan.tasks.filter(t => t.pruned_by && t.stopped === false);
   const gone = plan.tasks.filter(t => ["parked", "dropped"].includes(t.status) && t.stopped !== false);
   const fresh = plan.tasks.filter(isNew).length;
@@ -385,7 +392,9 @@ function drawProject() {
     fresh ? h("div", { class: "banner" }, `${fresh} task${fresh > 1 ? "s" : ""} added by agents since you last agreed the plan (marked "new"). Drop what you do not want, then `,
       h("button", { class: "link", onclick: () => act("agree", {}) }, "agree the plan as it stands"), ".") : null,
     general.length || gdocs.length ? [h("h2", {}, "Whole project"), general.map(d => decision(d, plan)), docs(gdocs)] : null,
-    plan.goals.map(g => goalNode(g, plan, plan.tasks.filter(t => t.goal === g.id && !gone.includes(t)))),
+    plan.goals.filter(g => !g.met_at).map(g => goalNode(g, plan, plan.tasks.filter(t => t.goal === g.id && !gone.includes(t)))),
+    met.length ? h("details", { class: "goal" }, h("summary", {}, h("span", { class: "gt" }, "Met goals"), h("span", { class: "count" }, String(met.length))),
+      h("div", { class: "gbody" }, met.map(g => goalNode(g, plan, plan.tasks.filter(t => t.goal === g.id && !gone.includes(t)))))) : null,
     plan.goals.length ? null : h("p", { class: "muted" }, "No goals yet. Goals are yours: add the first one below, then the lead can add tasks under it."),
     h("h2", {}, "Add a goal"),
     form(null, [{ label: "Goal, in one line" }, { label: "Done when…" }], (title, done_when) => title && act("goal_add", { title, done_when }), "Add goal"),
@@ -466,7 +475,7 @@ async function drawProjects() {
   list.sort((a, b) => (b.needs_you > 0) - (a.needs_you > 0) || b.to_review - a.to_review || a.title.localeCompare(b.title));
   mount(app, h("div", { class: "top" }, h("h1", {}, "Projects")),
     list.length ? h("div", { class: "tiles" }, list.map(p => h("button", { class: "tile" + (p.needs_you ? " needs" : ""), onclick: () => location.hash = p.name },
-      h("b", {}, p.title), h("span", { class: "muted small" }, `${p.goals} goals · ${p.tasks} tasks · ${p.running} running`),
+      h("b", {}, p.title), h("span", { class: "muted small" }, `${p.goals} goals${p.met ? ` (${p.met} met)` : ""} · ${p.tasks} tasks · ${p.running} running`),
       h("div", { class: "bar" }, h("i", { style: `width:${p.tasks ? Math.round(100 * p.done / p.tasks) : 0}%` })),
       p.needs_you ? h("span", { class: "pill you" }, `${p.needs_you} waiting on you`)
         : h("span", { class: "muted small" }, p.to_review ? `${p.to_review} agent calls to review` : "Nothing needs you"),

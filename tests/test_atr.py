@@ -441,6 +441,26 @@ class Plan(Base):
         self.assertEqual(self.cli("wait", "--timeout", "1")[0], 0)
         self.assertIn("no other projects", self.cli("watch", "demo", "--stop")[1])
 
+    def test_only_the_owner_says_a_goal_is_met_and_met_goals_take_no_new_work(self):
+        self.cli("goal", "propose", "Mute ads", "--done", "most ads muted")
+        self.you("goal_accept", id="G2")
+        self.cli("task", "add", "G2", "build")
+        with self.assertRaises(atr.Refused):
+            self.you("goal_met", id="G2")  # an open task
+        self.cli("task", "set", "T1", "status=done")
+        self.assertIn("say whether G2 is met", self.cli("read")[1])
+        with self.assertRaises(atr.Refused):
+            self.agent("goal_met", id="G2")
+        self.you("goal_met", id="G2")
+        g = atr.get(atr.load("demo"), "goals", "G2")
+        self.assertNotIn("test_guess", g)
+        out = self.cli("read")[1]
+        self.assertIn("MET (the owner closed these)", out)
+        self.assertNotIn("say whether G2", out)
+        self.assertEqual(self.cli("task", "add", "G2", "more")[0], 2)
+        self.you("goal_reopen", id="G2", why="edges still late")
+        self.assertEqual(self.cli("task", "add", "G2", "more")[0], 0)
+
 
 class Web(Base):
     def setUp(self):

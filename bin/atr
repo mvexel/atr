@@ -429,6 +429,30 @@ def op_goal_accept(plan, by, a):
     return f"accepted goal {label(g)}"
 
 
+def op_goal_met(plan, by, a):
+    """The owner says the goal's done test passes. Meeting a goal is their call, never the lead's."""
+    owner_only(by, "say a goal is met")
+    g = get(plan, "goals", a["id"])
+    if g.get("proposed"):
+        raise Refused(f"{g['id']} is only proposed")
+    if g.get("met_at"):
+        return None
+    left = [t["id"] for t in plan["tasks"] if t["goal"] == g["id"] and t["status"] in OPEN]
+    if left:
+        raise Refused(f"{g['id']} still has open tasks ({', '.join(left)}): finish, park or drop them first")
+    g["met_at"] = now()
+    g.pop("test_guess", None)  # judging the test met is accepting it
+    return f"MET goal {label(g)}"
+
+
+def op_goal_reopen(plan, by, a):
+    owner_only(by, "reopen a goal")
+    g = get(plan, "goals", a["id"])
+    if not g.pop("met_at", None):
+        return None
+    return f"reopened goal {label(g)}" + (f": {a['why'].strip()}" if (a.get("why") or "").strip() else "")
+
+
 def op_goal_confirm_test(plan, by, a):
     owner_only(by, "confirm a done test")
     g = get(plan, "goals", a["id"])
@@ -452,6 +476,10 @@ def op_task_add(plan, by, a):
     if g.get("proposed"):
         raise Refused(
             f"{g['id']} is only proposed; the owner has to accept it before it gets tasks"
+        )
+    if g.get("met_at") and by != "you":
+        raise Refused(
+            f"{g['id']} is met; new work goes under another goal, or the owner reopens it"
         )
     title = (a.get("title") or "").strip()
     if not title:
@@ -833,6 +861,8 @@ OPS = {
     "goal_accept": op_goal_accept,
     "goal_remove": op_goal_remove,
     "goal_confirm_test": op_goal_confirm_test,
+    "goal_met": op_goal_met,
+    "goal_reopen": op_goal_reopen,
     "task_add": op_task_add,
     "task_set": op_task_set,
     "task_move": op_task_move,
@@ -901,7 +931,10 @@ def render(plan, since):
         out += [f"  - proposed goal {label(g)}" for g in proposed]
         out.append("")
     overturned = [d for d in plan["decisions"] if d["state"] == "overturned"]
+    met = [g for g in plan["goals"] if g.get("met_at")]
     for g in plan["goals"]:
+        if g.get("met_at"):
+            continue
         out.append(
             f"{g['id']} {g['title']}{' [PROPOSED, not accepted]' if g.get('proposed') else ''}"
         )
@@ -933,6 +966,11 @@ def render(plan, since):
                 out.append(f"        now: {t['now']} ({ago(t['now_at'])})")
             elif t["status"] == "doing":
                 out.append(f"        no news since it started {ago(t.get('doing_since'))}")
+    if met:
+        out.append(
+            "MET (the owner closed these): "
+            + ", ".join(f"{label(g)} {g['met_at'][:10]}" for g in met)
+        )
     made = [d for d in plan["decisions"] if d["state"] in ("accepted", "to_review")]
     if made or overturned:
         out += ["", "DECISIONS (do not re-propose what was rejected):"]
@@ -954,11 +992,22 @@ def render(plan, since):
         if (t["status"] in ("todo", "doing") and owners_turn(t) and deps_done(plan, t))
         or t["status"] == "review"
     ]
-    if yours:
+    finished = [
+        g
+        for g in plan["goals"]
+        if not g.get("proposed")
+        and not g.get("met_at")
+        and any(t["goal"] == g["id"] and t["status"] == "done" for t in plan["tasks"])
+        and not any(t["goal"] == g["id"] and t["status"] in OPEN for t in plan["tasks"])
+    ]
+    if yours or finished:
         out += [
             "",
             "THE OWNER'S TURN (only they can do these; do not start them): "
-            + ", ".join(label(t) for t in yours),
+            + ", ".join(
+                [label(t) for t in yours]
+                + [f"say whether {g['id']} is met (all its tasks are done)" for g in finished]
+            ),
         ]
     nxt = ready(plan)
     running = sum(t["status"] == "doing" for t in plan["tasks"])
@@ -977,6 +1026,7 @@ def summary(plan):
         "title": plan["title"],
         "rev": plan["rev"],
         "goals": sum(not g.get("proposed") for g in plan["goals"]),
+        "met": sum(bool(g.get("met_at")) for g in plan["goals"]),
         "tasks": len(tasks),
         "done": sum(t["status"] == "done" for t in tasks),
         "running": sum(t["status"] == "doing" for t in tasks),
