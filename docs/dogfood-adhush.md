@@ -99,3 +99,7 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
   line. The "no news for a while" marker on the page is the only hint. atr cannot know a worker is gone;
   a lead starting a session should check its `doing` tasks against what is actually running. A SessionStart
   hook could prompt exactly that.
+- The lead recorded the second test set itself by driving adhush's menu with UI scripting, once the owner
+  had granted the terminal Accessibility permission. atr had no part in that. But T15 is an odd task: done by
+  the lead, and only valid once the owner checks the marks. That is a third kind of "owner's turn" (review)
+  that `owner=you` does not express.
