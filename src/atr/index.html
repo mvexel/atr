@@ -336,7 +336,7 @@ function taskNode(t, plan) {
     && !waitsFor(plan, o.id, t.id));
   node.append(h("div", { class: "body" },
     S.editing === "tt" + t.id ? form("tt" + t.id, [{ label: "Title", value: t.title }], title => act("task_set", { id: t.id, title })) : null,
-    t.note && h("div", { class: "note" }, h("span", { class: "muted" }, "Lead's note: "), t.note),
+    t.note && t.status !== "review" && h("div", { class: "note" }, h("span", { class: "muted" }, "Lead's note: "), t.note),
     (t.owner || t.thread) && h("div", { class: "muted small" }, t.owner && `Worker: ${t.owner} `, t.thread && threadLink(t.thread)),
     on.map(d => decision(d, plan)), docs(files),
     t.status === "review" && h("div", { class: "card" }, h("div", { class: "k" }, "The lead asks you to check this"), t.note && h("div", {}, t.note),
