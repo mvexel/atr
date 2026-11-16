@@ -881,8 +881,15 @@ def sig(plan):
 # ---- web -----------------------------------------------------------------------------------------
 
 
+def code_stamp():
+    """What the code on disk looks like now; the server compares it with the stamp it started with."""
+    st = Path(__file__).resolve().stat()
+    return (st.st_mtime_ns, st.st_size)
+
+
 class Handler(BaseHTTPRequestHandler):
     allowed_hosts: ClassVar[set[str]] = set()
+    started_with: ClassVar[tuple] = ()
     server_version = "atr"
 
     def log_message(self, format, *a):
@@ -920,7 +927,11 @@ class Handler(BaseHTTPRequestHandler):
             if parts == ["api", "projects"]:
                 return self.send_json([summary(load(n)) for n in projects()])
             if parts == ["api", "sig"]:
-                return self.send_json({n: sig(load(n)) for n in projects()})
+                # "" is not a project name, so it can carry the server's own state.
+                return self.send_json(
+                    {n: sig(load(n)) for n in projects()}
+                    | {"": {"outdated": code_stamp() != self.started_with}}
+                )
             if len(parts) == 3 and parts[:2] == ["api", "p"]:
                 plan = load(parts[2])
                 return self.send_json(
@@ -1147,6 +1158,7 @@ def main(argv=None):
                 a.host.lower(),
                 *(h.lower() for h in a.allow_host),
             }
+            Handler.started_with = code_stamp()
             print(f"atr: {data_dir()} at http://{a.host}:{a.port}/")
             return ThreadingHTTPServer((a.host, a.port), Handler).serve_forever()
         if a.cmd == "init":

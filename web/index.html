@@ -476,10 +476,17 @@ const typing = () => ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeEle
 // quietly out of date reads as the truth (T8 looked "in progress" after the lead had finished it).
 const stale = document.body.appendChild(h("div", { class: "stale", role: "status", hidden: true },
   "The plan has changed. It will refresh when you finish typing."));
+// The page is read from disk on every load, the server's code only when it starts: after an update the two
+// disagree, and a button that needs new server code fails for no visible reason.
+const outdated = document.body.appendChild(h("div", { class: "banner", role: "status", hidden: true,
+  style: "position:fixed;top:8px;left:50%;transform:translateX(-50%);border:1px solid var(--warn);background:var(--warn-soft);z-index:20" },
+  "atr was updated. Restart ", h("code", {}, "atr serve"), " to run the new version."));
 async function poll() {
   if (document.hidden) return;
   try {
     const sigs = await get("/api/sig");
+    outdated.hidden = !sigs[""]?.outdated;
+    delete sigs[""];
     if (!project()) { const all = JSON.stringify(sigs); if (all !== S.all) { S.all = all; drawProjects(); } }
     else if (sigs[project()] && sigs[project()] !== S.sig) { if (typing() || S.dragging) stale.hidden = false; else load(); }
   } catch (e) { /* server away; keep what is on screen */ }

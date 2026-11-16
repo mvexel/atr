@@ -451,6 +451,12 @@ class Web(Base):
             400,
         )
 
+    def test_the_page_hears_when_the_server_runs_older_code(self):
+        atr.Handler.started_with = atr.code_stamp()
+        self.assertFalse(self.call("/api/sig")[1][""]["outdated"])
+        atr.Handler.started_with = (0, 0)  # as if bin/atr changed after the server started
+        self.assertTrue(self.call("/api/sig")[1][""]["outdated"])
+
     def test_signature_changes_when_the_lead_reads(self):
         before = self.call("/api/sig")[1]["demo"]
         self.cli("read")
