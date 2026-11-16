@@ -1151,16 +1151,37 @@ def latest_release():
         return None
 
 
+def check_release(now=None):
+    """One round of the release check: ask GitHub unless it was asked less than 6 h ago (by this server or the
+    one before a restart), and keep what it said in Handler.latest. Returns the seconds until the next round.
+    When GitHub does not answer, the page hears nothing and atr asks again in 6 h."""
+    now = time.time() if now is None else now
+    cache = data_dir() / ".release.json"
+    try:
+        seen = json.loads(cache.read_text())
+    except (OSError, ValueError):
+        seen = {}
+    if seen.get("latest"):
+        Handler.latest = seen["latest"]
+    wait = seen.get("checked", -CHECK_EVERY) + CHECK_EVERY - now
+    if 0 < wait <= CHECK_EVERY:  # more than 6 h ahead: the clock went back, so ask
+        return wait
+    found = latest_release()
+    if found:
+        Handler.latest = found
+    with contextlib.suppress(OSError):
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"checked": now, "latest": found or seen.get("latest")}))
+    return CHECK_EVERY
+
+
 def watch_releases():
-    """For atr serve: ask GitHub for the latest release now and every 6 h, in the background."""
+    """For atr serve: check for a newer release now and every 6 h, in the background, so the page never waits."""
     import threading
 
     def loop():
         while True:
-            found = latest_release()
-            if found:
-                Handler.latest = found
-            time.sleep(CHECK_EVERY)
+            time.sleep(check_release())
 
     threading.Thread(target=loop, daemon=True).start()
 

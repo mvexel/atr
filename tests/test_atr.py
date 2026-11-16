@@ -10,7 +10,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-from unittest import mock
 import time
 import unittest
 import urllib.error
@@ -622,20 +621,23 @@ class Web(Base):
         self.assertEqual(code, 400)
         self.assertIn("no newer atr", body["error"])
 
-    def test_upgrade_runs_then_restarts(self):
+    def test_upgrade_runs_the_servers_command_then_restarts(self):
+        from unittest import mock
+
         self.addCleanup(setattr, atr.Handler, "latest", {})
         self.addCleanup(setattr, atr.Handler, "restart", atr.Handler.restart)
+        atr.Handler.latest = {"version": "99.0.0", "url": "u"}
         restarted = threading.Event()
         atr.Handler.restart = restarted.set
-        atr.Handler.latest = {"version": "99.0.0", "url": "u"}
         with mock.patch.object(atr, "upgrade", return_value=(False, ["atr: failed (no network)"])):
-            code, body = self.call("/api/upgrade", {})
+            code, body = self.call("/api/upgrade", {"command": "rm -rf /"})
         self.assertEqual(code, 500)
         self.assertIn("no network", body["error"])
         self.assertFalse(restarted.is_set())
-        with mock.patch.object(atr, "upgrade", return_value=(True, ["atr: upgraded"])):
-            code, body = self.call("/api/upgrade", {})
-        self.assertEqual((code, body["log"]), (200, ["atr: upgraded"]))
+        with mock.patch.object(atr, "upgrade", return_value=(True, ["atr: upgraded"])) as up:
+            code, body = self.call("/api/upgrade", {"command": "rm -rf /"})
+        up.assert_called_once_with()  # the page's body names no command
+        self.assertEqual((code, body["restarting"], body["log"]), (200, True, ["atr: upgraded"]))
         self.assertTrue(restarted.wait(5))
 
     def test_restart_answers_then_restarts(self):
@@ -785,40 +787,108 @@ class Versions(unittest.TestCase):
         self.assertEqual({atr.version(), plugin, market}, {atr.version()})
         self.assertGreater(atr.vtuple(atr.version()), (0, 3, 0))  # past the last release before versions were kept
 
-    def test_a_checkout_upgrades_with_a_fast_forward_pull(self):
-        self.assertEqual(atr.install_kind(), "checkout")
-        try:
-            with mock.patch.object(atr.shutil, "which", return_value=None):
-                steps = atr.upgrade_steps()
-        except atr.Refused as e:  # a branch or local changes: the owner upgrades by hand
-            self.assertIn("by hand", str(e))
-            return
-        self.assertEqual(steps[0][1][-2:], ["pull", "--ff-only"])
-
-
-    def test_a_uv_install_upgrades_with_uv_and_updates_the_plugin(self):
-        def which(name):
-            return {"uv": "/bin/uv", "claude": "/bin/claude"}.get(name)
-
-        listed = subprocess.CompletedProcess([], 0, "atr@atr  0.3.0\n", "")
-        with (
-            mock.patch.object(atr, "install_kind", return_value="uv"),
-            mock.patch.object(atr.shutil, "which", side_effect=which),
-            mock.patch.object(atr.subprocess, "run", return_value=listed),
-        ):
-            steps = atr.upgrade_steps()
-        self.assertEqual([s[1] for s in steps], [["/bin/uv", "tool", "upgrade", "atr"], ["/bin/claude", "plugin", "update", "atr@atr"]])
-        self.assertEqual([s[2] for s in steps], [True, False])  # a failed plugin update does not fail the upgrade
-
-    def test_an_unknown_install_is_refused(self):
-        with mock.patch.object(atr, "install_kind", return_value=""), self.assertRaises(atr.Refused):
-            atr.upgrade_steps()
-
     def test_the_command_line_reports_the_version(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
             atr.main(["--version"])
         self.assertEqual(out.getvalue().strip(), f"atr {atr.version()}")
+
+    def test_a_checkout_upgrades_with_a_fast_forward_pull(self):
+        self.assertEqual(atr.install_kind(), "checkout")
+        try:
+            steps = atr.upgrade_steps()
+        except atr.Refused as e:  # a branch or local changes: the owner upgrades by hand
+            self.assertIn("by hand", str(e))
+            return
+        self.assertEqual(steps[0][1][-2:], ["pull", "--ff-only"])
+
+    def git(self, branch, status):
+        """subprocess.run for upgrade_steps, as if the checkout is on `branch` with `git status` saying `status`."""
+
+        def run(argv, **kw):
+            out = branch if "branch" in argv else status if "status" in argv else "atr@atr  ✔ enabled"
+            return subprocess.CompletedProcess(argv, 0, out + "\n", "")
+
+        return run
+
+    def steps(self, kind, branch="main", status="", claude=None):
+        from unittest import mock
+
+        with (
+            mock.patch.object(atr, "install_kind", return_value=kind),
+            mock.patch.object(atr.subprocess, "run", side_effect=self.git(branch, status)),
+            mock.patch.object(atr.shutil, "which", side_effect=lambda c: {"claude": claude, "uv": "/bin/uv"}.get(c)),
+        ):
+            return atr.upgrade_steps()
+
+    def test_each_install_upgrades_its_own_way(self):
+        pull = self.steps("checkout")
+        self.assertEqual([(w, a[-2:], n) for w, a, n in pull], [("atr", ["pull", "--ff-only"], True)])
+        self.assertEqual(self.steps("uv")[0][1], ["/bin/uv", "tool", "upgrade", "atr"])
+        with_plugin = self.steps("uv", claude="/bin/claude")
+        self.assertEqual(with_plugin[1], ("the Claude Code plugin", ["/bin/claude", "plugin", "update", "atr@atr"], False))
+
+    def test_a_checkout_off_main_or_with_changes_is_left_alone(self):
+        for branch, status, why in (("g5", "", "not on main"), ("main", " M src/atr/cli.py", "local changes")):
+            with self.assertRaises(atr.Refused) as e:
+                self.steps("checkout", branch, status)
+            self.assertIn(why, str(e.exception))
+        with self.assertRaises(atr.Refused):
+            self.steps("")  # uvx or something atr does not know
+
+    def test_a_failed_plugin_update_does_not_fail_the_upgrade(self):
+        from unittest import mock
+
+        steps = [("atr", ["true"], True), ("the Claude Code plugin", ["false"], False)]
+        with mock.patch.object(atr, "upgrade_steps", return_value=steps):
+            ok, lines = atr.upgrade()
+        self.assertTrue(ok)
+        self.assertEqual(lines, ["atr: upgraded", "the Claude Code plugin: failed"])
+        with mock.patch.object(atr, "upgrade_steps", return_value=[("atr", ["false"], True)]):
+            self.assertFalse(atr.upgrade()[0])
+
+
+class ReleaseCheck(Base):
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(setattr, atr.Handler, "latest", {})
+
+    def github(self, answer):
+        """Stand in for GitHub: urlopen answers with `answer` (a dict) or raises it (an exception)."""
+        from unittest import mock
+
+        self.asked = 0
+
+        def urlopen(req, timeout):
+            self.asked += 1
+            self.assertEqual(req.full_url, atr.RELEASES)
+            if isinstance(answer, Exception):
+                raise answer
+            return io.BytesIO(json.dumps(answer).encode())
+
+        return mock.patch.object(urllib.request, "urlopen", urlopen)
+
+    def test_reads_the_latest_release(self):
+        with self.github({"tag_name": "v9.1.0", "html_url": "https://x/v9.1.0"}):
+            self.assertEqual(atr.latest_release(), {"version": "9.1.0", "url": "https://x/v9.1.0"})
+
+    def test_silent_when_github_does_not_answer(self):
+        for answer in (urllib.error.URLError("offline"), TimeoutError(), {"message": "rate limited"}):
+            with self.github(answer):
+                self.assertIsNone(atr.latest_release())
+                self.assertEqual(atr.check_release(now=1000), atr.CHECK_EVERY)
+            (Path(self.tmp.name) / ".release.json").unlink()
+            self.assertEqual(atr.Handler.latest, {})
+
+    def test_asks_at_most_every_six_hours_even_across_restarts(self):
+        with self.github({"tag_name": "v9.1.0", "html_url": "u"}):
+            self.assertEqual(atr.check_release(now=1000), atr.CHECK_EVERY)
+            atr.Handler.latest = {}  # a restarted server
+            self.assertEqual(atr.check_release(now=1000 + 3600), atr.CHECK_EVERY - 3600)
+            self.assertEqual(self.asked, 1)
+            self.assertEqual(atr.Handler.latest["version"], "9.1.0")  # remembered, not asked again
+            atr.check_release(now=1000 + atr.CHECK_EVERY)
+            self.assertEqual(self.asked, 2)
 
 
 class ClaudeCodeExtension(Base):
