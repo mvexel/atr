@@ -118,7 +118,7 @@
 <script>
 "use strict";
 const LABEL = { todo: "To do", doing: "In progress", blocked: "Blocked", review: "Your check", done: "Done", parked: "Parked", dropped: "Dropped" };
-const S = { data: null, sig: "", filter: "all", open: new Set(), editing: null, dragging: null };
+const S = { data: null, sig: "", filter: "all", open: new Set(), editing: null, dragging: null, drafts: new Map() };
 const app = document.getElementById("app");
 
 function h(tag, props, ...kids) {
@@ -149,14 +149,17 @@ async function get(path) {
   return body;
 }
 async function act(op, args) {
+  let ok = false;
   try {
     const r = await fetch("/api/p/" + encodeURIComponent(project()), { method: "POST", headers: { "Content-Type": "application/json", "X-Atr": "1" },
       body: JSON.stringify({ op, args, rev: S.data.plan.rev }) });
     const body = await r.json();
     if (!r.ok) toast(body.error || "That did not save.");
+    ok = r.ok;
   } catch (e) { toast("Not saved: the atr server did not answer."); }
   S.editing = null;
   await load();
+  return ok;
 }
 
 // ---- small pieces ----
@@ -176,15 +179,35 @@ function nowLine(t) {
 }
 const isNew = t => !t.agreed && ["todo", "doing", "blocked", "review"].includes(t.status);  // finished work is not news
 const status = s => h("span", { class: "st " + s }, h("i"), LABEL[s]);
-function form(key, fields, save, saveLabel) {
-  // An inline form; `key` keeps it open across redraws.
-  const inputs = fields.map(f => f.options
-    ? h("select", { "aria-label": f.label }, f.options.map(o => h("option", { value: o[0] }, o[1])))
-    : h("input", { placeholder: f.label, "aria-label": f.label, value: f.value || "" }));
-  const submit = () => save(...inputs.map(i => i.value.trim()));
-  inputs.forEach(i => i.addEventListener("keydown", e => { if (e.key === "Enter") submit(); if (e.key === "Escape") { S.editing = null; draw(); } }));
+function form(key, fields, save, saveLabel, id) {
+  // An inline form; `key` keeps it open across redraws. What the owner typed is kept in S.drafts under
+  // `id` (default: key), so a redraw (the plan changed, another box was saved) puts it back, not the old value.
+  const base = id || key;
+  const inputs = fields.map((f, n) => {
+    const i = f.options
+      ? h("select", { "aria-label": f.label }, f.options.map(o => h("option", { value: o[0] }, o[1])))
+      : h("input", { placeholder: f.label, "aria-label": f.label, value: f.value || "" });
+    if (base) {
+      i.dataset.draft = base + ":" + n;
+      if (S.drafts.has(i.dataset.draft)) i.value = S.drafts.get(i.dataset.draft);
+      i.addEventListener("input", () => S.drafts.set(i.dataset.draft, i.value));
+    }
+    return i;
+  });
+  const drop = () => inputs.forEach(i => i.dataset.draft && S.drafts.delete(i.dataset.draft));
+  const submit = async () => {
+    const values = inputs.map(i => i.value), kept = inputs.map(i => [i.dataset.draft, S.drafts.get(i.dataset.draft)]);
+    drop();
+    if (await save(...values.map(v => v.trim())) === false) {  // not saved: give the owner their text back
+      kept.forEach(([k, v]) => k && v != null && S.drafts.set(k, v));
+      if (key) S.editing = key;
+      draw();
+    }
+  };
+  const cancel = () => { drop(); S.editing = null; draw(); };
+  inputs.forEach(i => i.addEventListener("keydown", e => { if (e.key === "Enter") submit(); if (e.key === "Escape") cancel(); }));
   return h("div", { class: "form", onclick: e => e.stopPropagation() }, inputs, btn(saveLabel || "Save", submit, "p"),
-    key && btn("Cancel", () => { S.editing = null; draw(); }));
+    key && btn("Cancel", cancel));
 }
 const edit = key => () => { S.editing = key; draw(); };
 
@@ -219,7 +242,7 @@ function card(d) {
     d.why && h("div", {}, d.why),
     // A plain question (atr ask) has no suggestion: its options are equal, and the answer may be yours alone.
     h("div", { class: "btns" }, d.options.map((o, i) => btn(o + (i === 0 && !d.ask ? " (suggested)" : ""), () => answer(o), i === 0 && !d.ask ? "p" : ""))),
-    form(null, [{ label: d.ask && !d.options.length ? "Your answer" : "Or write your own answer" }], text => text && answer(text), "Answer"));
+    form(null, [{ label: d.ask && !d.options.length ? "Your answer" : "Or write your own answer" }], text => text && answer(text), "Answer", "an" + d.id));
 }
 
 // ---- project view ----
@@ -339,7 +362,7 @@ function goalNode(g, plan, tasks) {
     g.met_at && h("div", { class: "small" }, h("span", { class: "pill ready" }, "✓ met " + ago(g.met_at)), " ", h("button", { class: "link", onclick: () => act("goal_reopen", { id: g.id }) }, "Reopen")),
     on.map(d => decision(d, plan)), docs(files),
     shown.map(t => taskNode(t, plan)),
-    !g.proposed && !g.met_at && S.filter === "all" ? form(null, [{ label: "Add a task to " + g.id }], title => title && act("task_add", { goal: g.id, title }), "Add") : null));
+    !g.proposed && !g.met_at && S.filter === "all" ? form(null, [{ label: "Add a task to " + g.id }], title => title && act("task_add", { goal: g.id, title }), "Add", "ta" + g.id) : null));
   return node;
 }
 
@@ -400,7 +423,7 @@ function drawProject() {
       h("div", { class: "gbody" }, met.map(g => goalNode(g, plan, plan.tasks.filter(t => t.goal === g.id && !gone.includes(t)))))) : null,
     plan.goals.length ? null : h("p", { class: "muted" }, "No goals yet. Goals are yours: add the first one below, then the lead can add tasks under it."),
     h("h2", {}, "Add a goal"),
-    form(null, [{ label: "Goal, in one line" }, { label: "Done when…" }], (title, done_when) => title && act("goal_add", { title, done_when }), "Add goal"),
+    form(null, [{ label: "Goal, in one line" }, { label: "Done when…" }], (title, done_when) => title && act("goal_add", { title, done_when }), "Add goal", "ga"),
     gone.length ? h("details", { class: "goal" }, h("summary", {}, h("span", { class: "gt" }, "Parked and dropped"), h("span", { class: "count" }, String(gone.length))),
       h("div", { class: "gbody" }, gone.map(t => taskNode(t, plan)))) : null);
 }
@@ -486,10 +509,14 @@ async function drawProjects() {
     : h("p", { class: "muted" }, "No projects yet. In a repo, run: atr init my-project \"My project\""));
 }
 function draw() {
-  const y = scrollY;
+  const y = scrollY, was = document.activeElement;
+  const at = was?.dataset?.draft && [was.dataset.draft, was.selectionStart, was.selectionEnd];
   drawProject();
   scrollTo(0, y);
-  app.querySelector(".form input[value]:not([value=''])")?.focus();
+  // Put the cursor back where the owner was typing; otherwise focus a form that just opened with a value.
+  const back = at && app.querySelector(`[data-draft="${CSS.escape(at[0])}"]`);
+  if (back) { back.focus(); if (at[1] != null) back.setSelectionRange(at[1], at[2]); }
+  else app.querySelector(".form input[value]:not([value=''])")?.focus();
 }
 async function load() {
   try {

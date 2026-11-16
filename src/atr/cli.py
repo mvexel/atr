@@ -1175,7 +1175,7 @@ class Handler(BaseHTTPRequestHandler):
         except Stale:
             self.send_json(
                 {
-                    "error": "The plan changed while you were looking at it. It has been reloaded; please redo that edit.",
+                    "error": "The plan changed while you were looking at it. It has been reloaded: check it, then do that again (what you typed is kept).",
                     "stale": True,
                 },
                 409,
