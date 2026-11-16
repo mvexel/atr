@@ -26,6 +26,12 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
 - **"Can start now" on work only the owner could do.** The owner asked whether it meant "waiting for me".
   Tasks with `owner=you` now show "your turn", are not offered to the lead, and are listed separately in
   `atr read`. (This settles the owner-hands pattern noted under T5 and T6.)
+- **The dependency dropdown offered finished tasks and overflowed its card.** Now it offers only open tasks
+  that would not make a loop, with titles shortened.
+- **The page's server runs the code it started with.** After a fix to `ready()`, the owner's page still
+  showed old behaviour until `atr serve` was restarted. Page fixes apply on reload, server fixes need a
+  restart, and nothing tells the owner which is which. A version check (the page notices the server is
+  older than `bin/atr` on disk) would help.
 
 ## Observed, not acted on yet
 
