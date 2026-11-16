@@ -70,5 +70,5 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
 - **Answered cards were labelled "decided by the lead, without asking".** Fixed.
 - **Agreeing the plan counted finished tasks as new** ("9 new tasks", 7 of them done or parked). Only open
   tasks count now. The open question behind it: the lead started and finished tasks the owner had not agreed
-  yet. atr allows that by design ("new" marks a task, it does not hold it back). The owner may want a stricter
-  mode.
+  yet. atr allows that by design ("new" marks a task, it does not hold it back). The owner decided (2026-11-15):
+  no stricter mode. Agent-added tasks stay startable; "new" only marks them.
