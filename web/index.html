@@ -71,6 +71,7 @@
   .task.s-done .tt, .task.s-dropped .tt, .task.s-parked .tt { color: var(--muted); }
   .task.s-dropped .tt { text-decoration: line-through; }
   .after { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+  .pill.ready { background: var(--card); border: 1px solid var(--line); color: var(--text); }
   .st { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; white-space: nowrap; }
   .st i { width: 9px; height: 9px; border-radius: 50%; }
   .st.done i { background: var(--good); } .st.doing i { background: var(--info); } .st.blocked i { background: var(--warn); }
@@ -195,6 +196,19 @@ function card(d) {
 }
 
 // ---- project view ----
+// When will this task start? A to-do starts once its goal is accepted, everything it comes after is done and
+// no card holds it; the lead then picks it, at most 3 running at once.
+function startLine(t, plan) {
+  if (t.status === "parked") return h("span", { class: "after" }, "won't start until you restore it");
+  if (t.status !== "todo") return null;
+  const waits = t.after.filter(a => plan.tasks.find(o => o.id === a)?.status !== "done");
+  if (waits.length) return h("span", { class: "after" }, "starts after " + waits.join(", "));
+  const goal = plan.goals.find(g => g.id === t.goal);
+  if (goal?.proposed) return h("span", { class: "after" }, `starts once you accept ${goal.id}`);
+  if (plan.decisions.some(d => d.on === t.id && d.state === "needs_you")) return null;  // the card's pill says why
+  if (S.data.ready.includes(t.id)) return h("span", { class: "pill ready" }, "can start now");
+  return h("span", { class: "after" }, "can start when one of the 3 running tasks finishes");
+}
 function taskNode(t, plan) {
   const on = plan.decisions.filter(d => d.on === t.id), files = plan.docs.filter(d => d.on === t.id);
   const pruned = t.status === "parked" || t.status === "dropped";
@@ -204,7 +218,7 @@ function taskNode(t, plan) {
   node.append(h("div", { class: "row", onclick: () => { if (String(getSelection())) return; S.open.has(t.id) ? S.open.delete(t.id) : S.open.add(t.id); draw(); } },
     h("span", { class: "grip", title: "Drag to reorder or move to another goal", draggable: !pruned && matchMedia("(pointer: fine)").matches }, "⋮⋮"), h("span", { class: "id" }, t.id), h("span", { class: "tt" }, t.title),
     isNew(t) && h("span", { class: "pill added" }, "+ new from agent"),
-    t.after.length ? h("span", { class: "after" }, "after " + t.after.join(", ")) : null, marks,
+    startLine(t, plan), marks,
     files.length ? h("span", { class: "after" }, `📄 ${files.length}`) : null,
     pruned && t.stopped === false ? h("span", { class: "pill you" }, "lead has not stopped it yet") : null,
     status(t.status)));
