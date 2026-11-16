@@ -21,8 +21,11 @@ An extension can do any of these four jobs. Each one is useful on its own.
    `args`) so it can act without asking. Then run `atr wait` again. The Claude Code extension does this
    with an `asyncRewake` hook, so the lead never has to arm it.
 
-4. **Lead provider.** Start the lead thread when the owner creates a project. Ship an executable named
-   `atr-lead-<tool>` (see below); `atr init` and `atr lead --start` run it.
+4. **Lead provider.** Start the lead thread when the owner creates a project, and say whether a thread is
+   still running and bring it back. Ship an executable named `atr-lead-<tool>` (see below); `atr init`,
+   `atr lead --start`, `atr alive`, `atr resume` and `atr serve` run it.
+5. **Session end.** When a session ends, run `atr ended ID` with its thread id: it lets go of the lead (if
+   that thread led) and tells the lead at once about any running task whose worker it was.
 
 ## Lead providers
 
@@ -37,6 +40,19 @@ A lead provider is any executable on `PATH` named `atr-lead-<tool>`. atr runs it
   nothing. `atr init` still succeeds.
 - Start the lead so it reads its rules (`atr rules`) and the plan (`atr read`). The new project has no
   goals yet, so the lead should say so and wait for the owner.
+
+A provider also answers two verbs (atr passes them as the first argument, so a provider must check for them
+before it reads a project name):
+
+| Call | Answer |
+| --- | --- |
+| `atr-lead-<tool> resume ID [MESSAGE]` | bring thread `ID` back with its context and give it `MESSAGE`; exit 0 and print `thread-id: ID` and its link as for a start, or exit non-zero and say why on stderr |
+| `atr-lead-<tool> alive ID` | exit 0 when thread `ID` is running, 1 when it is not, anything else when it cannot tell |
+
+The Claude Code provider runs `claude --bg --resume ID MESSAGE` and `claude agents --json`. atr uses them
+to bring back a lead that is gone (it starts a fresh lead with the start call when the resume fails) and a
+worker the lead asks for (`atr resume T3`), and to check, before calling a lead gone, that its tool does not
+still run it. atr picks the provider that started the lead, or the one on `PATH`.
 
 `atr init` uses the provider when exactly one is on `PATH` (`--lead TOOL` picks one, `--lead none` skips).
 `atr install` (from a checkout) links every `extensions/*/bin/atr-lead-*` next to `atr`.
@@ -70,18 +86,20 @@ installed globally and only act where a `.atr` file exists.
 }
 ```
 
-- `unread` lists the owner's changes (`by: "you"`) and news from GitHub about the project's pull requests
-  (`by: "github"`: one merged, its CI turned failing, or it conflicts). The lead's own changes never wake it.
+- `unread` lists the owner's changes (`by: "you"`), news from GitHub about the project's pull requests
+  (`by: "github"`: one merged, its CI turned failing, or it conflicts) and news from atr about the project's
+  threads (`by: "atr"`: a worker went silent or ended, the lead was brought back). The lead's own changes never wake it.
   Each one has `what`, a sentence for the lead. The owner's also have `op` and `args`: the page action and
   what the owner sent with it (the card's answer, the decision's verdict, a task's new goal). Pass them on as
   they are. GitHub's news, and changes recorded before atr kept `op`, have only `what`.
 - `lead_waiting` is true while an `atr wait` for this project is running. The page shows "Lead listening"
   and tells the owner the lead is being woken. Turn-end checks can use it: if it is false, the doorbell is
   not armed.
-- `lead_id` is the thread that leads the project now, or `""` when none does.
-- `running` lists the tasks in progress and when there was last news of each. A session start should
-  show them to the lead and ask it to confirm each still has a worker: workers often die with the
-  session that started them, and atr cannot tell.
+- `lead_id` is the thread that leads the project now, or `""` when none does (or it is gone).
+- `lead_state` is `listening`, `working`, `running`, `gone`, or `""` when no thread has claimed the lead.
+- `running` lists the tasks in progress, when there was last news of each, its `thread`, and whether atr
+  has marked it `silent` or `ended`. A session start should show them to the lead and ask it to confirm each
+  still has a worker: workers often die with the session that started them.
 
 ## One lead per project
 
@@ -91,7 +109,8 @@ sessions enforces this with two commands:
 | Command | Exit codes | Use |
 | --- | --- | --- |
 | `atr lead --claim ID [--json]` | 0 thread `ID` leads the project (it took the lead, or already had it) · 1 another thread leads it, or `ID` leads another project · 2 error | run at every turn start and end, and before arming the doorbell; it also refreshes the claim |
-| `atr lead --release ID` | 0 | run when the session ends |
+| `atr lead --release ID` | 0 | the session ended (older atr; `atr ended ID` does this and more) |
+| `atr ended ID` | 0 | run when the session ends: the lead lets go, and a running task with `thread=ID` is news for the lead |
 
 `--json` prints `{"lead": true|false, "id": "…", "seen": 1763318400.0, "project": "…"}`: who leads, when it
 was last seen (Unix time), and which project (when `ID` already leads another one, that one).
@@ -99,8 +118,21 @@ was last seen (Unix time), and which project (when `ID` already leads another on
 - Give the lead's jobs (turn start, turn end, doorbell) to the lead only. Tell any other session who leads,
   that it is not the lead, and that it may work as a worker.
 - A short id that starts the full one names the same thread (a provider may print the short one).
-- A claim not refreshed for 24 hours runs out, so a lead whose session died does not hold the project.
-  The owner can also let go of the lead on the page; the next session to claim becomes the lead.
+- **A gone lead holds nothing.** A lead is gone when its session ended (`atr ended`), or when for 10 minutes
+  it has neither listened (`atr wait`) nor taken a turn (`--claim`), and its provider does not say it is
+  still running. Its claim then blocks no one: the next session to claim becomes the lead. The page says the
+  lead is gone and offers to bring it back; when the owner acts on the page and the lead has been gone 10
+  minutes, `atr serve` brings it back on its own (at most once an hour). The owner can also let go of the
+  lead on the page.
+
+## Workers
+
+Whoever starts a worker puts its thread on the task: the lead with `atr task set T3 thread=ID`, or the
+worker with its first report, `atr now T3 "..." --thread ID`. A running task with no news for 30 minutes is
+marked silent and written to the plan as news from atr (`by: "atr"`), so the doorbell wakes the lead; so is a
+worker's session ending (`atr ended`). The lead then checks it (`atr alive T3`), brings it back
+(`atr resume T3`), or sets the task back to todo. `atr serve` and a running `atr wait` look for silent tasks
+every minute.
 
 ## Rules for extensions
 

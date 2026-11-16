@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import zlib
 from datetime import UTC, datetime
@@ -32,7 +33,8 @@ RULES = """\
 ## Plan (atr)
 
 This project's plan lives in atr. You are the lead; workers report to you, and only you run atr,
-except that a worker may report progress on its own task, `atr now T3 "what is happening"`,
+except that a worker may report progress on its own task, `atr now T3 "what is happening"` (its first
+report adds `--thread ID`, the session it runs in, unless the task already has one),
 record its own judgment calls with its name: `atr decide T3 "..." --why "..." --by worker-name`,
 and put a pull request it opened on its goal (rule 7).
 
@@ -41,8 +43,9 @@ and put a pull request it opened on its goal (rule 7).
    proposed with `atr goal propose "title" --done "what makes it done"`, not started.
    When you pick up a goal that has no tasks yet, first add a task for planning it and set it to
    doing, before you research anything, so the page shows the goal was picked up.
-3. Never change goals. Keep status current: `atr task set T3 status=doing thread=URL`. While a task
-   runs, say what is happening every few steps, in a few words: `atr now T3 "scoring run 2 of 3"`.
+3. Never change goals. Keep status current: `atr task set T3 status=doing thread=ID`, where ID is the
+   thread (session id, or link) of the worker you started for it, so atr can check on it and bring it back.
+   While a task runs, say what is happening every few steps, in a few words: `atr now T3 "scoring run 2 of 3"`.
 4. Record every judgment call: `atr decide T3 "what you chose" --why "..." --rejected "..."`.
    If it is hard to undo, add `--hard` and do not act: the task blocks until the owner answers.
    A question only the owner can answer, with no answer to recommend: `atr ask T3 "..." --option ..`.
@@ -61,6 +64,8 @@ and put a pull request it opened on its goal (rule 7).
    `atr pr G1 https://github.com/o/r/pull/12 --for T3`, and set those tasks to review. The owner merges
    it on GitHub; then atr moves them to done (never the goal: that stays the owner's call). `atr read`
    tells you when it merges, its CI fails or it conflicts: fix those on the same branch.
+8. When `atr read` says a worker went silent (no news for 30 min) or ended, check it: `atr alive T3`.
+   If it is not running, bring it back with `atr resume T3`, or set the task back to todo and say why.
 """
 
 
@@ -102,6 +107,9 @@ def running(plan):
             "id": t["id"],
             "title": t["title"],
             "last_news_at": t.get("now_at") or t.get("doing_since") or "",
+            "thread": t["thread"],
+            "silent": bool(t.get("silent_at")),
+            "ended": bool(t.get("ended_at")),
         }
         for t in plan["tasks"]
         if t["status"] == "doing"
@@ -294,11 +302,12 @@ def ready(plan):
 
 
 def unread(plan):
-    """What the lead has not read: the owner's changes, and news from GitHub about the project's PRs."""
+    """What the lead has not read: the owner's changes, news from GitHub about the project's PRs, and atr's own
+    news about threads (a worker gone silent or ended, the lead brought back)."""
     return [
         c
         for c in plan["changes"]
-        if c["by"] in ("you", "github") and c["rev"] > plan["lead"]["read_rev"]
+        if c["by"] in ("you", "github", "atr") and c["rev"] > plan["lead"]["read_rev"]
     ]
 
 
@@ -333,9 +342,14 @@ def wait_all(names, timeout):
     marks = [project_dir(n) / ".waiting" for n in names]
     for m in marks:
         m.write_text(str(os.getpid()))
-    deadline, seen = time.monotonic() + timeout, {}
+    deadline, seen, check = time.monotonic() + timeout, {}, 0.0
     try:
         while True:
+            if time.monotonic() >= check:  # a worker gone silent is news too: it wakes the lead
+                check = time.monotonic() + 60
+                for n in names:
+                    with contextlib.suppress(OSError, ValueError, Refused):
+                        check_silence(n)
             changed = False
             for n in names:
                 mtime = (project_dir(n) / "plan.json").stat().st_mtime_ns
@@ -353,26 +367,66 @@ def wait_all(names, timeout):
             with contextlib.suppress(OSError, ValueError):
                 if int(m.read_text()) == os.getpid():
                     m.unlink()
+                    (m.parent / ".listened").write_text(str(time.time()))  # the lead was there until now
 
 
 # ---- the lead's claim: which thread leads a project (one lead per project, one project per lead) ----------
 # Kept beside plan.json, not in it: the hooks refresh it every turn, and a plan revision per turn would
 # make the owner's page edits stale while they type.
 
-CLAIM_LIFE = 24 * 3600  # a lead silent this long has let go: another thread may lead
+GONE_AFTER = 10 * 60  # a lead whose listener has been absent this long, with no turn either, is gone
+SILENT_AFTER = 30 * 60  # a running task with no news this long is silent: the lead is told
+RESUME_EVERY = 3600  # atr brings a gone lead back on its own at most this often
 
 
 def claim_file(name):
     return project_dir(name) / "lead.json"
 
 
-def read_claim(name):
-    """{"id", "seen"} for the thread that leads `name`, or {} when none does (or its claim has run out)."""
+def raw_claim(name):
+    """What lead.json holds: {"id", "seen", "tool"?, "ended"?}, or {}."""
     try:
         c = json.loads(claim_file(name).read_text())
-        return c if c.get("id") and time.time() - float(c["seen"]) < CLAIM_LIFE else {}
+        float(c["seen"])
+        return c if c.get("id") else {}
     except (OSError, ValueError, KeyError, TypeError):
         return {}
+
+
+def listened_at(name):
+    """When the project's last `atr wait` ended (Unix time), or 0."""
+    try:
+        return float((project_dir(name) / ".listened").read_text())
+    except (OSError, ValueError):
+        return 0.0
+
+
+def lead_status(name, ask=False):
+    """How the lead thread is doing: {} when no thread has claimed the project, else the claim plus `state`:
+    listening (its `atr wait` runs), working (it took a turn or listened under 10 min ago), running (its tool
+    says the thread is alive, though it has not listened for 10 min) or gone (its session ended, or none of
+    these for 10 min). `since` is when it was last seen, or when its session ended. With ask, the provider is
+    asked whether a lead that looks gone is still running; without, only a recent answer is used."""
+    c = raw_claim(name)
+    if not c:
+        return {}
+    last = max(float(c["seen"]), listened_at(name))
+    s = {**c, "since": float(c.get("ended") or last), "listening": waiting(name)}
+    if s["listening"]:
+        return {**s, "state": "listening"}
+    if c.get("ended"):
+        return {**s, "state": "gone", "why": "ended"}
+    if time.time() - last < GONE_AFTER:
+        return {**s, "state": "working"}
+    if thread_alive(name, c["id"], ask) is True:
+        return {**s, "state": "running"}
+    return {**s, "state": "gone", "why": "silent"}
+
+
+def read_claim(name, ask=False):
+    """{"id", "seen", ...} for the thread that leads `name`, or {} when none does: a gone lead leads nothing."""
+    s = lead_status(name, ask)
+    return s if s and s["state"] != "gone" else {}
 
 
 def same_thread(a, b):
@@ -381,34 +435,42 @@ def same_thread(a, b):
     return bool(a and b) and (a.startswith(b) or b.startswith(a))
 
 
-def write_claim(name, thread):
+def write_claim(name, thread, tool="", c=None):
+    c = c or {"id": thread, "seen": time.time(), **({"tool": tool} if tool else {})}
     tmp = claim_file(name).with_suffix(".tmp")
-    tmp.write_text(json.dumps({"id": thread, "seen": time.time()}))
+    tmp.write_text(json.dumps(c))
     os.replace(tmp, claim_file(name))
 
 
-def claim(name, thread):
+def claim(name, thread, tool=""):
     """Make `thread` the lead of `name` if it may be. Returns (is_lead, who leads): the thread may lead when
-    the project has no live lead or it already is the lead, and it leads no other project."""
+    the project has no live lead (none, or a gone one) or it already is the lead, and it leads no other project."""
     data_dir().mkdir(parents=True, exist_ok=True)
     with open(data_dir() / ".claim.lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        cur = read_claim(name)
+        cur = read_claim(name, ask=True)
         if cur and not same_thread(cur["id"], thread):
-            return False, {**cur, "project": name}
+            return False, {"id": cur["id"], "seen": cur["seen"], "project": name}
         for other in projects():
             c = read_claim(other) if other != name else {}
             if c and same_thread(c["id"], thread):
-                return False, {**c, "project": other}
-        write_claim(name, max(thread, cur.get("id", ""), key=len))  # keep the full id once a hook has sent it
-        return True, {**read_claim(name), "project": name}
+                return False, {"id": c["id"], "seen": c["seen"], "project": other}
+        was = raw_claim(name)
+        mine = was if same_thread(was.get("id"), thread) else {}
+        # keep the full id once a hook has sent it, and the tool a provider started it in
+        write_claim(name, max(thread, mine.get("id", ""), key=len), tool or mine.get("tool", ""))
+        return True, {"id": raw_claim(name)["id"], "seen": raw_claim(name)["seen"], "project": name}
 
 
 def release(name, thread=None):
-    """Let go of the lead: the thread's own claim (thread given), or whoever holds it (the owner)."""
-    cur = read_claim(name)
-    if cur and (thread is None or same_thread(cur["id"], thread)):
+    """Let go of the lead. A thread's own release (its session ended) keeps the claim, marked ended, so the
+    page can say the lead is gone and atr can bring that thread back; the owner's release forgets it."""
+    cur = raw_claim(name)
+    if thread is None and cur:
         claim_file(name).unlink(missing_ok=True)
+        return True
+    if same_thread(cur.get("id"), thread) and not cur.get("ended"):
+        write_claim(name, cur["id"], c={**cur, "ended": time.time()})
         return True
     return False
 
@@ -556,6 +618,9 @@ def op_task_set(plan, by, a):
         if a.get(k) is not None and a[k] != t[k]:
             t[k] = a[k].strip()
             said.append(k)
+    if "thread" in said:  # a new thread on the task: what was said of the old one is past
+        for k in ("silent_at", "ended_at"):
+            t.pop(k, None)
     status = a.get("status")
     if status and status != t["status"]:
         if status not in AGENT_STATUSES:
@@ -593,6 +658,8 @@ def op_task_set(plan, by, a):
         else:  # the progress line belongs to the run that just ended
             for k in ("now", "now_at"):
                 t.pop(k, None)
+        for k in ("silent_at", "ended_at"):  # a new run, or none: the old worker's silence is past
+            t.pop(k, None)
         t["status"] = status
         t.pop("blocked_by", None)
         said.append(status)
@@ -630,7 +697,63 @@ def op_task_now(plan, by, a):
     if not text:
         raise Refused('say what is happening: atr now T3 "scoring run 2 of 3"')
     t.update(now=text, now_at=now())
+    for k in ("silent_at", "ended_at"):  # news: the worker is there
+        t.pop(k, None)
+    thread = (a.get("thread") or "").strip()
+    if thread and not t["thread"]:  # a worker's first `atr now` says which thread it is
+        t["thread"] = thread
+        return f"{t['id']} now: {text} (thread {thread})"
     return f"{t['id']} now: {text}"
+
+
+def minutes_since(ts):
+    try:
+        then = datetime.strptime(ts, "%Y-%m-%dT%H:%MZ").replace(tzinfo=UTC)
+    except (TypeError, ValueError):
+        return 0
+    return (datetime.now(UTC) - then).total_seconds() / 60
+
+
+def op_task_silent(plan, by, a):
+    """atr says a running task has had no news for 30 min: news for the lead, once per silence."""
+    t = get(plan, "tasks", a["id"])
+    last = t.get("now_at") or t.get("doing_since")
+    if t["status"] != "doing" or t.get("silent_at") or minutes_since(last) * 60 < SILENT_AFTER:
+        return None
+    t["silent_at"] = now()
+    return (
+        f"{label(t)} has had no news for {round(minutes_since(last))} min: its worker may be gone. "
+        + worker_steps(t)
+    )
+
+
+def worker_steps(t):
+    if t["thread"]:
+        return f"Check it (atr alive {t['id']}), bring it back (atr resume {t['id']}) or set it back: atr task set {t['id']} status=todo"
+    return f"It has no thread, so atr cannot check it: if its worker is gone, set it back: atr task set {t['id']} status=todo"
+
+
+def op_thread_ended(plan, by, a):
+    """A thread's session ended (the extension says so): the running tasks it worked are news for the lead."""
+    hit = [t for t in plan["tasks"] if t["status"] == "doing" and same_thread(t["thread"], a["thread"]) and not t.get("ended_at")]
+    for t in hit:
+        t["ended_at"] = now()
+    return "; ".join(f"the worker of {label(t)} ended (its session closed). {worker_steps(t)}" for t in hit) or None
+
+
+def op_note(plan, by, a):
+    """News atr itself writes into the plan (the lead brought back, say)."""
+    return a["what"]
+
+
+def check_silence(name):
+    """Write news for each running task that has gone silent. Returns how many."""
+    plan, n = load(name), 0
+    for t in plan["tasks"]:
+        last = t.get("now_at") or t.get("doing_since")
+        if t["status"] == "doing" and not t.get("silent_at") and last and minutes_since(last) * 60 >= SILENT_AFTER:
+            n += bool(change(name, "atr", op_task_silent, {"id": t["id"]})[1])
+    return n
 
 
 OUTLOOKS = ("likely", "unsure", "unlikely")
@@ -1054,7 +1177,9 @@ OPS = {
 
 def render(plan, since):
     out = [f"{plan['title']} ({plan['name']}) · revision {plan['rev']}", ""]
-    owner, github = [c for c in since if c["by"] != "github"], [c for c in since if c["by"] == "github"]
+    owner = [c for c in since if c["by"] == "you"]
+    github = [c for c in since if c["by"] == "github"]
+    news = [c for c in since if c["by"] == "atr"]
     if owner:
         out.append("THE OWNER CHANGED, since you last read:")
         out += [f"  - {c['what']}" for c in owner]
@@ -1062,6 +1187,10 @@ def render(plan, since):
     if github:
         out.append("FROM GITHUB, since you last read (your PRs):")
         out += [f"  - {c['what']}" for c in github]
+        out.append("")
+    if news:
+        out.append("FROM ATR, since you last read (your workers and your thread):")
+        out += [f"  - {c['what']}" for c in news]
         out.append("")
     workers = from_workers(plan)
     if workers:
@@ -1139,6 +1268,9 @@ def render(plan, since):
             bits += [f"{d['id']} needs owner" for d in held_by(plan, t)]
             bits += [t["owner"]] if t["owner"] else []
             bits += [f"owner's reason: {t['pruned_why']}"] if t.get("pruned_why") else []
+            if t["status"] == "doing":
+                bits += [f"thread {t['thread']}"] if t["thread"] else ["no thread: set thread= when you start its worker"]
+                bits += ["WORKER ENDED"] if t.get("ended_at") else ["SILENT"] if t.get("silent_at") else []
             out.append(
                 f"   {t['id']:<4} {t['status']:<8} {t['title']}"
                 + (f"  ({'; '.join(bits)})" if bits else "")
@@ -1219,13 +1351,15 @@ def summary(plan):
         "to_review": sum(d["state"] == "to_review" for d in plan["decisions"]),
         "unread": sum(c["by"] == "you" for c in unread(plan)),
         "lead_waiting": waiting(plan["name"]),
+        "lead_gone": lead_status(plan["name"]).get("state") == "gone",
     }
 
 
 def sig(plan):
     # What GitHub says of a PR is stored without a new revision, so the PRs are in the signature too.
     prs = zlib.crc32(json.dumps([g.get("prs") for g in plan["goals"]], sort_keys=True).encode())
-    return f"{plan['rev']}.{plan['lead']['read_rev']}.{sum(bool(t.get('stopped')) for t in plan['tasks'])}.{int(waiting(plan['name']))}.{prs:x}"
+    lead = lead_status(plan["name"])
+    return f"{plan['rev']}.{plan['lead']['read_rev']}.{sum(bool(t.get('stopped')) for t in plan['tasks'])}.{int(waiting(plan['name']))}.{prs:x}.{lead.get('state', '')}{int(lead.get('since', 0))}"
 
 
 # ---- web -----------------------------------------------------------------------------------------
@@ -1395,6 +1529,43 @@ def watch_prs():
     threading.Thread(target=loop, daemon=True).start()
 
 
+def check_threads():
+    """One round of the thread watch: news for silent workers, and ask the providers about leads that look gone."""
+    for name in projects():
+        with contextlib.suppress(OSError, ValueError, Refused):
+            check_silence(name)
+            lead_status(name, ask=True)
+
+
+def watch_threads():
+    """For atr serve: watch the projects' threads every minute, in the background."""
+
+    def loop():
+        while True:
+            try:
+                check_threads()
+            except Exception as e:  # noqa: BLE001 - a bad round must not end the watch
+                print(f"atr: thread check failed: {e}", file=sys.stderr, flush=True)
+            time.sleep(60)
+
+    threading.Thread(target=loop, daemon=True).start()
+
+
+def auto_resume(name):
+    with contextlib.suppress(Refused, OSError, ValueError):
+        said = bring_back_lead(name, auto=True)
+        if said:
+            print(f"atr: {name}: {said}", file=sys.stderr, flush=True)
+
+
+def last_resume(name):
+    """The last time atr tried to bring the lead back, and what came of it: {"at", "ok", "said"} or {}."""
+    try:
+        return json.loads(resume_file(name).read_text())
+    except (OSError, ValueError):
+        return {}
+
+
 def install_kind():
     """How this atr is installed: 'checkout' (a git clone, linked by atr install), 'uv' (uv tool install),
     or '' when atr cannot tell."""
@@ -1521,6 +1692,8 @@ class Handler(BaseHTTPRequestHandler):
                         "unread": unread(plan),
                         "lead_waiting": waiting(parts[2]),
                         "lead_claim": read_claim(parts[2]),
+                        "lead": lead_status(parts[2]),
+                        "resumed": last_resume(parts[2]),
                         "ready": [t["id"] for t in ready(plan)],
                         "sig": sig(plan),
                     }
@@ -1570,6 +1743,11 @@ class Handler(BaseHTTPRequestHandler):
         parts = [p for p in self.path.split("?")[0].split("/") if p]
         if parts in (["api", "upgrade"], ["api", "restart"]):
             return self.upgrade_or_restart(parts[1])
+        if len(parts) == 3 and parts[:2] == ["api", "resume"]:  # the page's "Bring the lead back"
+            try:
+                return self.send_json({"ok": True, "said": bring_back_lead(parts[2])})
+            except Refused as e:
+                return self.send_json({"error": str(e)}, 400)
         try:
             body = json.loads(
                 self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}"
@@ -1588,6 +1766,8 @@ class Handler(BaseHTTPRequestHandler):
                 base_rev=body.get("rev"),
             )
             self.send_json({"ok": True, "rev": plan["rev"]})
+            # The owner acted while the lead is gone: bring it back so it hears them (at most once an hour).
+            threading.Thread(target=auto_resume, args=(parts[2],), daemon=True).start()
         except Stale:
             self.send_json(
                 {
@@ -1727,6 +1907,144 @@ def lead_providers():
     return found
 
 
+def thread_tool(name):
+    """The provider (tool name) the project's threads run in: the one that started the lead, else the one on PATH."""
+    found = lead_providers()
+    tool = raw_claim(name).get("tool", "")
+    if tool in found:
+        return tool
+    return next(iter(found)) if len(found) == 1 else ""
+
+
+def run_provider(name, tool, args, timeout=120):
+    """Run atr-lead-TOOL with `args` in the project's repo. Returns (exit code, stdout lines, why it failed)."""
+    exe = lead_providers().get(tool)
+    if not exe:
+        return 127, [], f"no atr-lead-{tool} on your PATH"
+    plan = load(name)
+    try:
+        r = subprocess.run(
+            [str(exe), *args],
+            cwd=plan.get("repo") or None,
+            env={**{k: v for k, v in os.environ.items() if k != "ATR_AS"}, "ATR_PROJECT": name},
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        return 126, [], str(e)
+    lines = [x.strip() for x in r.stdout.strip().splitlines() if x.strip()]
+    why = (r.stderr.strip() or r.stdout.strip() or f"exit {r.returncode}").splitlines()[-1]
+    return r.returncode, lines, why
+
+
+ALIVE: dict = {}  # thread -> (when asked, answer): the provider is asked at most once a minute per thread
+
+
+def thread_alive(name, thread, ask=True):
+    """Whether the provider says `thread` is still running: True, False, or None when it cannot tell (no
+    provider, or it failed). Without ask, only an answer from the last two minutes counts."""
+    at, said = ALIVE.get(thread, (0.0, None))
+    if time.time() - at < (60 if ask else 120):
+        return said
+    if not ask:
+        return None
+    tool = thread_tool(name)
+    if not tool:
+        return None
+    code, _, _ = run_provider(name, tool, ["alive", thread], timeout=30)
+    said = True if code == 0 else False if code == 1 else None
+    ALIVE[thread] = (time.time(), said)
+    return said
+
+
+def resume_thread(name, thread, message):
+    """Bring `thread` back through its provider (`atr-lead-TOOL resume ID MESSAGE`). Returns (ok, thread id, why)."""
+    tool = thread_tool(name)
+    if not tool:
+        return False, "", "no single lead provider on your PATH to bring it back with"
+    code, lines, why = run_provider(name, tool, ["resume", thread, message])
+    if code:
+        return False, "", f"atr-lead-{tool} could not resume it: {why}"
+    back = next((x.split(":", 1)[1].strip() for x in lines if x.startswith("thread-id:")), thread)
+    ALIVE.pop(thread, None)
+    return True, back, ""
+
+
+def resume_file(name):
+    return project_dir(name) / ".resume.json"
+
+
+RESUMING = threading.Lock()
+
+
+def bring_back_lead(name, auto=False):
+    """Bring a gone lead back: resume its thread through the provider, or start a fresh lead when that fails
+    or the provider cannot. auto (the owner acted on the page): only once the lead has been gone 10 min, and
+    at most once an hour. Returns a line for the owner, or "" when auto had nothing to do."""
+    st = lead_status(name, ask=True)
+    if not st or st["state"] != "gone":
+        if auto:
+            return ""
+        raise Refused("the lead is not gone" if st else "no thread has led this project: start one with atr lead --start")
+    try:
+        last = json.loads(resume_file(name).read_text()).get("at", 0)
+    except (OSError, ValueError):
+        last = 0
+    if auto and (time.time() - st["since"] < GONE_AFTER or time.time() - last < RESUME_EVERY):
+        return ""
+    if not RESUMING.acquire(blocking=False):
+        raise Refused("atr is already bringing the lead back")
+    try:
+        resume_file(name).write_text(json.dumps({"at": time.time()}))
+        msg = (
+            f"atr resumed you: you lead the atr project {name}, and your thread had "
+            + ("ended. " if st.get("why") == "ended" else "gone quiet. ")
+            + "Run `atr read` and carry on with the plan."
+        )
+        ok, back, why = resume_thread(name, st["id"], msg)
+        if ok:
+            with open(data_dir() / ".claim.lock", "w") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                same = same_thread(back, st["id"])
+                write_claim(name, max(back, st["id"], key=len) if same else back, st.get("tool", ""))
+            said = f"atr brought the lead back: resumed thread {back}" + (" on its own, as the owner acted" if auto else "")
+            change(name, "atr", op_note, {"what": said})
+        else:
+            tool = thread_tool(name)
+            started = start_lead(name, tool) if tool else "No lead provider on your PATH to start a new lead with."
+            said = f"atr could not resume the lead thread {st['id']} ({why}). {started}"
+            change(name, "atr", op_note, {"what": said})
+        resume_file(name).write_text(json.dumps({"at": time.time(), "ok": ok, "said": said}))
+        return said
+    finally:
+        RESUMING.release()
+
+
+def resume_task(name, ident):
+    """Bring the worker of a running task back through the provider (the lead runs this)."""
+    t = get(load(name), "tasks", ident)
+    if not t["thread"]:
+        raise Refused(f"{ident} has no thread to resume: set it back with atr task set {ident} status=todo")
+    ok, back, why = resume_thread(
+        name, t["thread"],
+        f"atr resumed you to carry on with task {ident} ({t['title']}) of the atr project {name}. "
+        f'Report progress with `atr now {ident} "..."`.',
+    )
+    if not ok:
+        raise Refused(f"{why}. If its work cannot go on, set it back: atr task set {ident} status=todo")
+    return change(name, "agent", op_task_resumed, {"id": ident, "thread": back})[1]
+
+
+def op_task_resumed(plan, by, a):
+    t = get(plan, "tasks", a["id"])
+    for k in ("silent_at", "ended_at"):
+        t.pop(k, None)
+    t["thread"] = a["thread"]
+    return f"resumed the worker of {label(t)} (thread {a['thread']})"
+
+
 def start_lead(name, tool="auto"):
     """Start the project's lead thread through a provider and store the link it prints.
 
@@ -1741,29 +2059,15 @@ def start_lead(name, tool="auto"):
         tool = next(iter(found))
     if tool not in found:
         return f"No atr-lead-{tool} on your PATH" + (f" (found: {', '.join(found)})" if found else "") + "."
-    plan = load(name)
-    try:
-        r = subprocess.run(
-            [str(found[tool]), name, plan["title"]],
-            cwd=plan.get("repo") or None,
-            env={**{k: v for k, v in os.environ.items() if k != "ATR_AS"}, "ATR_PROJECT": name},
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError) as e:
-        return f"atr-lead-{tool} could not start the lead: {e}"
-    lines = [x.strip() for x in r.stdout.strip().splitlines()]
+    code, lines, why = run_provider(name, tool, [name, load(name)["title"]])
     link = (lines or [""])[-1]
     thread = next((x.split(":", 1)[1].strip() for x in lines if x.startswith("thread-id:")), "")
-    if r.returncode or not link:
-        why = (r.stderr.strip() or r.stdout.strip() or f"exit {r.returncode}").splitlines()[-1]
+    if code or not link:
         return f"atr-lead-{tool} did not start the lead: {why}\nTo try again: atr lead --start {tool}"
     change(name, "agent", op_lead, {"thread": link})
     if thread:  # the owner started this thread to lead: it takes over from any lead there was
         release(name)
-        claim(name, thread)
+        claim(name, thread, tool)
     return f"started the lead in {tool}: {link}"
 
 
@@ -1843,6 +2147,7 @@ def report(a):
                     "lead_thread": plan["lead"]["thread"],
                     "lead_id": read_claim(name).get("id", ""),
                     "lead_waiting": waiting(name),
+                    "lead_state": lead_status(name).get("state", ""),
                     "unread": found,
                     "running": running(plan),
                 }
@@ -1964,6 +2269,13 @@ def main(argv=None):
     )
     x.add_argument("id")
     x.add_argument("text", nargs="+")
+    x.add_argument("--thread", default="", help="a worker's first report: the thread (session id) it runs in")
+    x = sub.add_parser("alive", help="ask the provider whether a task's worker (or the lead) is still running")
+    x.add_argument("id", help="task id, or 'lead'")
+    x = sub.add_parser("resume", help="bring a task's worker (or the lead) back in its thread, through the provider")
+    x.add_argument("id", help="task id, or 'lead'")
+    x = sub.add_parser("ended", help="for extensions: thread ID's session ended (lets go of the lead, tells the lead of its tasks)")
+    x.add_argument("thread")
     x = sub.add_parser("pr", help="put a pull request you opened on its goal (workers may use this)")
     x.add_argument("goal")
     x.add_argument("url")
@@ -2006,6 +2318,8 @@ def main(argv=None):
                 watch_releases()
             if os.environ.get("ATR_PR_CHECK") != "0":
                 watch_prs()
+            if os.environ.get("ATR_THREAD_CHECK") != "0":
+                watch_threads()
             print(f"atr: {data_dir()} at http://{a.host}:{a.port}/", flush=True)
             return ThreadingHTTPServer((a.host, a.port), Handler).serve_forever()
         if a.cmd == "init":
@@ -2111,7 +2425,20 @@ def main(argv=None):
         elif a.cmd == "attach":
             fn, args = op_attach, {"on": a.on, "src": a.src, "title": a.title}
         elif a.cmd == "now":
-            fn, args = op_task_now, {"id": a.id, "text": " ".join(a.text)}
+            fn, args = op_task_now, {"id": a.id, "text": " ".join(a.text), "thread": a.thread}
+        elif a.cmd == "alive":
+            thread = raw_claim(name).get("id", "") if a.id == "lead" else get(load(name), "tasks", a.id)["thread"]
+            if not thread:
+                raise Refused(f"{a.id} has no thread to ask about")
+            said = thread_alive(name, thread)
+            print(f"thread {thread} " + {True: "is running", False: "is not running", None: "is unknown: atr cannot tell (no provider, or it failed)"}[said])
+            return {True: 0, False: 1, None: 2}[said]
+        elif a.cmd == "resume":
+            return print(bring_back_lead(name) if a.id == "lead" else resume_task(name, a.id))
+        elif a.cmd == "ended":
+            released = release(name, a.thread)
+            note = change(name, "atr", op_thread_ended, {"thread": a.thread})[1]
+            return print("\n".join(x for x in ["released the lead" if released else "", note or ""] if x) or "nothing ran in that thread")
         elif a.cmd == "pr":
             fn, args = op_pr, {"goal": a.goal, "url": a.url, "for": [t for s in a.for_ for t in s.split(",") if t]}
         elif a.start:

@@ -8,6 +8,10 @@ A Claude Code plugin that keeps the lead in step with its atr plan. It implement
 | SessionStart | puts `atr read` into the new session's context, so the lead starts with the plan, and starts the listener |
 | UserPromptSubmit | when the owner changed something since the lead last read, adds `atr read` to the prompt |
 | Stop | holds the turn if the owner changed something while the lead worked, and starts the listener again |
+| SessionEnd | `atr ended <session>`: the lead lets go (the page says it is gone), and a task this session worked is news for the lead |
+
+Any other session in the repo is told it is a worker, and given its session id to put on its task with its
+first `atr now T3 "..." --thread <id>`, so the lead can check on it and resume it.
 
 **The push.** The listener is an `asyncRewake` hook: it runs `atr wait` in the background while the lead
 is idle. When you accept a goal, answer a card, pass a task or drop one on the page, it exits and Claude
@@ -31,6 +35,9 @@ shows next to the project title: run it to open the lead. `atr install` from a c
 next to `atr`; otherwise link it yourself, e.g. `ln -s ~/dev/atr/extensions/claude-code/bin/atr-lead-claude-code ~/.local/bin/`.
 Claude Code has to trust the repo first (run `claude` there once); until then the provider says so and
 `init` goes on without a lead. Set `CLAUDE_BIN` if `claude` is not on your `PATH`.
+The provider also brings a session back, `atr-lead-claude-code resume ID` (`claude --bg --resume ID`, the
+same session with its context), and says whether one runs, `atr-lead-claude-code alive ID`
+(`claude agents --json`); atr uses them for a gone lead and for `atr alive` / `atr resume`.
 
 ## Install
 

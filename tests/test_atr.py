@@ -35,6 +35,7 @@ class Base(unittest.TestCase):
         }
         os.environ.update(ATR_DATA_DIR=self.tmp.name, ATR_PROJECT="demo")
         os.environ.pop("ATR_AS", None)
+        atr.ALIVE.clear()
         self.addCleanup(
             lambda: [
                 os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
@@ -64,6 +65,8 @@ class Base(unittest.TestCase):
 
 
 class Plan(Base):
+    providers = staticmethod(atr.lead_providers)
+
     def test_task_needs_an_accepted_goal(self):
         self.assertEqual(self.cli("task", "add", "G9", "x")[0], 2)
         self.cli("goal", "propose", "Recovery", "--done", "x")
@@ -494,10 +497,87 @@ class Plan(Base):
         self.assertEqual(atr.read_claim("demo"), {})
         self.assertEqual(self.cli("lead", "--claim", "cccc-3")[0], 0)
 
-    def test_a_silent_lead_runs_out(self):
+    def age_claim(self, seconds, **extra):
+        c = {**json.loads(atr.claim_file("demo").read_text()), **extra}
+        c["seen"] = time.time() - seconds
+        atr.claim_file("demo").write_text(json.dumps(c))
+
+    def test_a_lead_is_gone_after_ten_minutes_without_a_turn_or_a_listener(self):
+        atr.lead_providers = dict  # no provider to ask: an unknown thread counts as gone
+        self.addCleanup(vars(atr).__setitem__, "lead_providers", type(self).providers)
         self.cli("lead", "--claim", "aaaa-1")
-        atr.claim_file("demo").write_text(json.dumps({"id": "aaaa-1", "seen": time.time() - atr.CLAIM_LIFE - 1}))
-        self.assertEqual(self.cli("lead", "--claim", "bbbb-2")[0], 0)
+        self.age_claim(atr.GONE_AFTER - 60)
+        self.assertEqual(atr.lead_status("demo")["state"], "working")
+        self.assertEqual(self.cli("lead", "--claim", "bbbb-2")[0], 1)  # not gone yet
+        (Path(self.tmp.name) / "demo/.waiting").write_text(str(os.getpid()))  # its listener is there
+        self.age_claim(atr.GONE_AFTER + 60)
+        self.assertEqual(atr.lead_status("demo")["state"], "listening")
+        (Path(self.tmp.name) / "demo/.waiting").unlink()
+        (Path(self.tmp.name) / "demo/.listened").write_text(str(time.time() - 120))  # it listened 2 min ago
+        self.assertEqual(atr.lead_status("demo")["state"], "working")
+        (Path(self.tmp.name) / "demo/.listened").write_text(str(time.time() - atr.GONE_AFTER - 1))
+        st = atr.lead_status("demo")
+        self.assertEqual((st["state"], st["why"]), ("gone", "silent"))
+        self.assertTrue(atr.summary(atr.load("demo"))["lead_gone"])
+        self.assertEqual(self.cli("lead", "--claim", "bbbb-2")[0], 0)  # a gone lead's claim blocks no one
+
+    def test_a_lead_its_tool_says_is_running_is_not_gone(self):
+        atr.lead_providers = lambda: {"tool": Path("/x/atr-lead-tool")}
+        self.addCleanup(vars(atr).__setitem__, "lead_providers", type(self).providers)
+        asked = []
+        real = atr.run_provider
+        self.addCleanup(vars(atr).__setitem__, "run_provider", real)
+        atr.run_provider = lambda name, tool, args, timeout=0: (asked.append(args), (0, ["working"], ""))[1]
+        self.cli("lead", "--claim", "aaaa-1")
+        self.age_claim(atr.GONE_AFTER + 60)
+        self.assertEqual(self.cli("lead", "--claim", "bbbb-2")[0], 1)
+        self.assertEqual(asked, [["alive", "aaaa-1"]])
+        self.assertEqual(atr.lead_status("demo")["state"], "running")  # the answer is kept a minute
+        self.assertEqual(len(asked), 1)
+
+    def test_a_lead_whose_session_ended_is_gone_at_once(self):
+        self.cli("lead", "--claim", "aaaa-1")
+        self.assertIn("released", self.cli("ended", "aaaa-1")[1])
+        st = atr.lead_status("demo")
+        self.assertEqual((st["state"], st["why"], st["id"]), ("gone", "ended", "aaaa-1"))
+        self.assertEqual(self.cli("lead", "--claim", "aaaa-1")[0], 0)  # resumed, it leads again
+        self.assertEqual(atr.lead_status("demo")["state"], "working")
+    def test_a_silent_task_is_news_for_the_lead_once(self):
+        self.cli("task", "add", "G1", "long run")
+        self.cli("task", "set", "T1", "status=doing", "thread=w-1")
+        self.cli("read")
+        self.assertEqual(atr.check_silence("demo"), 0)
+        plan = atr.load("demo")
+        plan["tasks"][0]["doing_since"] = time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime(time.time() - atr.SILENT_AFTER - 120))
+        atr.save(plan)
+        self.assertEqual(atr.check_silence("demo"), 1)
+        self.assertEqual(atr.check_silence("demo"), 0)  # once per silence
+        code, out = self.cli("unread")
+        self.assertEqual(code, 0)  # it wakes the lead
+        self.assertRegex(out, r"no news for 3[23] min")
+        self.assertIn("atr alive T1", out)
+        read = self.cli("read")[1]
+        self.assertIn("FROM ATR", read)
+        self.assertIn("SILENT", read)
+        self.cli("now", "T1", "still going")  # news: the silence is over
+        self.assertNotIn("silent_at", self.task("T1"))
+
+    def test_a_workers_first_report_gives_its_thread_and_its_end_is_news(self):
+        self.cli("task", "add", "G1", "build")
+        self.cli("task", "set", "T1", "status=doing")
+        self.assertIn("no thread", self.cli("read")[1])
+        self.cli("now", "T1", "starting", "--thread", "w-1234")
+        self.cli("now", "T1", "later", "--thread", "other")  # only the first sets it
+        self.assertEqual(self.task("T1")["thread"], "w-1234")
+        self.assertIn("nothing ran", self.cli("ended", "zzzz")[1])
+        self.cli("read")
+        out = self.cli("ended", "w-1234")[1]
+        self.assertIn("the worker of T1", out)
+        self.assertTrue(self.task("T1")["ended_at"])
+        self.assertEqual(self.cli("unread")[0], 0)
+        self.assertIn("WORKER ENDED", self.cli("read")[1])
+        self.cli("task", "set", "T1", "status=todo")
+        self.assertNotIn("ended_at", self.task("T1"))
 
     def test_a_lead_outside_the_repo_is_told_to_lead_from_it(self):
         elsewhere = tempfile.TemporaryDirectory()
@@ -556,6 +636,23 @@ class Web(Base):
         except urllib.error.HTTPError as e:
             with e:
                 return e.code, json.loads(e.read())
+
+    def test_the_page_shows_a_gone_lead_and_its_button_brings_it_back(self):
+        atr.write_claim("demo", "lead-1", c={"id": "lead-1", "seen": time.time(), "ended": time.time()})
+        _, body = self.call("/api/p/demo")
+        self.assertEqual((body["lead"]["state"], body["lead"]["why"]), ("gone", "ended"))
+        calls = []
+        real = atr.bring_back_lead
+        self.addCleanup(vars(atr).__setitem__, "bring_back_lead", real)
+        atr.bring_back_lead = lambda name, auto=False: calls.append((name, auto)) or "back"
+        self.assertEqual(self.call("/api/resume/demo", {}), (200, {"ok": True, "said": "back"}))
+        self.assertEqual(self.call("/api/resume/demo", {}, headers={})[0], 403)
+        self.call("/api/p/demo", {"op": "goal_add", "args": {"title": "x"}})
+        for _ in range(50):  # the owner acted: atr tries to bring the lead back, in the background
+            if len(calls) > 1:
+                break
+            time.sleep(0.02)
+        self.assertEqual(calls, [("demo", False), ("demo", True)])
 
     def test_page_edits_are_owner_edits_and_stale_ones_are_refused(self):
         rev = self.call("/api/p/demo")[1]["plan"]["rev"]
@@ -772,6 +869,83 @@ class LeadProviders(Base):
         out, link = self.init()
         self.assertEqual(link, "")
         self.assertIn("Workspace not trusted", out)
+
+
+    def gone_lead(self, project="fresh", **extra):
+        atr.write_claim(project, "lead-1234", c={"id": "lead-1234", "seen": time.time() - 3 * atr.GONE_AFTER, "ended": time.time() - 2 * atr.GONE_AFTER, **extra})
+
+    def test_a_gone_lead_is_resumed_through_its_provider(self):
+        self.provider("tool", "pathlib = __import__('pathlib'); pathlib.Path(os.environ['ATR_DATA_DIR'], 'args').write_text(repr(sys.argv[1:]))\n"
+                      "print('thread-id: lead-1234'); print('tool://lead-1234')")
+        self.init("--lead", "none")
+        with self.assertRaises(atr.Refused):
+            atr.bring_back_lead("fresh")  # no thread has led it
+        self.gone_lead()
+        said = atr.bring_back_lead("fresh")
+        self.assertIn("resumed thread lead-1234", said)
+        args = eval((Path(self.tmp.name) / "args").read_text())
+        self.assertEqual(args[:2], ["resume", "lead-1234"])
+        self.assertIn("atr read", args[2])
+        self.assertEqual(atr.lead_status("fresh")["state"], "working")
+        self.assertIn("brought the lead back", atr.render(atr.load("fresh"), atr.unread(atr.load("fresh"))))
+        self.assertTrue(atr.last_resume("fresh")["ok"])
+
+    def test_a_lead_that_will_not_resume_is_started_fresh(self):
+        self.provider("tool", "if sys.argv[1] == 'resume': print('no such session', file=sys.stderr); sys.exit(1)\n"
+                      "print('thread-id: new-9'); print('tool://new-9')")
+        self.init("--lead", "none")
+        self.gone_lead()
+        said = atr.bring_back_lead("fresh")
+        self.assertIn("could not resume", said)
+        self.assertIn("no such session", said)
+        self.assertEqual(atr.load("fresh")["lead"]["thread"], "tool://new-9")
+        self.assertEqual(atr.read_claim("fresh")["id"], "new-9")
+
+    def test_the_owner_acting_brings_a_gone_lead_back_at_most_once_an_hour(self):
+        self.provider("tool", "print('thread-id: lead-1234'); print('tool://x')")
+        self.init("--lead", "none")
+        atr.write_claim("fresh", "lead-1234", c={"id": "lead-1234", "seen": time.time(), "ended": time.time() - 60})
+        self.assertEqual(atr.bring_back_lead("fresh", auto=True), "")  # gone only a minute
+        self.gone_lead()
+        self.assertIn("on its own", atr.bring_back_lead("fresh", auto=True))
+        self.gone_lead()
+        self.assertEqual(atr.bring_back_lead("fresh", auto=True), "")  # tried under an hour ago
+        self.assertIn("resumed", atr.bring_back_lead("fresh"))  # the page's button is not limited
+
+    def test_a_worker_is_checked_and_resumed_through_the_provider(self):
+        self.provider("tool", "if sys.argv[1] == 'alive': sys.exit(0 if sys.argv[2] == 'w-1' else 1)\n"
+                      "print('thread-id: ' + sys.argv[2])")
+        self.init("--lead", "none")
+        os.environ["ATR_PROJECT"] = "fresh"
+        self.cli("-p", "fresh", "goal", "propose", "x")
+        atr.change("fresh", "you", atr.OPS["goal_accept"], {"id": "G1"})
+        self.cli("task", "add", "G1", "a")
+        self.cli("task", "add", "G1", "b")
+        self.cli("task", "set", "T1", "status=doing", "thread=w-1")
+        self.cli("task", "set", "T2", "status=doing", "thread=w-2")
+        self.assertEqual(self.cli("alive", "T1"), (0, "thread w-1 is running\n"))
+        self.assertEqual(self.cli("alive", "T2")[0], 1)
+        self.cli("ended", "w-2")
+        code, out = self.cli("resume", "T2")
+        self.assertEqual(code, 0, out)
+        self.assertIn("resumed the worker of T2", out)
+        self.assertNotIn("ended_at", atr.get(atr.load("fresh"), "tasks", "T2"))
+
+    def test_claude_code_provider_resumes_and_checks_a_session(self):
+        self.fake_claude(
+            "if sys.argv[1] == 'agents': print(json.dumps([{'id': '85aade68', 'sessionId': '85aade68-1', 'state': 'blocked'}]))\n"
+            f"else: pathlib.Path({self.tmp.name!r}, 'claude-args').write_text(json.dumps(sys.argv[1:])); print('backgrounded · 85aade68')"
+        )
+        exe = str(self.bin / "atr-lead-claude-code")
+
+        def run(*a):
+            return subprocess.run([exe, *a], capture_output=True, text=True, check=False)
+
+        self.assertEqual(run("alive", "85aade68-1").returncode, 0)
+        self.assertEqual(run("alive", "ffff").returncode, 1)
+        r = run("resume", "85aade68-1", "carry on")
+        self.assertEqual(r.stdout.splitlines(), ["thread-id: 85aade68", "claude attach 85aade68"])
+        self.assertEqual(json.loads((Path(self.tmp.name) / "claude-args").read_text()), ["--bg", "--resume", "85aade68-1", "carry on"])
 
 
 class Versions(unittest.TestCase):
@@ -1172,6 +1346,17 @@ class ClaudeCodeExtension(Base):
         self.assertIn("already leads demo", out)
         self.hook("session-end", session_id="lead-1")  # it ends: it no longer leads demo
         self.assertIn("you are its lead", self.hook("session-start", cwd=str(repo), session_id="lead-1"))
+
+    def test_a_worker_session_ending_tells_the_lead(self):
+        self.hook("session-start", session_id="lead-1")
+        self.assertIn("--thread other-2", self.hook("session-start", session_id="other-2"))
+        self.cli("task", "add", "G1", "build")
+        self.cli("task", "set", "T1", "status=doing", "thread=other-2")
+        self.cli("read")
+        self.hook("session-end", session_id="other-2")
+        self.assertIn("the worker of T1", self.hook("prompt", session_id="lead-1"))
+        self.hook("session-end", session_id="lead-1")
+        self.assertEqual(atr.lead_status("demo")["why"], "ended")
 
     def test_silent_outside_an_atr_project(self):
         os.environ.pop("ATR_PROJECT")

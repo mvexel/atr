@@ -112,7 +112,8 @@ The page has no login, so only bind it to networks you trust.
 | `atr decide T3 "chosen" --why ".." --rejected ".."` | record a judgment call; `--hard` asks the owner instead and blocks the task (on a goal: holds all its tasks); `--owner` records something the owner said in chat; it shows on the page for them to confirm |
 | `atr ask T3 "What do you watch?" --option cable --option streaming` | a plain question with no recommendation; holds the task (or goal) until the owner answers |
 | `atr decide T3 ".." --by worker-name` | a worker records its own call; the lead sees it on its next read |
-| `atr now T3 "scoring run 2 of 3"` | one line on what a running task is doing (workers may use it) |
+| `atr now T3 "scoring run 2 of 3"` | one line on what a running task is doing (workers may use it; the first report adds `--thread ID`) |
+| `atr alive T3`, `atr resume T3` | ask the provider whether a task's worker is still running (exit 0, 1 not, 2 cannot tell); bring it back in its thread (`lead` instead of a task: the lead) |
 | `atr goal propose "title" --done ".." --tries 5 --days 3` | suggest a goal; it gets no tasks until the owner accepts it. The done test shows as the lead's guess until the owner confirms it. `--tries`/`--days` give it a budget |
 | `atr try G1 "prompt B: 15 of 31 caught"` | record one attempt at a goal; when its tries or days run out, its tasks stop until the owner answers a card on the goal |
 | (page) This goal is met | once all of a goal's tasks are done, the owner closes it; met goals take no new tasks until reopened |
@@ -121,7 +122,8 @@ The page has no login, so only bind it to networks you trust.
 | `atr attach T3 file-or-link` | link a document; files are copied into the project so they outlive a worktree |
 | `atr lead URL` | store the lead's thread link (or the command that opens it, for a tool without URLs) |
 | `atr lead --start TOOL` | start a lead thread with the provider `atr-lead-TOOL` and store its link (`auto`: the one on `PATH`) |
-| `atr lead --claim ID` / `--release ID` | for extensions: thread `ID` becomes the lead unless another thread is (exit 1), or lets go |
+| `atr lead --claim ID` / `--release ID` | for extensions: thread `ID` becomes the lead unless another live thread is (exit 1), or lets go |
+| `atr ended ID` | for extensions: thread `ID`'s session ended: it lets go of the lead, and its running tasks are news for the lead |
 | `atr projects` | list projects with done, waiting and to-review counts |
 | `atr service install` | keep `atr serve` running in the background (`uninstall` removes it) |
 | `atr rules` | print the rule block for `AGENTS.md` / `CLAUDE.md` |
@@ -142,8 +144,19 @@ the commands and rules an extension builds on.
 **One lead per project.** An extension that can name its sessions claims the lead for one of them
 (`atr lead --claim`). The first session to take a turn in the repo leads, or the one a lead provider
 started; the others are told who leads and work as workers. A session leads one project at most. The
-lead lets go when its session ends or after 24 hours of silence, and the page's "let another session
-lead" hands the lead to the next session that takes a turn.
+lead lets go when its session ends, and the page's "let another session lead" hands the lead to the next
+session that takes a turn.
+
+**When a lead or worker disappears.** A lead is gone when its session ended, or when for 10 minutes it has
+neither listened for your changes nor taken a turn (and its tool does not say it still runs). The page then
+says "Lead gone" with a **Bring the lead back** button, and a gone lead's claim no longer stops another
+session from leading. When you act on the page and the lead has been gone 10 minutes, `atr serve` brings it
+back on its own, at most once an hour: it resumes the same thread through the lead provider (Claude Code:
+`claude --bg --resume`), or starts a fresh lead when that fails. Workers carry their thread on their task
+(`thread=`). A running task with no news for 30 minutes is marked silent, and one whose session ended is
+marked so; both are written to the plan as news, which wakes the lead, and it checks the worker
+(`atr alive T3`), brings it back (`atr resume T3`) or sets the task back to todo. `ATR_THREAD_CHECK=0` turns
+off `atr serve`'s minute-by-minute watch.
 
 Shipped here: [Claude Code](extensions/claude-code/).
 
