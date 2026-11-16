@@ -2,7 +2,7 @@
 """atr for Claude Code: the turn start, turn end and doorbell jobs from docs/EXTENSIONS.md.
 
 Usage (from hooks.json): atr_hook.py session-start | prompt | stop | listen | session-end, with the hook's JSON on stdin.
-Finds atr via ATR_BIN or PATH. Silent outside atr projects. ATR_DOORBELL=0 turns the listener (the push) off.
+Finds atr via ATR_BIN or PATH. Silent outside atr projects, and in a side-question session (ATR_SIDE). ATR_DOORBELL=0 turns the listener (the push) off.
 """
 
 import json
@@ -105,6 +105,8 @@ def block(reason):
 
 
 def main(event):
+    if os.environ.get("ATR_SIDE"):
+        return  # a side-question session (atr serve started it to answer the owner): no lead, no worker, no listener
     try:
         hook = json.load(sys.stdin)
     except ValueError:

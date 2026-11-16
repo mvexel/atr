@@ -117,6 +117,12 @@
   .md pre { background: var(--bg); padding: 10px; border-radius: 8px; overflow-x: auto; font: 13px var(--mono); }
   .md code { font: 13px var(--mono); background: var(--bg); padding: 1px 4px; border-radius: 4px; }
   .md h3 { font-size: 18px; } .md h4 { font-size: 16px; }
+  .side { margin: 6px 0 14px; }
+  .side .form { margin: 4px 0; }
+  .sq { margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); font-size: 14px; }
+  .sq .q { font-weight: 650; margin: 6px 0 2px; } .sq .q:first-child { margin-top: 0; }
+  .sq .a { overflow-wrap: anywhere; } .sq .a p { margin: 4px 0; } .sq .a.failed { color: var(--bad); }
+  .sq .meta { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
   #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px;
            z-index: 40; max-width: calc(100vw - 24px); font-size: 14px; }
   #toast[hidden] { display: none; }
@@ -432,6 +438,34 @@ function goalNode(g, plan, tasks) {
 }
 
 // The first thing on the page: what is running and what it is doing right now.
+// Side questions (G10): the owner asks about the project; a thread of the lead's tool answers it, reading only.
+// They live outside the plan, so asking one never wakes the lead.
+async function askSide(question, id) {
+  try {
+    const r = await fetch("/api/side/" + encodeURIComponent(project()), { method: "POST", headers: { "Content-Type": "application/json", "X-Atr": "1" },
+      body: JSON.stringify({ question, id }) });
+    const body = await r.json();
+    if (!r.ok) { toast(body.error || "That was not asked."); return false; }
+  } catch (e) { toast("Not asked: the atr server did not answer."); return false; }
+  await load();
+}
+function sideQuestion(e) {
+  const last = e.turns[e.turns.length - 1], busy = last.state === "thinking";
+  return h("div", { class: "sq" },
+    e.turns.map(t => [h("div", { class: "q" }, t.q),
+      t.state === "thinking" ? h("div", { class: "muted live" }, "Thinking…")
+        : h("div", { class: "a" + (t.state === "failed" ? " failed" : "") }, t.state === "failed" ? t.a : markdown(t.a))]),
+    !busy && e.thread && form(null, [{ label: "Follow up" }], q => q && askSide(q, e.id), "Ask", "side" + e.id),
+    h("div", { class: "meta" }, e.id, " · asked ", ago(e.turns[0].at),
+      e.thread && e.tool === "claude-code" && [" · go on in a terminal: ", h("code", { style: "user-select:all" }, "claude --resume " + e.thread)]));
+}
+function sideQuestions(list) {
+  const recent = [...(list || [])].reverse(), shown = recent.slice(0, 3), older = recent.slice(3);
+  return h("div", { class: "side" },
+    form(null, [{ label: "Ask a side question about this project (it only reads; the lead is not told)" }], q => q && askSide(q), "Ask", "side"),
+    shown.map(sideQuestion),
+    older.length ? h("details", {}, h("summary", { class: "muted small" }, `${older.length} earlier side question${older.length > 1 ? "s" : ""}`), older.map(sideQuestion)) : null);
+}
 function workingOn(plan) {
   const running = plan.tasks.filter(t => t.status === "doing");
   if (!running.length) return h("div", { class: "working muted" }, "Nothing is running right now.");
@@ -467,6 +501,7 @@ function drawProject() {
         h("button", { class: "link", onclick: () => act("lead_release", {}) }, "let another session lead"))),
     h("h1", {}, plan.title),
     workingOn(plan),
+    sideQuestions(S.data.side),
     h("div", { class: "chips" }, ["all", "doing", "blocked", "review", "todo", "done"].map(f =>
       h("button", { class: "chip", "aria-pressed": String(S.filter === f), onclick: () => { S.filter = f; draw(); } }, f === "all" ? "All" : LABEL[f]))),
     unread.length ? h("div", { class: "banner" }, `The lead has not read your ${unread.length} change${unread.length > 1 ? "s" : ""} yet. ${listening ? "It is being woken now."

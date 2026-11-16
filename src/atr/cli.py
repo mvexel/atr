@@ -158,6 +158,8 @@ def projects():
 
 def change(name, by, fn, args=None, base_rev=None):
     """Run one operation under the project's lock. A returned note records a change and raises the revision."""
+    if os.environ.get("ATR_SIDE"):
+        raise Refused(SIDE_ONLY_READS)
     d = project_dir(name)
     if not (d / "plan.json").exists():
         load(name)
@@ -1675,7 +1677,7 @@ class Handler(BaseHTTPRequestHandler):
             if parts == ["api", "sig"]:
                 # "" is not a project name, so it can carry the server's own state.
                 return self.send_json(
-                    {n: sig(load(n)) for n in projects()}
+                    {n: sig(load(n)) + side_sig(n) for n in projects()}
                     | {
                         "": {
                             "outdated": code_stamp() != self.started_with,
@@ -1694,8 +1696,9 @@ class Handler(BaseHTTPRequestHandler):
                         "lead_claim": read_claim(parts[2]),
                         "lead": lead_status(parts[2]),
                         "resumed": last_resume(parts[2]),
+                        "side": side_load(parts[2]),
                         "ready": [t["id"] for t in ready(plan)],
-                        "sig": sig(plan),
+                        "sig": sig(plan) + side_sig(parts[2]),
                     }
                 )
             if len(parts) == 4 and parts[:2] == ["api", "doc"]:
@@ -1743,6 +1746,14 @@ class Handler(BaseHTTPRequestHandler):
         parts = [p for p in self.path.split("?")[0].split("/") if p]
         if parts in (["api", "upgrade"], ["api", "restart"]):
             return self.upgrade_or_restart(parts[1])
+        if len(parts) == 3 and parts[:2] == ["api", "side"]:  # the page's side-question box
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+                return self.send_json({"ok": True, "id": side_ask(parts[2], body.get("question"), body.get("id"))})
+            except Refused as e:
+                return self.send_json({"error": str(e)}, 400)
+            except (ValueError, AttributeError) as e:
+                return self.send_json({"error": f"bad request: {e}"}, 400)
         if len(parts) == 3 and parts[:2] == ["api", "resume"]:  # the page's "Bring the lead back"
             try:
                 return self.send_json({"ok": True, "said": bring_back_lead(parts[2])})
@@ -1921,8 +1932,9 @@ def thread_tool(name):
     return next(iter(found)) if len(found) == 1 else ""
 
 
-def run_provider(name, tool, args, timeout=120):
-    """Run atr-lead-TOOL with `args` in the project's repo. Returns (exit code, stdout lines, why it failed)."""
+def run_provider(name, tool, args, timeout=120, env=None, raw=False):
+    """Run atr-lead-TOOL with `args` in the project's repo. Returns (exit code, stdout lines, why it failed);
+    with raw, stdout as it was printed instead of its lines. `env` is added to atr's own environment."""
     exe = lead_providers().get(tool)
     if not exe:
         return 127, [], f"no atr-lead-{tool} on your PATH"
@@ -1931,7 +1943,7 @@ def run_provider(name, tool, args, timeout=120):
         r = subprocess.run(
             [str(exe), *args],
             cwd=plan.get("repo") or None,
-            env={**{k: v for k, v in os.environ.items() if k != "ATR_AS"}, "ATR_PROJECT": name},
+            env={**{k: v for k, v in os.environ.items() if k != "ATR_AS"}, "ATR_PROJECT": name, **(env or {})},
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -1939,7 +1951,7 @@ def run_provider(name, tool, args, timeout=120):
         )
     except (OSError, subprocess.SubprocessError) as e:
         return 126, [], str(e)
-    lines = [x.strip() for x in r.stdout.strip().splitlines() if x.strip()]
+    lines = r.stdout if raw else [x.strip() for x in r.stdout.strip().splitlines() if x.strip()]
     why = (r.stderr.strip() or r.stdout.strip() or f"exit {r.returncode}").splitlines()[-1]
     return r.returncode, lines, why
 
@@ -2074,6 +2086,110 @@ def start_lead(name, tool="auto"):
         release(name)
         claim(name, thread, tool)
     return f"started the lead in {tool}: {link}"
+
+
+# ---- side questions: the owner asks about the project in a thread that only reads (G10) ----------------
+
+SIDE_ONLY_READS = "this thread answers a side question: it may read the plan, not change it"
+SIDE_READS = ("read", "next", "rules", "projects", "unread")  # the commands a side-question thread may run
+SIDE_TIMEOUT = 900  # seconds a provider gets to answer
+SIDE_KEEP = 50  # side questions kept per project
+SIDE_LOCK = threading.Lock()  # only atr serve writes side.json
+
+
+def side_file(name):
+    return project_dir(name) / "side.json"
+
+
+def side_load(name):
+    """The project's side questions, oldest first: [{"id", "thread", "tool", "turns": [{"q", "at", "state", "a"}]}].
+    Kept outside the plan (D34): asking bumps no revision and does not wake the lead."""
+    try:
+        items = json.loads(side_file(name).read_text())
+    except (OSError, ValueError):
+        return []
+    for e in items:  # atr serve stopped while a provider was answering: that answer is not coming
+        for t in e["turns"]:
+            if t["state"] == "thinking" and minutes_since(t["at"]) * 60 > SIDE_TIMEOUT + 60:
+                t.update(state="failed", a="No answer: atr serve stopped while it was being answered. Ask again.")
+    return items
+
+
+def side_update(name, fn):
+    with SIDE_LOCK:
+        items = side_load(name)
+        out = fn(items)
+        fd, tmp = tempfile.mkstemp(dir=project_dir(name), prefix=".side-")
+        with os.fdopen(fd, "w") as f:
+            json.dump(items[-SIDE_KEEP:], f, indent=1, ensure_ascii=False)
+        os.replace(tmp, side_file(name))
+        return out
+
+
+def side_sig(name):
+    """Changes when a side question is asked or answered, so the page redraws; not part of the plan's revision."""
+    try:
+        return f".{side_file(name).stat().st_mtime_ns:x}"
+    except OSError:
+        return ""
+
+
+def side_ask(name, question, qid=None):
+    """Ask a side question, or follow up on side question `qid` in its thread. The provider answers in the
+    background (side_run); returns the side question's id."""
+    question = (question or "").strip()
+    if not question:
+        raise Refused("write a question first")
+    load(name)
+    tool = thread_tool(name)
+    if not tool:
+        raise Refused("no single lead provider (atr-lead-<tool>) on your PATH to ask with")
+
+    def add(items):
+        if qid:
+            e = next((x for x in items if x["id"] == qid), None)
+            if not e:
+                raise Refused(f"no side question {qid}")
+            if e["turns"][-1]["state"] == "thinking":
+                raise Refused(f"{qid} is still being answered")
+            if not e.get("thread"):
+                raise Refused(f"{qid} has no thread to follow up in: ask it as a new question")
+        else:
+            n = max((int(x["id"][1:]) for x in items), default=0) + 1
+            e = {"id": f"Q{n}", "thread": "", "tool": tool, "turns": []}
+            items.append(e)
+        e["turns"].append({"q": question, "at": now(), "state": "thinking", "a": ""})
+        return e["id"], e.get("thread", "")
+
+    qid, thread = side_update(name, add)
+    threading.Thread(target=side_run, args=(name, qid, tool, question, thread), daemon=True).start()
+    return qid
+
+
+def side_run(name, qid, tool, question, thread):
+    """Have the provider answer (`atr-lead-TOOL ask PROJECT QUESTION [THREAD]`, under ATR_SIDE=1, so atr refuses
+    every change from it) and store what it said: a first line `thread-id: ID`, then the answer."""
+    code, out, why = run_provider(
+        name, tool, ["ask", name, question, *([thread] if thread else [])],
+        timeout=SIDE_TIMEOUT, env={"ATR_SIDE": "1"}, raw=True,
+    )
+    out = out if isinstance(out, str) else ""
+    head, _, rest = out.lstrip().partition("\n")
+    said = head.split(":", 1)[1].strip() if head.startswith("thread-id:") else ""
+    answer = rest.strip() if said else out.strip()
+
+    def store(items):
+        e = next((x for x in items if x["id"] == qid), None)
+        if not e:
+            return
+        if said:
+            e["thread"] = said
+        ok = code == 0 and answer
+        e["turns"][-1].update(state="answered" if ok else "failed",
+                              a=answer if ok else f"atr-lead-{tool} did not answer: {why}")
+
+    with contextlib.suppress(OSError, ValueError, Refused):
+        side_update(name, store)
 
 
 def repo_root(here):
@@ -2296,7 +2412,10 @@ def main(argv=None):
     x.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     by = "you" if os.environ.get("ATR_AS") == "you" else "agent"
+    side = bool(os.environ.get("ATR_SIDE"))  # a side-question thread (G10): it reads, it never changes anything
     try:
+        if side and a.cmd not in SIDE_READS:
+            raise Refused(SIDE_ONLY_READS)
         if a.cmd == "install":
             return install(Path(a.dir).expanduser())
         if a.cmd == "service":
@@ -2358,6 +2477,8 @@ def main(argv=None):
         name = find_project(a.project)
         if a.cmd == "read":
             plan = load(name)
+            if side:  # reading is all it does: the lead's unread changes stay unread
+                return print(render(plan, unread(plan)))
             if not plan.get("repo") and not (a.project or os.environ.get("ATR_PROJECT")):
                 # found through this folder's .atr: this is the project's repo (projects made before atr kept it)
                 plan = change(name, by, op_set_repo, {"repo": str(repo_root(Path.cwd()))})[0]
