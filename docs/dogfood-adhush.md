@@ -94,3 +94,8 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
 - The owner asked for a reality check ("how likely are we to make this work?"). atr has nothing for that:
   the plan shows tasks and decisions, but not how confident the lead is that a goal can be met. A per-goal
   "outlook" line the lead keeps current (like `atr now` for goals) might have answered it before they asked.
+- **A worker died with the lead's session, and atr still said "doing".** The T12 worker stopped when the
+  lead's session ended. It left no commits, and atr kept showing T12 in progress with its last progress
+  line. The "no news for a while" marker on the page is the only hint. atr cannot know a worker is gone;
+  a lead starting a session should check its `doing` tasks against what is actually running. A SessionStart
+  hook could prompt exactly that.
