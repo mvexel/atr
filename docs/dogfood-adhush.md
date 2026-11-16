@@ -58,3 +58,6 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
 - A worker agent did T8. Only the lead runs atr, so the worker's ~10 judgment calls came back in its
   report and the lead had to record them by hand, condensing them into 4 decisions. Workers need a way to
   record decisions (`--by worker-name`?), or atr should accept a batch of them.
+- **The page could go quietly stale.** It skips refreshes while a text box has typing in it, and the owner
+  saw T8 as "in progress" after it was done. It now says when it is holding back changes, and catches up
+  when focus leaves the box. (Probable cause, not confirmed: the owner may simply have had an old tab open.)
