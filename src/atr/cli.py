@@ -1107,6 +1107,144 @@ def sig(plan):
 # ---- web -----------------------------------------------------------------------------------------
 
 
+# ---- versions: is there a newer atr, and how this one upgrades itself ---------------------------------------
+
+RELEASES = "https://api.github.com/repos/mvexel/atr/releases/latest"
+CHECK_EVERY = 6 * 3600
+
+
+def version():
+    """The version this atr runs: the checkout's pyproject.toml, else the installed package's."""
+    pyproject = HERE.parent.parent / "pyproject.toml"
+    if pyproject.is_file():
+        import tomllib
+
+        with contextlib.suppress(OSError, ValueError, KeyError):
+            return tomllib.loads(pyproject.read_text())["project"]["version"]
+    from importlib import metadata
+
+    try:
+        return metadata.version("atr")
+    except metadata.PackageNotFoundError:
+        return "0"
+
+
+def vtuple(v):
+    return tuple(int(x) for x in re.findall(r"\d+", v.split("-")[0])[:3]) or (0,)
+
+
+def newer(latest, current):
+    """True when release tag `latest` (v0.4.0) is a later version than `current`."""
+    return bool(latest) and vtuple(latest) > vtuple(current)
+
+
+def latest_release():
+    """{"version", "url"} of the latest GitHub release, or None when GitHub does not answer."""
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(RELEASES, headers={"Accept": "application/vnd.github+json", "User-Agent": "atr"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            body = json.loads(r.read())
+        return {"version": body["tag_name"].lstrip("v"), "url": body.get("html_url", "")}
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def check_release(now=None):
+    """One round of the release check: ask GitHub unless it was asked less than 6 h ago (by this server or the
+    one before a restart), and keep what it said in Handler.latest. Returns the seconds until the next round.
+    When GitHub does not answer, the page hears nothing and atr asks again in 6 h."""
+    now = time.time() if now is None else now
+    cache = data_dir() / ".release.json"
+    try:
+        seen = json.loads(cache.read_text())
+    except (OSError, ValueError):
+        seen = {}
+    if seen.get("latest"):
+        Handler.latest = seen["latest"]
+    wait = seen.get("checked", -CHECK_EVERY) + CHECK_EVERY - now
+    if 0 < wait <= CHECK_EVERY:  # more than 6 h ahead: the clock went back, so ask
+        return wait
+    found = latest_release()
+    if found:
+        Handler.latest = found
+    with contextlib.suppress(OSError):
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"checked": now, "latest": found or seen.get("latest")}))
+    return CHECK_EVERY
+
+
+def watch_releases():
+    """For atr serve: check for a newer release now and every 6 h, in the background, so the page never waits."""
+    import threading
+
+    def loop():
+        while True:
+            time.sleep(check_release())
+
+    threading.Thread(target=loop, daemon=True).start()
+
+
+def install_kind():
+    """How this atr is installed: 'checkout' (a git clone, linked by atr install), 'uv' (uv tool install),
+    or '' when atr cannot tell."""
+    if (HERE.parent.parent / ".git").exists():
+        return "checkout"
+    if "tools" in Path(sys.prefix).parts and Path(sys.prefix).name == "atr":
+        return "uv"
+    return ""
+
+
+def upgrade_steps():
+    """The commands that upgrade this atr, as (what, argv, needed). The page never sends a command: only these
+    run. A step that is not needed (the Claude Code plugin) may fail without failing the upgrade."""
+    kind, root = install_kind(), HERE.parent.parent
+    if kind == "checkout":
+        git = ["git", "-C", str(root)]
+        branch = subprocess.run([*git, "branch", "--show-current"], capture_output=True, text=True, check=False)
+        if branch.stdout.strip() != "main":
+            raise Refused(f"the atr checkout at {root} is not on main: upgrade it by hand")
+        dirty = subprocess.run([*git, "status", "--porcelain", "--untracked-files=no"], capture_output=True, text=True, check=False)
+        if dirty.returncode or dirty.stdout.strip():
+            raise Refused(f"the atr checkout at {root} has local changes: upgrade it by hand")
+        steps = [("atr", [*git, "pull", "--ff-only"], True)]
+    elif kind == "uv":
+        uv = shutil.which("uv") or str(Path.home() / ".local/bin/uv")
+        steps = [("atr", [uv, "tool", "upgrade", "atr"], True)]
+    else:
+        raise Refused("atr cannot tell how it was installed: upgrade it the way you installed it")
+    claude = shutil.which("claude")
+    if claude:
+        listed = subprocess.run([claude, "plugin", "list"], capture_output=True, text=True, timeout=60, check=False)
+        if "atr@atr" in listed.stdout:
+            steps.append(("the Claude Code plugin", [claude, "plugin", "update", "atr@atr"], False))
+    return steps
+
+
+def upgrade():
+    """Run upgrade_steps(); returns (ok, report lines)."""
+    lines, ok = [], True
+    for what, argv, needed in upgrade_steps():
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=300, check=False)
+            said = (r.stdout + r.stderr).strip().splitlines()
+            done = r.returncode == 0
+        except (OSError, subprocess.SubprocessError) as e:
+            said, done = [str(e)], False
+        lines.append(f"{what}: {'upgraded' if done else 'failed'}" + (f" ({said[-1]})" if said else ""))
+        ok = ok and (done or not needed)
+    return ok, lines
+
+
+def restart():
+    """Replace this process with a fresh one running the same command: the new code, the same port.
+    Under launchd or systemd it stays the same service; in a terminal it keeps the terminal."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os.execv(sys.executable, [sys.executable, *sys.orig_argv[1:]])
+
+
 def code_stamp():
     """What the code on disk looks like now; the server compares it with the stamp it started with."""
     st = Path(__file__).resolve().stat()
@@ -1116,6 +1254,8 @@ def code_stamp():
 class Handler(BaseHTTPRequestHandler):
     allowed_hosts: ClassVar[set[str]] = set()
     started_with: ClassVar[tuple] = ()
+    latest: ClassVar[dict] = {}
+    restart = staticmethod(restart)  # tests replace it
     server_version = "atr"
 
     def log_message(self, format, *a):
@@ -1156,7 +1296,13 @@ class Handler(BaseHTTPRequestHandler):
                 # "" is not a project name, so it can carry the server's own state.
                 return self.send_json(
                     {n: sig(load(n)) for n in projects()}
-                    | {"": {"outdated": code_stamp() != self.started_with}}
+                    | {
+                        "": {
+                            "outdated": code_stamp() != self.started_with,
+                            "version": version(),
+                            "latest": self.latest if newer(self.latest.get("version"), version()) else None,
+                        }
+                    }
                 )
             if len(parts) == 3 and parts[:2] == ["api", "p"]:
                 plan = load(parts[2])
@@ -1188,11 +1334,33 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": str(e)}, 404)
         self.send_json({"error": "not found"}, 404)
 
+    def upgrade_or_restart(self, what):
+        """POST /api/upgrade runs the upgrade for how atr is installed, then restarts; /api/restart only restarts
+        (the code on disk changed under a running server). The answer goes out before the restart."""
+        import threading
+
+        try:
+            if what == "upgrade":
+                if not newer(self.latest.get("version"), version()):
+                    raise Refused("there is no newer atr to upgrade to")
+                ok, lines = upgrade()
+                if not ok:
+                    return self.send_json({"error": "The upgrade did not finish: " + "; ".join(lines), "log": lines}, 500)
+            else:
+                lines = []
+        except Refused as e:
+            return self.send_json({"error": str(e)}, 400)
+        self.send_json({"ok": True, "log": lines, "restarting": True})
+        self.wfile.flush()
+        threading.Timer(0.5, type(self).restart).start()
+
     def do_POST(self):
         # The custom header forces a browser preflight, which this server never grants: other sites cannot post here.
         if not self.host_ok() or self.headers.get("X-Atr") != "1":
             return self.send_json({"error": "not allowed"}, 403)
         parts = [p for p in self.path.split("?")[0].split("/") if p]
+        if parts in (["api", "upgrade"], ["api", "restart"]):
+            return self.upgrade_or_restart(parts[1])
         try:
             body = json.loads(
                 self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}"
@@ -1480,6 +1648,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(
         prog="atr", description="A goal tree, tasks and decisions for a team of agents."
     )
+    ap.add_argument("--version", action="version", version=f"atr {version()}")
     ap.add_argument(
         "-p",
         "--project",
@@ -1617,7 +1786,9 @@ def main(argv=None):
                 *(h.lower() for h in a.allow_host),
             }
             Handler.started_with = code_stamp()
-            print(f"atr: {data_dir()} at http://{a.host}:{a.port}/")
+            if os.environ.get("ATR_UPDATE_CHECK") != "0":
+                watch_releases()
+            print(f"atr: {data_dir()} at http://{a.host}:{a.port}/", flush=True)
             return ThreadingHTTPServer((a.host, a.port), Handler).serve_forever()
         if a.cmd == "init":
             d = project_dir(a.name)

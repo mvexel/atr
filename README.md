@@ -71,6 +71,16 @@ user unit on Linux) that runs `atr serve` at login and restarts it if it stops. 
 `uv tool upgrade atr` to restart on the new code; `atr service uninstall` removes it. It needs a real
 install (`uv tool install` or a checkout), not `uvx`. Logs: `/tmp/atr.log` on macOS, `journalctl --user -u atr` on Linux.
 
+**Upgrading.** `atr serve` asks GitHub for the latest atr release at most every 6 hours, in the background,
+and says nothing if GitHub does not answer (`ATR_UPDATE_CHECK=0` turns the check off). When a release is newer
+than the version you run (`atr --version`, also at the foot of the page), the page offers **Upgrade and
+restart**. The server picks the command from how atr is installed: `git pull --ff-only` for a checkout
+(refused when it is not on `main` or has local changes: upgrade it by hand), `uv tool upgrade atr` for a uv
+tool install, plus `claude plugin update atr@atr` when the Claude Code plugin is installed. It then restarts
+itself with the same arguments, under `atr service` or in a terminal, and the page reloads. Restart your
+Claude Code sessions to load an updated plugin. A release bumps `version` in `pyproject.toml`, the plugin's
+`plugin.json` and `.claude-plugin/marketplace.json` together (a test keeps them equal) and is tagged `vX.Y.Z`.
+
 To open the page from a phone on your tailnet: `atr serve --host 0.0.0.0 --allow-host my-laptop.tailnet.ts.net`.
 The page has no login, so only bind it to networks you trust.
 
