@@ -413,6 +413,16 @@ class Plan(Base):
         self.you("task_check", id="T1", ok=True)
         self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], ["T2"])
 
+    def test_parking_with_a_reason_tells_the_lead_why(self):
+        self.cli("task", "add", "G1", "later")
+        self.cli("read")
+        self.you("task_prune", id="T1", mode="park", why="after the trip")
+        out = self.cli("read")[1]
+        self.assertIn("parked T1 \"later\": after the trip", out)
+        self.assertIn("owner's reason: after the trip", out)
+        self.you("task_restore", id="T1")
+        self.assertNotIn("pruned_why", self.task("T1"))
+
 
 class Web(Base):
     def setUp(self):

@@ -234,7 +234,7 @@ function waitsFor(plan, id, target, seen = new Set()) {
   return !!t && t.after.some(a => a === target || waitsFor(plan, a, target, seen));
 }
 function startLine(t, plan) {
-  if (t.status === "parked") return h("span", { class: "after" }, "won't start until you restore it");
+  if (t.status === "parked") return h("span", { class: "after" }, "won't start until you restore it" + (t.pruned_why ? ` · ${short(t.pruned_why, 50)}` : ""));
   if (t.status === "review") return h("span", { class: "pill you" }, "your turn: check it");
   if (t.status !== "todo") return null;
   const waits = t.after.filter(a => plan.tasks.find(o => o.id === a)?.status !== "done");
@@ -284,7 +284,10 @@ function taskNode(t, plan) {
       (chosen, rejected) => act("decide", { on: t.id, chosen, rejected: rejected ? [rejected] : [] }), "Record") : null,
     h("div", { class: "btns" },
       pruned ? btn("Restore", () => act("task_restore", { id: t.id })) : [btn("Rename", edit("tt" + t.id)), btn("Record a decision", edit("dc" + t.id)),
-        btn("Park", () => act("task_prune", { id: t.id, mode: "park" })), btn("Drop", () => act("task_prune", { id: t.id, mode: "drop" }), "d")])));
+        // A reason (optional) tells the lead what you mean; a bare park reads as a trail of clicks.
+        ["park", "drop"].map(mode => S.editing === mode + t.id
+          ? form(mode + t.id, [{ label: `Why ${mode} it? (optional)` }], why => act("task_prune", { id: t.id, mode, why }), mode === "park" ? "Park" : "Drop")
+          : btn(mode === "park" ? "Park…" : "Drop…", edit(mode + t.id), mode === "drop" ? "d" : ""))])));
   return node;
 }
 

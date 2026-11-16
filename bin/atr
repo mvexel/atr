@@ -558,10 +558,15 @@ def op_task_prune(plan, by, a):
     was = t["status"]
     if was in ("parked", "dropped"):
         raise Refused(f"{t['id']} is already {was}")
+    why = " ".join((a.get("why") or "").split())
     t.update(status=mode, pruned_by="you", was=was, stopped=was != "doing")
     t.pop("blocked_by", None)
-    return f"{mode} {label(t)}" + (
-        " while it was in progress" if was == "doing" else ""
+    if why:
+        t["pruned_why"] = why
+    return (
+        f"{mode} {label(t)}"
+        + (" while it was in progress" if was == "doing" else "")
+        + (f": {why}" if why else "")
     )
 
 
@@ -571,7 +576,7 @@ def op_task_restore(plan, by, a):
     if t["status"] not in ("parked", "dropped"):
         raise Refused(f"{t['id']} is not parked or dropped")
     t["status"] = "todo"
-    for k in ("pruned_by", "was", "stopped"):
+    for k in ("pruned_by", "was", "stopped", "pruned_why"):
         t.pop(k, None)
     return f"restored {label(t)}"
 
@@ -875,6 +880,7 @@ def render(plan, since):
             bits = [f"after {', '.join(t['after'])}"] if t["after"] else []
             bits += [f"{d['id']} needs owner" for d in held_by(plan, t)]
             bits += [t["owner"]] if t["owner"] else []
+            bits += [f"owner's reason: {t['pruned_why']}"] if t.get("pruned_why") else []
             out.append(
                 f"   {t['id']:<4} {t['status']:<8} {t['title']}"
                 + (f"  ({'; '.join(bits)})" if bits else "")
