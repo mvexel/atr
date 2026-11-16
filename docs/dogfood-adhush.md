@@ -91,3 +91,6 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
   with no extra prompting beyond the brief. The worker's decisions still came back only in its report, so
   the lead recorded them by hand (D16-D18).
 - Workers run `atr` by its full path (`~/dev/atr/bin/atr -p adhush`), because atr is not on the PATH yet.
+- The owner asked for a reality check ("how likely are we to make this work?"). atr has nothing for that:
+  the plan shows tasks and decisions, but not how confident the lead is that a goal can be met. A per-goal
+  "outlook" line the lead keeps current (like `atr now` for goals) might have answered it before they asked.
