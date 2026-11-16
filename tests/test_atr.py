@@ -1098,6 +1098,24 @@ class Versions(unittest.TestCase):
         self.assertEqual({atr.version(), plugin, market}, {atr.version()})
         self.assertGreater(atr.vtuple(atr.version()), (0, 3, 0))  # past the last release before versions were kept
 
+    def test_every_push_to_main_releases_the_next_version(self):
+        spec = importlib.util.spec_from_file_location("release_version", ROOT / "scripts/release_version.py")
+        rv = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rv)
+        self.assertEqual(rv.next_version("0.4.1", {"v0.4.0", "v0.4.1"}), "0.4.2")  # released: bump the patch
+        self.assertEqual(rv.next_version("0.5.0", {"v0.4.1"}), "0.5.0")  # bumped by hand in a PR: as is
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name, _ in rv.FILES:
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / name).write_text((ROOT / name).read_text())
+            rv.write(root, "9.8.7")
+            self.assertEqual(rv.current(root), "9.8.7")
+            plugin = json.loads((root / "extensions/claude-code/.claude-plugin/plugin.json").read_text())["version"]
+            market = json.loads((root / ".claude-plugin/marketplace.json").read_text())["plugins"][0]["version"]
+            self.assertEqual((plugin, market), ("9.8.7", "9.8.7"))
+            self.assertIn('name = "atr"\nversion = "9.8.7"', (root / "uv.lock").read_text())
+
     def test_the_command_line_reports_the_version(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
