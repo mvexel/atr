@@ -155,6 +155,30 @@ class Plan(Base):
         self.assertEqual(self.cli("unread")[0], 1)
         self.assertEqual(self.cli("decide", "T1", "x", "--owner", "--hard")[0], 2)
 
+    def test_wait_returns_owner_changes_and_times_out_without_them(self):
+        code, out = self.cli("wait", "--json")                    # the goal added in setUp is already unread
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["unread"][0]["what"], 'added goal G1 "Sign in"')
+        self.cli("read")
+        self.assertEqual(self.cli("wait", "--timeout", "0")[0], 1)
+
+    def test_a_running_wait_shows_the_lead_is_listening_until_the_owner_acts(self):
+        self.cli("read")
+        got = []
+        th = threading.Thread(target=lambda: got.append(atr.wait("demo", 10)))
+        th.start()
+        for _ in range(50):
+            if atr.waiting("demo"):
+                break
+            threading.Event().wait(0.05)
+        self.assertTrue(atr.waiting("demo"))
+        self.assertIn('"lead_waiting": true', self.cli("unread", "--json")[1])
+        self.agent("task_add", goal="G1", title="the lead's own change")  # does not wake the lead
+        self.you("goal_add", title="Recovery")
+        th.join(5)
+        self.assertEqual([c["what"] for c in got[0]], ['added goal G2 "Recovery"'])
+        self.assertFalse(atr.waiting("demo"))
+
     def test_move_reorders_and_changes_goal(self):
         self.you("goal_add", title="Second")
         for title in ("a", "b"):

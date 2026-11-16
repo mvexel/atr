@@ -51,15 +51,14 @@ The page has no login, so only bind it to networks you trust.
 `ATR_AS=you atr goal add "title" --done ".."` adds a goal without the page. Agents are told not to set `ATR_AS`;
 atr cannot tell who is typing, so this is a convention, not a lock.
 
-## Plugins
+## Extensions
 
-atr has no harness-specific code. Two optional pieces can live outside it, per agent tool:
+atr's core has no code for any particular agent tool. An extension connects atr to one tool: it shows the
+lead the owner's changes when a turn starts, holds a turn that is about to end while changes are unread,
+and wakes an idle lead when the owner acts (`atr wait`). [docs/EXTENSIONS.md](docs/EXTENSIONS.md) describes
+the commands and rules an extension builds on.
 
-- **A turn hook** that runs `atr read` for the lead automatically, where the tool supports hooks.
-- **A doorbell** that wakes an idle lead: poll `atr unread --json` (exit 0 when there are unread owner changes;
-  the output includes the lead's thread link) and call the tool's own way of messaging a thread.
-
-Neither ships here yet.
+Shipped here: [Claude Code](extensions/claude-code/).
 
 ## Tests
 

@@ -6,6 +6,7 @@ through the same operations below; nothing is pushed to agents, the lead runs `a
 """
 
 import argparse
+import contextlib
 import fcntl
 import json
 import os
@@ -14,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -192,6 +194,40 @@ def unread(plan):
         for c in plan["changes"]
         if c["by"] == "you" and c["rev"] > plan["lead"]["read_rev"]
     ]
+
+
+def waiting(name):
+    """True while an `atr wait` for this project is running: the lead will be woken by owner changes."""
+    try:
+        os.kill(int((project_dir(name) / ".waiting").read_text()), 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def wait(name, timeout):
+    """Block until the owner changes something the lead has not read. Returns the unread changes, or [] on timeout.
+
+    Registers itself in the project's .waiting file so the page and extensions can tell the lead is listening.
+    """
+    path, mark = project_dir(name) / "plan.json", project_dir(name) / ".waiting"
+    mark.write_text(str(os.getpid()))
+    deadline, seen = time.monotonic() + timeout, None
+    try:
+        while True:
+            mtime = path.stat().st_mtime_ns
+            if mtime != seen:
+                seen = mtime
+                items = unread(load(name))
+                if items:
+                    return items
+            if time.monotonic() >= deadline:
+                return []
+            time.sleep(1)
+    finally:
+        with contextlib.suppress(OSError, ValueError):
+            if int(mark.read_text()) == os.getpid():
+                mark.unlink()
 
 
 # ---- operations: fn(plan, by, args) -> note ------------------------------------------------------
@@ -596,11 +632,12 @@ def summary(plan):
         + sum(bool(g.get("proposed")) for g in plan["goals"]),
         "to_review": sum(d["state"] == "to_review" for d in plan["decisions"]),
         "unread": len(unread(plan)),
+        "lead_waiting": waiting(plan["name"]),
     }
 
 
 def sig(plan):
-    return f"{plan['rev']}.{plan['lead']['read_rev']}.{sum(bool(t.get('stopped')) for t in plan['tasks'])}"
+    return f"{plan['rev']}.{plan['lead']['read_rev']}.{sum(bool(t.get('stopped')) for t in plan['tasks'])}.{int(waiting(plan['name']))}"
 
 
 # ---- web -----------------------------------------------------------------------------------------
@@ -652,6 +689,7 @@ class Handler(BaseHTTPRequestHandler):
                     {
                         "plan": plan,
                         "unread": unread(plan),
+                        "lead_waiting": waiting(parts[2]),
                         "ready": [t["id"] for t in ready(plan)],
                         "sig": sig(plan),
                     }
@@ -772,6 +810,12 @@ def main(argv=None):
         help="for plugins: owner changes the lead has not read (exit 1 when none)",
     )
     x.add_argument("--json", action="store_true")
+    x = sub.add_parser(
+        "wait",
+        help="for plugins: block until the owner changes something the lead has not read (exit 1 on timeout)",
+    )
+    x.add_argument("--timeout", type=float, default=3600, help="seconds (default 3600)")
+    x.add_argument("--json", action="store_true")
     sub.add_parser("next", help="unblocked tasks to start now")
     x = sub.add_parser("goal", help="propose a goal to the owner")
     x.add_argument("action", choices=["propose", "add"])
@@ -859,15 +903,16 @@ def main(argv=None):
             if not a.peek:
                 change(name, by, op_mark_read)
             return
-        if a.cmd == "unread":
+        if a.cmd in ("unread", "wait"):
             plan = load(name)
-            items = unread(plan)
+            items = unread(plan) if a.cmd == "unread" else wait(name, a.timeout)
             if a.json:
                 print(
                     json.dumps(
                         {
                             "project": name,
                             "lead_thread": plan["lead"]["thread"],
+                            "lead_waiting": waiting(name),
                             "unread": items,
                         }
                     )

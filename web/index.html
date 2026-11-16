@@ -250,7 +250,7 @@ function goalNode(g, plan, tasks) {
 }
 
 function drawProject() {
-  const { plan, unread } = S.data;
+  const { plan, unread, lead_waiting: listening } = S.data;
   const waiting = plan.decisions.filter(d => d.state === "needs_you"), proposed = plan.goals.filter(g => g.proposed);
   const review = plan.decisions.filter(d => d.state === "to_review");
   const unstopped = plan.tasks.filter(t => t.pruned_by && t.stopped === false);
@@ -260,11 +260,12 @@ function drawProject() {
   document.title = (waiting.length + proposed.length ? `(${waiting.length + proposed.length}) ` : "") + plan.title + " · atr";
   mount(app, 
     h("div", { class: "top" }, h("button", { class: "back", onclick: () => location.hash = "" }, "← All projects"), h("span", { class: "sp" }),
+      listening && h("span", { class: "muted small", title: "Your changes wake the lead right away" }, "Lead listening"),
       plan.lead.thread && h("a", { href: plan.lead.thread, target: "_blank", rel: "noopener" }, "Lead thread ↗")),
     h("h1", {}, plan.title),
     h("div", { class: "chips" }, ["all", "doing", "blocked", "todo", "done"].map(f =>
       h("button", { class: "chip", "aria-pressed": String(S.filter === f), onclick: () => { S.filter = f; draw(); } }, f === "all" ? "All" : LABEL[f]))),
-    unread.length ? h("div", { class: "banner" }, `The lead has not read your ${unread.length} change${unread.length > 1 ? "s" : ""} yet. It picks them up on its next turn; nudge it in its thread if it is idle.`,
+    unread.length ? h("div", { class: "banner" }, `The lead has not read your ${unread.length} change${unread.length > 1 ? "s" : ""} yet. ${listening ? "It is being woken now." : "It picks them up on its next turn; nudge it in its thread if it is idle."}`,
       h("ul", {}, unread.slice(-5).map(c => h("li", {}, c.what)))) : null,
     unstopped.length ? h("div", { class: "banner" }, "Waiting for the lead to stop work on " + unstopped.map(t => t.id).join(", ") + ".") : null,
     waiting.map(card),
