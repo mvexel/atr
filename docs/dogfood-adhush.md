@@ -1,6 +1,6 @@
 # Dogfooding atr on adhush
 
-adhush (`~/dev/adhush`, atr project `adhush`): a macOS menu bar app that mutes commercials in audio the Mac
+adhush (discarded 2026-11-16; summary in [learnings-adhush.md](learnings-adhush.md)): a macOS menu bar app that mutes commercials in audio the Mac
 plays. Used as a real project to find where atr gets in the lead's or the owner's way.
 
 Each entry: what happened, what it says about atr, and what changed (or why nothing did).
