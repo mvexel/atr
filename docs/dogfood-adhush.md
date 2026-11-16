@@ -61,3 +61,6 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
 - **The page could go quietly stale.** It skips refreshes while a text box has typing in it, and the owner
   saw T8 as "in progress" after it was done. It now says when it is holding back changes, and catches up
   when focus leaves the box. (Probable cause, not confirmed: the owner may simply have had an old tab open.)
+- **The owner could not tell if or when a task would start.** The page showed "after T1" whether T1 was done
+  or not, and nothing for a task that could start now. Each to-do now says when it starts. Parked tasks say
+  they won't start until restored.
