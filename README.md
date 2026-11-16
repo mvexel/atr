@@ -52,6 +52,10 @@ Python 3.13+ on macOS or Linux (tested on 3.14), no dependencies.
    cd ~/dev/my-repo
    atr init my-project "My project"   # creates the project and a .atr pointer file here; commit it
    ```
+   If a lead provider is on your `PATH` (a program named `atr-lead-<tool>`, such as the Claude Code
+   extension's `atr-lead-claude-code`), `init` also starts the lead thread in that tool and stores its link.
+   With several providers it starts none and names them: pick one with `atr lead --start TOOL`.
+   `--lead TOOL` picks one up front, `--lead none` skips it. A provider that fails never fails `init`.
 4. **Give the lead its rules.** Append them to the file your agent reads:
    ```sh
    atr rules >> AGENTS.md             # or CLAUDE.md
@@ -90,7 +94,8 @@ The page has no login, so only bind it to networks you trust.
 | `atr outlook G1 unsure "half the ads"` | the lead's current read on whether a goal can be met as written (`likely`, `unsure`, `unlikely`) |
 | `atr attach T3 file-or-link` | link a document; files are copied into the project so they outlive a worktree |
 | `atr watch NAME` | follow another project from this folder (`--stop` to stop): the hooks and `atr wait` cover it too |
-| `atr lead URL` | store the lead's thread link |
+| `atr lead URL` | store the lead's thread link (or the command that opens it, for a tool without URLs) |
+| `atr lead --start TOOL` | start a lead thread with the provider `atr-lead-TOOL` and store its link (`auto`: the one on `PATH`) |
 | `atr projects` | list projects with done, waiting and to-review counts |
 | `atr service install` | keep `atr serve` running in the background (`uninstall` removes it) |
 | `atr rules` | print the rule block for `AGENTS.md` / `CLAUDE.md` |
@@ -104,7 +109,8 @@ atr cannot tell who is typing, so this is a convention, not a lock.
 
 atr's core has no code for any particular agent tool. An extension connects atr to one tool: it shows the
 lead the owner's changes when a turn starts, holds a turn that is about to end while changes are unread,
-and wakes an idle lead when the owner acts (`atr wait`). [docs/EXTENSIONS.md](docs/EXTENSIONS.md) describes
+and wakes an idle lead when the owner acts (`atr wait`). It can also ship a lead provider, which
+`atr init` uses to start the lead thread. [docs/EXTENSIONS.md](docs/EXTENSIONS.md) describes
 the commands and rules an extension builds on.
 
 Shipped here: [Claude Code](extensions/claude-code/).

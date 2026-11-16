@@ -366,7 +366,10 @@ function drawProject() {
   mount(app,
     h("div", { class: "top" }, h("button", { class: "back", onclick: () => location.hash = "" }, "← All projects"), h("span", { class: "sp" }),
       listening && h("span", { class: "muted small", title: "Your changes wake the lead right away" }, "Lead listening"),
-      plan.lead.thread && h("a", { href: plan.lead.thread, target: "_blank", rel: "noopener" }, "Lead thread ↗")),
+      plan.lead.thread && (/^https?:\/\//.test(plan.lead.thread)
+        ? h("a", { href: plan.lead.thread, target: "_blank", rel: "noopener" }, "Lead thread ↗")
+        // A local tool's thread has no URL; its provider stores the command that opens it.
+        : h("span", { class: "muted small", title: "Run this in a terminal to open the lead" }, "Lead: ", h("code", { style: "user-select:all" }, plan.lead.thread)))),
     h("h1", {}, plan.title),
     workingOn(plan),
     h("div", { class: "chips" }, ["all", "doing", "blocked", "review", "todo", "done"].map(f =>

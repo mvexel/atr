@@ -1204,6 +1204,15 @@ def install(where):
         where.mkdir(parents=True, exist_ok=True)
         link.symlink_to(me)
         print(f"linked {link} -> {me}")
+    for provider in sorted((HERE.parent.parent / "extensions").glob("*/bin/atr-lead-*")):
+        plink = where / provider.name
+        if plink.is_symlink() and plink.resolve() == provider.resolve():
+            continue
+        if plink.exists() or plink.is_symlink():
+            print(f"{plink} exists and is not this atr's; left it alone")
+            continue
+        plink.symlink_to(provider)
+        print(f"linked {plink} -> {provider}")
     dirs = [Path(p).expanduser().resolve() for p in os.environ.get("PATH", "").split(os.pathsep) if p]
     if where.resolve() not in dirs:
         print(f"{where} is not on your PATH: add it in your shell profile, e.g. export PATH=\"{where}:$PATH\"")
@@ -1285,6 +1294,56 @@ def service(a):
             raise Refused(f"{' '.join(c)} failed: {r.stderr.strip()}")
     print(f"wrote {path}\natr serve now runs at login and restarts if it stops: http://{a.host}:{a.port}/")
     print("after upgrading atr, run `atr service install` again to restart it on the new code")
+
+
+def lead_providers():
+    """Programs named atr-lead-<tool> on PATH, by tool: each starts a lead thread in one agent tool."""
+    found = {}
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        try:
+            entries = sorted(Path(d).glob("atr-lead-*")) if d else []
+        except OSError:
+            continue
+        for exe in entries:
+            tool = exe.name.removeprefix("atr-lead-")
+            if tool and tool not in found and exe.is_file() and os.access(exe, os.X_OK):
+                found[tool] = exe
+    return found
+
+
+def start_lead(name, tool="auto"):
+    """Start the project's lead thread through a provider and store the link it prints.
+
+    Returns a line for the owner. Never raises for a provider's failure: a project without a lead is still a project.
+    """
+    found = lead_providers()
+    if tool == "auto":
+        if not found:
+            return "No lead provider (atr-lead-<tool>) on your PATH: start your lead agent here and have it run `atr lead LINK`."
+        if len(found) > 1:
+            return f"Several lead providers: {', '.join(found)}. Start one with `atr lead --start TOOL`."
+        tool = next(iter(found))
+    if tool not in found:
+        return f"No atr-lead-{tool} on your PATH" + (f" (found: {', '.join(found)})" if found else "") + "."
+    plan = load(name)
+    try:
+        r = subprocess.run(
+            [str(found[tool]), name, plan["title"]],
+            cwd=plan.get("repo") or None,
+            env={**{k: v for k, v in os.environ.items() if k != "ATR_AS"}, "ATR_PROJECT": name},
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        return f"atr-lead-{tool} could not start the lead: {e}"
+    link = (r.stdout.strip().splitlines() or [""])[-1].strip()
+    if r.returncode or not link:
+        why = (r.stderr.strip() or r.stdout.strip() or f"exit {r.returncode}").splitlines()[-1]
+        return f"atr-lead-{tool} did not start the lead: {why}\nTo try again: atr lead --start {tool}"
+    change(name, "agent", op_lead, {"thread": link})
+    return f"started the lead in {tool}: {link}"
 
 
 def repo_root(here):
@@ -1406,6 +1465,12 @@ def main(argv=None):
     x = sub.add_parser("init", help="create a project and point this folder at it")
     x.add_argument("name")
     x.add_argument("title", nargs="?")
+    x.add_argument(
+        "--lead",
+        default="auto",
+        metavar="TOOL",
+        help="start the lead thread with atr-lead-TOOL (default auto: the one provider on PATH; none: skip)",
+    )
     x = sub.add_parser("install", help="put atr on your PATH (a link to this file)")
     x.add_argument("--dir", default="~/.local/bin", help="where the link goes (default ~/.local/bin)")
     x = sub.add_parser("service", help="keep `atr serve` running in the background (launchd or systemd)")
@@ -1502,8 +1567,9 @@ def main(argv=None):
     )
     x.add_argument("id")
     x.add_argument("text", nargs="+")
-    x = sub.add_parser("lead", help="store the lead's thread link")
-    x.add_argument("thread")
+    x = sub.add_parser("lead", help="store the lead's thread link, or start a lead thread (--start)")
+    x.add_argument("thread", nargs="?")
+    x.add_argument("--start", metavar="TOOL", help="start the lead thread with atr-lead-TOOL ('auto': the one on PATH)")
     a = ap.parse_args(argv)
     by = "you" if os.environ.get("ATR_AS") == "you" else "agent"
     try:
@@ -1553,9 +1619,10 @@ def main(argv=None):
             )
             if not Path(".atr").exists():
                 Path(".atr").write_text(a.name + "\n")
-            return print(
-                f"created {d}\nwrote .atr here (commit it). Next: add goals on the page (atr serve), and add `atr rules` to AGENTS.md or CLAUDE.md."
-            )
+            print(f"created {d}\nwrote .atr here (commit it).")
+            if a.lead != "none":
+                print(start_lead(a.name, a.lead))
+            return print("Next: add goals on the page (atr serve), and add `atr rules` to AGENTS.md or CLAUDE.md.")
         if a.cmd == "watch":
             here = repo_root(Path.cwd())
             if a.name:
@@ -1644,6 +1711,10 @@ def main(argv=None):
             fn, args = op_attach, {"on": a.on, "src": a.src, "title": a.title}
         elif a.cmd == "now":
             fn, args = op_task_now, {"id": a.id, "text": " ".join(a.text)}
+        elif a.start:
+            return print(start_lead(name, a.start))
+        elif not a.thread:
+            raise Refused("usage: atr lead LINK, or atr lead --start TOOL")
         else:
             fn, args = op_lead, {"thread": a.thread}
         if a.cmd == "decide" and a.by:
