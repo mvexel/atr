@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""atr lead provider for Claude Code: start the project's lead as a background Claude Code session.
+
+Usage (from `atr init` or `atr lead --start`): atr-lead-claude-code PROJECT [TITLE], run in the project's repo.
+Prints the command that opens the lead (`claude attach <id>`), which atr stores as the lead link.
+Finds Claude Code via CLAUDE_BIN or PATH.
+"""
+
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+PROMPT = (
+    "You are the lead of the atr project {project} ({title}); its plan lives in atr. "
+    "Run `atr rules` and follow those rules for the rest of this session, then run `atr read`. "
+    "If the project has no goals yet, tell the owner to add one on the atr page, with a done test, and wait: "
+    "the atr plugin wakes you when they act."
+)
+
+
+def main(argv):
+    if not argv:
+        print("usage: atr-lead-claude-code PROJECT [TITLE]", file=sys.stderr)
+        return 2
+    project, title = argv[0], (argv[1] if len(argv) > 1 else argv[0])
+    exe = os.environ.get("CLAUDE_BIN") or shutil.which("claude")
+    if not exe:
+        print("Claude Code (claude) is not on PATH", file=sys.stderr)
+        return 1
+    try:
+        r = subprocess.run(
+            [exe, "--bg", "-n", f"{project} · lead", PROMPT.format(project=project, title=title)],
+            capture_output=True,
+            text=True,
+            timeout=90,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"could not run claude: {e}", file=sys.stderr)
+        return 1
+    m = re.search(r"backgrounded\s*·\s*([0-9A-Za-z-]+)", r.stdout)
+    if r.returncode or not m:
+        print(r.stderr.strip() or r.stdout.strip() or f"claude exited {r.returncode}", file=sys.stderr)
+        return 1
+    print(f"claude attach {m.group(1)}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

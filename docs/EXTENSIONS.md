@@ -8,7 +8,7 @@ cron job. atr itself stays harness-free; an extension is a small adapter that ca
 
 ## What an extension does
 
-An extension can do any of these three jobs. Each one is useful on its own.
+An extension can do any of these four jobs. Each one is useful on its own.
 
 1. **Turn start.** When the lead's turn starts, show it what the owner changed. Run `atr unread`. If it
    exits 0, run `atr read` and put the output into the lead's context.
@@ -20,6 +20,25 @@ An extension can do any of these three jobs. Each one is useful on its own.
    that re-invokes the session. Hand the lead the owner's changes from `atr wait --json` (`what`, `op`,
    `args`) so it can act without asking. Then run `atr wait` again. The Claude Code extension does this
    with an `asyncRewake` hook, so the lead never has to arm it.
+
+4. **Lead provider.** Start the lead thread when the owner creates a project. Ship an executable named
+   `atr-lead-<tool>` (see below); `atr init` and `atr lead --start` run it.
+
+## Lead providers
+
+A lead provider is any executable on `PATH` named `atr-lead-<tool>`. atr runs it as
+`atr-lead-<tool> PROJECT TITLE`, in the project's repo, with `ATR_PROJECT` set, and waits up to two minutes.
+
+- **Success:** exit 0 and print the lead's link as the last line of stdout. atr stores it as the lead
+  thread (`atr lead`). An `http(s)` link shows on the page as a link; anything else, such as the command
+  that opens a local session, shows as text to copy.
+- **Failure:** exit non-zero and say why on stderr. atr shows the last line to the owner and stores
+  nothing. `atr init` still succeeds.
+- Start the lead so it reads its rules (`atr rules`) and the plan (`atr read`). The new project has no
+  goals yet, so the lead should say so and wait for the owner.
+
+`atr init` uses the provider when exactly one is on `PATH` (`--lead TOOL` picks one, `--lead none` skips).
+`atr install` (from a checkout) links every `extensions/*/bin/atr-lead-*` next to `atr`.
 
 ## The contract
 

@@ -24,6 +24,14 @@ While it listens, the page shows "Lead listening".
 
 The plugin does nothing in folders without a `.atr` file.
 
+**Starting the lead.** `bin/atr-lead-claude-code` is a lead provider: with it on your `PATH`, `atr init`
+starts the lead as a background Claude Code session (`claude --bg`), named `<project> · lead`, told to
+read `atr rules` and the plan and wait for your first goal. atr stores `claude attach <id>`, which the page
+shows next to the project title: run it to open the lead. `atr install` from a checkout links the provider
+next to `atr`; otherwise link it yourself, e.g. `ln -s ~/dev/atr/extensions/claude-code/bin/atr-lead-claude-code ~/.local/bin/`.
+Claude Code has to trust the repo first (run `claude` there once); until then the provider says so and
+`init` goes on without a lead. Set `CLAUDE_BIN` if `claude` is not on your `PATH`.
+
 ## Install
 
 atr has to be on your `PATH`, or set `ATR_BIN` to its full path:

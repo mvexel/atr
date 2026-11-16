@@ -42,7 +42,7 @@ class Base(unittest.TestCase):
         cwd = os.getcwd()
         os.chdir(self.tmp.name)
         self.addCleanup(os.chdir, cwd)
-        self.cli("init", "demo", "Demo")
+        self.cli("init", "demo", "Demo", "--lead", "none")
         self.you("goal_add", title="Sign in", done_when="it works")
 
     def cli(self, *args):
@@ -377,6 +377,8 @@ class Plan(Base):
         code, out = self.cli("install", "--dir", str(bindir))
         self.assertEqual(code, 0, out)
         self.assertEqual((bindir / "atr").resolve(), SOURCE.resolve())
+        provider = ROOT / "extensions/claude-code/bin/atr-lead-claude-code"
+        self.assertEqual((bindir / provider.name).resolve(), provider.resolve())  # lead providers come along
         self.assertIn("not on your PATH", out)
         self.assertIn("already points", self.cli("install", "--dir", str(bindir))[1])
         (bindir / "atr").unlink()
@@ -621,6 +623,91 @@ class Service(Base):
         atr.sys.executable = "/c/uv/archive-v0/abc/bin/python"
         with self.assertRaises(atr.Refused):
             atr.serve_command()
+
+
+class LeadProviders(Base):
+    """atr init starts the lead through an atr-lead-<tool> program on PATH and stores the link it prints."""
+
+    def setUp(self):
+        super().setUp()
+        self.bin = Path(self.tmp.name) / "bin"
+        self.bin.mkdir()
+        old = os.environ["PATH"]
+        # only the providers this test makes, and a python3 for the Claude Code provider's shebang
+        python = self.bin.parent / "python"
+        python.mkdir()
+        (python / "python3").symlink_to(sys.executable)
+        os.environ["PATH"] = os.pathsep.join((str(self.bin), str(python)))
+        self.addCleanup(os.environ.__setitem__, "PATH", old)
+        self.repo = Path(self.tmp.name) / "repo"
+        self.repo.mkdir()
+        os.chdir(self.repo)
+
+    def provider(self, tool, body):
+        exe = self.bin / f"atr-lead-{tool}"
+        exe.write_text(f"#!{sys.executable}\nimport os, sys\n{body}\n")
+        exe.chmod(0o755)
+
+    def fake_claude(self, body):
+        claude = self.bin / "claude"
+        claude.write_text(f"#!{sys.executable}\nimport sys, json, pathlib\n{body}\n")
+        claude.chmod(0o755)
+        (self.bin / "atr-lead-claude-code").symlink_to(ROOT / "extensions/claude-code/bin/atr-lead-claude-code")
+
+    def init(self, *args):
+        code, out = self.cli("init", "fresh", "Fresh", *args)
+        self.assertEqual(code, 0, out)
+        return out, atr.load("fresh")["lead"]["thread"]
+
+    def test_init_starts_the_one_provider_and_stores_its_link(self):
+        self.provider("tool", "print('starting'); print(f'tool://{sys.argv[1]}/{sys.argv[2]}/{os.environ[\"ATR_PROJECT\"]}/{os.getcwd()}')")
+        out, link = self.init()
+        self.assertEqual(link, f"tool://fresh/Fresh/fresh/{Path.cwd().resolve()}")
+        self.assertIn("started the lead in tool", out)
+        self.assertFalse(atr.unread(atr.load("fresh")))  # storing the link is not news for the new lead
+
+    def test_init_works_as_before_without_a_provider(self):
+        out, link = self.init()
+        self.assertEqual(link, "")
+        self.assertIn("No lead provider", out)
+        self.assertTrue(Path(".atr").exists())
+
+    def test_several_providers_start_none_until_one_is_picked(self):
+        self.provider("one", "print('one://x')")
+        self.provider("two", "print('two://x')")
+        out, link = self.init()
+        self.assertEqual(link, "")
+        self.assertIn("one, two", out)
+        self.cli("-p", "fresh", "lead", "--start", "two")
+        self.assertEqual(atr.load("fresh")["lead"]["thread"], "two://x")
+
+    def test_a_failing_provider_never_fails_init(self):
+        self.provider("tool", "print('Workspace not trusted', file=sys.stderr); sys.exit(1)")
+        out, link = self.init()
+        self.assertEqual(link, "")
+        self.assertIn("did not start the lead: Workspace not trusted", out)
+
+    def test_lead_none_skips_and_an_unknown_tool_is_named(self):
+        self.provider("tool", "print('tool://x')")
+        self.assertEqual(self.init("--lead", "none")[1], "")
+        self.assertIn("No atr-lead-other", self.cli("-p", "fresh", "lead", "--start", "other")[1])
+
+    def test_claude_code_provider_starts_a_background_session(self):
+        self.fake_claude(
+            f"pathlib.Path({self.tmp.name!r}, 'claude-args').write_text(json.dumps(sys.argv[1:]))\n"
+            "print('backgrounded · 85aade68 · fresh · lead')"
+        )
+        out, link = self.init()
+        self.assertEqual(link, "claude attach 85aade68")
+        args = json.loads((Path(self.tmp.name) / "claude-args").read_text())
+        self.assertEqual(args[:3], ["--bg", "-n", "fresh · lead"])
+        self.assertIn("atr rules", args[3])
+
+    def test_claude_code_provider_passes_claudes_complaint_on(self):
+        self.fake_claude("print('Workspace not trusted. Run claude once.'); raise SystemExit(1)")
+        out, link = self.init()
+        self.assertEqual(link, "")
+        self.assertIn("Workspace not trusted", out)
 
 
 class ClaudeCodeExtension(Base):
