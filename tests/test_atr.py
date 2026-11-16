@@ -428,12 +428,28 @@ class Plan(Base):
         self.cli("decide", "T1", "spike two paths")
         self.cli("decide", "T1", "stdlib only")
         self.cli("task", "set", "T1", "status=done")
-        self.assertEqual((self.task("T1")["status"], self.task("T1")["note"]), ("review", "review D1, D2"))
+        # the page lists D1 and D2 beside the check, so no note repeats them
+        self.assertEqual((self.task("T1")["status"], self.task("T1")["note"]), ("review", ""))
         self.you("review", id="D1", verdict="accept")
         self.assertEqual(self.task("T1")["status"], "review")
         self.you("review", id="D2", verdict="accept")
         self.assertEqual(self.task("T1")["status"], "done")
         self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], ["T2"])
+
+    def test_one_check_passes_a_task_and_accepts_its_calls(self):
+        # G13: the owner judges the work once, not the task and then each decision again
+        self.cli("task", "add", "G1", "build")
+        self.cli("decide", "T1", "stdlib only")
+        self.cli("decide", "T1", "sqlite")
+        self.you("review", id="D2", verdict="overturn", note="files are enough")
+        self.cli("task", "set", "T1", "status=review", "note=PR #3, tests pass")
+        self.you("task_check", id="T1", note="not yet")
+        self.assertEqual(atr.get(atr.load("demo"), "decisions", "D1")["state"], "to_review")  # not right settles no call
+        self.cli("task", "set", "T1", "status=review")
+        plan = self.you("task_check", id="T1", ok=True)
+        self.assertEqual([d["state"] for d in plan["decisions"]], ["accepted", "overturned"])  # an overturn stands
+        self.assertEqual(plan["changes"][-1]["what"], 'checked T1 "build": it is right, accepting D1')
+        self.assertEqual(self.task("T1")["status"], "done")
 
     def test_owner_changes_carry_the_action_as_data(self):
         self.cli("task", "add", "G1", "build")

@@ -315,6 +315,7 @@ function startLine(t, plan) {
 }
 function taskNode(t, plan) {
   const on = plan.decisions.filter(d => d.on === t.id), files = plan.docs.filter(d => d.on === t.id);
+  const unreviewed = on.filter(d => d.state === "to_review");
   const pruned = t.status === "parked" || t.status === "dropped";
   const node = h("div", { class: `task s-${t.status}` + (isNew(t) ? " new" : ""), "data-id": t.id });
   const marks = on.filter(d => d.state !== "accepted").map(d => h("span", { class: "pill" + (d.state === "needs_you" ? " you" : "") },
@@ -340,7 +341,9 @@ function taskNode(t, plan) {
     (t.owner || t.thread) && h("div", { class: "muted small" }, t.owner && `Worker: ${t.owner} `, t.thread && threadLink(t.thread)),
     on.map(d => decision(d, plan)), docs(files),
     t.status === "review" && h("div", { class: "card" }, h("div", { class: "k" }, "The lead asks you to check this"), t.note && h("div", {}, t.note),
-      h("div", { class: "btns" }, btn("It's right", () => act("task_check", { id: t.id, ok: true }), "p"),
+      // One judgment (G13): passing the task accepts its calls still to review; overturn one above first if it is wrong.
+      unreviewed.length ? h("div", { class: "muted small" }, `It's right also accepts ${unreviewed.map(d => d.id).join(", ")}, shown above; overturn one there first if it is wrong.`) : null,
+      h("div", { class: "btns" }, btn(unreviewed.length ? `It's right, accept ${unreviewed.map(d => d.id).join(", ")}` : "It's right", () => act("task_check", { id: t.id, ok: true }), "p"),
         S.editing === "ck" + t.id ? form("ck" + t.id, [{ label: "What is wrong?" }], note => act("task_check", { id: t.id, note }), "Send back") : btn("Not right…", edit("ck" + t.id)))),
     h("div", { class: "btns" },
       t.after.map(a => btn(`after ${a} ✕`, () => act("dep", { id: t.id, other: a, remove: true }))),
