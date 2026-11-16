@@ -415,11 +415,12 @@ def op_task_stopped(plan, by, a):
 def op_agree(plan, by, a):
     """The owner accepts the plan as it stands: tasks agents add after this show as new."""
     owner_only(by, "agree the plan")
-    new = [t for t in plan["tasks"] if not t.get("agreed")]
-    for t in new:
+    # Only open tasks are news: one the lead already finished, or the owner parked, is past.
+    new = [t for t in plan["tasks"] if not t.get("agreed") and t["status"] in OPEN]
+    for t in plan["tasks"]:
         t["agreed"] = True
     return (
-        f"agreed the plan as it stands ({len(new)} new task{'s' if len(new) != 1 else ''})"
+        f"agreed the plan as it stands ({len(new)} new open task{'s' if len(new) != 1 else ''})"
         if new
         else None
     )

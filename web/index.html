@@ -172,7 +172,7 @@ function nowLine(t) {
   const last = t.now_at || t.doing_since;
   return h("div", { class: "now" + (last && quietFor(last) > 30 ? " quiet" : "") }, said);
 }
-const isNew = t => !t.agreed && !["parked", "dropped"].includes(t.status);
+const isNew = t => !t.agreed && ["todo", "doing", "blocked"].includes(t.status);  // finished work is not news
 const status = s => h("span", { class: "st " + s }, h("i"), LABEL[s]);
 function form(key, fields, save, saveLabel) {
   // An inline form; `key` keeps it open across redraws.

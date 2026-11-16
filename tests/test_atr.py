@@ -220,6 +220,14 @@ class Plan(Base):
         self.cli("task", "add", "G1", "drift")
         self.assertEqual([t.get("agreed") for t in atr.load("demo")["tasks"]], [True, False])
 
+    def test_finished_tasks_are_not_counted_as_new(self):
+        self.cli("task", "add", "G1", "done already")
+        self.cli("task", "add", "G1", "still open")
+        self.cli("task", "set", "T1", "status=done")
+        plan = atr.change("demo", "you", atr.OPS["agree"], {})[1]
+        self.assertEqual(plan, "agreed the plan as it stands (1 new open task)")
+        self.assertTrue(all(t["agreed"] for t in atr.load("demo")["tasks"]))
+
     def test_attach_copies_the_file_into_the_project(self):
         Path("findings.md").write_text("# found\n")
         self.cli("task", "add", "G1", "build")
