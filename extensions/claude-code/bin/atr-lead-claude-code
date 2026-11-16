@@ -5,8 +5,11 @@ Usage, run by atr in the project's repo:
   atr-lead-claude-code PROJECT [TITLE]   start the lead (`atr init`, `atr lead --start`): `claude --bg`
   atr-lead-claude-code resume ID [MSG]   bring thread ID back with its context: `claude --bg --resume ID`
   atr-lead-claude-code alive ID          exit 0 when thread ID is running, 1 when it is not (`claude agents --json`)
+  atr-lead-claude-code ask PROJECT QUESTION [ID]
+                                         answer the owner's side question, read-only (`claude -p` in plan mode;
+                                         with ID, a follow-up in that session)
 Start and resume print the session's id (`thread-id: <id>`), so atr knows which session it is, then the
-command that opens it (`claude attach <id>`), which atr stores as the lead link.
+command that opens it (`claude attach <id>`), which atr stores as the lead link. Ask prints the id, then the answer.
 Finds Claude Code via CLAUDE_BIN or PATH.
 """
 
@@ -24,6 +27,16 @@ PROMPT = (
     "the atr plugin wakes you when they act."
 )
 
+
+SIDE = (
+    "The owner of the atr project {project} asks you a side question about it. You only answer: read the plan "
+    "with `atr read` (it marks nothing read here), and the repo's code and history as you need, but change "
+    "nothing (no files, no plan, no task status) and do not start any work. Answer briefly, in plain prose; "
+    "the owner reads it on the atr page.\n\nThe question: {question}"
+)
+# What a side question may do: plan mode keeps it to reading; these let it read the plan and the history.
+SIDE_TOOLS = ["Read", "Grep", "Glob", "Bash(atr read*)", "Bash(atr next*)", "Bash(git log*)", "Bash(git show*)",
+              "Bash(git diff*)", "Bash(git status*)", "Bash(gh pr view*)", "Bash(gh pr list*)"]
 
 RESUMED = "atr resumed you, in the same session. Run `atr read` and carry on where you left off."
 
@@ -56,6 +69,33 @@ def alive(exe, thread):
     return 1
 
 
+def ask(exe, project, question, thread=""):
+    """One answer from `claude -p`, which ends once it has answered; a follow-up resumes the same session."""
+    args = ["-p", "--output-format", "json", "--permission-mode", "plan", "--allowedTools", *SIDE_TOOLS,
+            "--disallowedTools", "Edit", "Write", "NotebookEdit"]
+    if thread:
+        args += ["--resume", thread]
+    prompt = question if thread else SIDE.format(project=project, question=question)
+    r = claude(exe, [*args, "--", prompt], timeout=880)
+    if r is None:
+        return 1
+    result = None
+    for line in reversed(r.stdout.strip().splitlines()):  # the result is the last JSON line claude prints
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(d, dict) and "result" in d:
+            result = d
+            break
+    if r.returncode or not result or result.get("is_error"):
+        print((result or {}).get("result") or r.stderr.strip() or f"claude exited {r.returncode}", file=sys.stderr)
+        return 1
+    print(f"thread-id: {result.get('session_id') or thread}")
+    print(result["result"])
+    return 0
+
+
 def started(r, fallback=""):
     """Print what atr reads from `claude --bg`: the session's id and the command that opens it."""
     m = re.search(r"backgrounded\s*·\s*([0-9A-Za-z-]+)", r.stdout)
@@ -70,7 +110,7 @@ def started(r, fallback=""):
 
 def main(argv):
     if not argv:
-        print("usage: atr-lead-claude-code PROJECT [TITLE] | resume ID [MESSAGE] | alive ID", file=sys.stderr)
+        print("usage: atr-lead-claude-code PROJECT [TITLE] | resume ID [MESSAGE] | alive ID | ask PROJECT QUESTION [ID]", file=sys.stderr)
         return 2
     exe = os.environ.get("CLAUDE_BIN") or shutil.which("claude")
     if not exe:
@@ -78,6 +118,8 @@ def main(argv):
         return 2 if argv[0] == "alive" else 1
     if argv[0] == "alive" and len(argv) > 1:
         return alive(exe, argv[1])
+    if argv[0] == "ask" and len(argv) > 2:
+        return ask(exe, argv[1], argv[2], argv[3] if len(argv) > 3 else "")
     if argv[0] == "resume" and len(argv) > 1:
         r = claude(exe, ["--bg", "--resume", argv[1], argv[2] if len(argv) > 2 else RESUMED])
         return 1 if r is None else started(r, argv[1])

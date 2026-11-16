@@ -955,6 +955,135 @@ class LeadProviders(Base):
         self.assertEqual(json.loads((Path(self.tmp.name) / "claude-args").read_text()), ["--bg", "--resume", "85aade68-1", "carry on"])
 
 
+class SideQuestions(LeadProviders):
+    """G10: the owner asks about the project; a provider thread answers it, and can only read (D32-D34)."""
+
+    def setUp(self):
+        super().setUp()
+        self.cli("-p", "demo", "read")  # the lead is up to date
+        self.addCleanup(os.environ.pop, "ATR_SIDE", None)
+
+    def answered(self, name="demo", qid="Q1"):
+        for _ in range(200):
+            e = next(x for x in atr.side_load(name) if x["id"] == qid)
+            if e["turns"][-1]["state"] != "thinking":
+                return e
+            time.sleep(0.02)
+        self.fail("the side question was never answered")
+
+    def test_a_side_thread_reads_the_plan_but_changes_nothing(self):
+        self.you("goal_add", title="Unread by the lead")
+        os.environ["ATR_SIDE"] = "1"
+        code, out = self.cli("-p", "demo", "read")
+        self.assertEqual(code, 0)
+        self.assertIn("Unread by the lead", out)
+        for args in (("task", "add", "G1", "sneaky"), ("now", "T1", "x"), ("lead", "--claim", "s9"), ("wait", "--timeout", "0")):
+            code, out = self.cli("-p", "demo", *args)
+            self.assertEqual(code, 2, args)
+            self.assertIn("side question", out)
+        with self.assertRaises(atr.Refused):
+            self.agent("task_add", goal="G1", title="through the back door")
+        os.environ.pop("ATR_SIDE")
+        self.assertTrue(atr.unread(atr.load("demo")))  # the lead still has the owner's change to read
+
+    def test_a_side_question_is_answered_and_followed_up_in_its_thread(self):
+        self.provider("tool", (
+            "import json, pathlib\n"
+            f"log = pathlib.Path({self.tmp.name!r}, 'asks')\n"
+            "log.write_text((log.read_text() if log.exists() else '') + json.dumps([sys.argv[1:], os.environ.get('ATR_SIDE')]) + '\\n')\n"
+            "print('thread-id: side-1'); print('Two goals.'); print(); print('- G1 is open')"
+        ))
+        rev = atr.load("demo")["rev"]
+        self.assertEqual(atr.side_ask("demo", " How far along is it? "), "Q1")
+        e = self.answered()
+        self.assertEqual((e["thread"], e["turns"][0]["a"]), ("side-1", "Two goals.\n\n- G1 is open"))
+        self.assertEqual(atr.side_ask("demo", "And G1?", "Q1"), "Q1")
+        e = self.answered()
+        self.assertEqual([t["q"] for t in e["turns"]], ["How far along is it?", "And G1?"])
+        asks = [json.loads(x) for x in (Path(self.tmp.name) / "asks").read_text().splitlines()]
+        self.assertEqual(asks, [[["ask", "demo", "How far along is it?"], "1"], [["ask", "demo", "And G1?", "side-1"], "1"]])
+        plan = atr.load("demo")
+        self.assertEqual(plan["rev"], rev)  # not a change to the plan, and nothing for the lead to read
+        self.assertFalse(atr.unread(plan))
+        with self.assertRaises(atr.Refused):
+            atr.side_ask("demo", "   ")
+
+    def test_a_failed_answer_says_why_and_a_lost_one_is_not_left_thinking(self):
+        self.provider("tool", "print('not logged in', file=sys.stderr); sys.exit(1)")
+        atr.side_ask("demo", "Anything?")
+        e = self.answered()
+        self.assertEqual(e["turns"][0]["state"], "failed")
+        self.assertIn("not logged in", e["turns"][0]["a"])
+        with self.assertRaises(atr.Refused):  # no thread came back to follow up in
+            atr.side_ask("demo", "again?", "Q1")
+        atr.side_update("demo", lambda items: items.append(
+            {"id": "Q2", "thread": "", "tool": "tool", "turns": [{"q": "old", "at": "2020-01-01T00:00Z", "state": "thinking", "a": ""}]}))
+        self.assertEqual(self.answered(qid="Q2")["turns"][0]["state"], "failed")
+
+    def test_without_a_provider_nothing_is_asked(self):
+        with self.assertRaises(atr.Refused):
+            atr.side_ask("demo", "Anything?")
+        self.assertEqual(atr.side_load("demo"), [])
+
+    def test_claude_code_provider_answers_read_only_and_resumes_for_a_follow_up(self):
+        self.fake_claude(
+            f"pathlib.Path({self.tmp.name!r}, 'claude-args').write_text(json.dumps(sys.argv[1:]))\n"
+            "print('{\"type\": \"system\"}')\n"
+            "print(json.dumps({'type': 'result', 'is_error': False, 'session_id': 'abc-123', 'result': 'It is **fine**.'}))"
+        )
+        exe = str(self.bin / "atr-lead-claude-code")
+        def args():
+            return json.loads((Path(self.tmp.name) / "claude-args").read_text())
+
+        r = subprocess.run([exe, "ask", "demo", "How is it?"], capture_output=True, text=True, check=False)
+        self.assertEqual((r.returncode, r.stdout), (0, "thread-id: abc-123\nIt is **fine**.\n"))
+        a = args()
+        self.assertEqual(a[:5], ["-p", "--output-format", "json", "--permission-mode", "plan"])
+        self.assertIn("Edit", a[a.index("--disallowedTools"):])
+        self.assertNotIn("--resume", a)
+        self.assertIn("How is it?", a[-1])
+        self.assertIn("change nothing", a[-1])
+        subprocess.run([exe, "ask", "demo", "Sure?", "abc-123"], capture_output=True, text=True, check=False)
+        a = args()
+        self.assertEqual(a[a.index("--resume") + 1], "abc-123")
+        self.assertEqual(a[-1], "Sure?")
+
+    def test_claude_code_provider_passes_an_error_on(self):
+        self.fake_claude("print(json.dumps({'type': 'result', 'is_error': True, 'result': 'Credit balance is too low'}))")
+        r = subprocess.run([str(self.bin / "atr-lead-claude-code"), "ask", "demo", "Hm?"], capture_output=True, text=True, check=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("Credit balance is too low", r.stderr)
+
+    def test_the_page_asks_and_shows_side_questions(self):
+        self.provider("tool", "print('thread-id: t1'); print('Yes.')")
+        atr.Handler.allowed_hosts = {"127.0.0.1", "localhost"}
+        server = ThreadingHTTPServer(("127.0.0.1", 0), atr.Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{server.server_port}"
+
+        def call(path, body=None, headers=None):
+            req = urllib.request.Request(base + path, data=None if body is None else json.dumps(body).encode(),
+                                         headers={"Content-Type": "application/json", "X-Atr": "1"} if headers is None else headers)
+            try:
+                with urllib.request.urlopen(req) as r:
+                    return r.status, json.loads(r.read())
+            except urllib.error.HTTPError as e:
+                with e:
+                    return e.code, json.loads(e.read())
+
+        sig = call("/api/sig")[1]["demo"]
+        self.assertEqual(call("/api/side/demo", {"question": "Done?"}, headers={})[0], 403)
+        self.assertEqual(call("/api/side/demo", {"question": "Done?"}), (200, {"ok": True, "id": "Q1"}))
+        self.assertEqual(call("/api/side/demo", {"question": ""})[0], 400)
+        self.answered()
+        _, body = call("/api/p/demo")
+        self.assertEqual(body["side"][0]["turns"][0]["a"], "Yes.")
+        self.assertNotEqual(call("/api/sig")[1]["demo"], sig)  # the page redraws when an answer comes
+        self.assertEqual(body["sig"], call("/api/sig")[1]["demo"])
+
+
 class Versions(unittest.TestCase):
     def test_release_tags_compare_as_versions(self):
         self.assertTrue(atr.newer("v0.10.0", "0.4.0"))
@@ -1269,6 +1398,14 @@ class ClaudeCodeExtension(Base):
 
     def test_session_start_gives_the_plan(self):
         self.assertIn("G1 Sign in", self.hook("session-start"))
+
+    def test_a_side_question_session_hears_nothing_and_claims_nothing(self):
+        os.environ["ATR_SIDE"] = "1"
+        self.addCleanup(os.environ.pop, "ATR_SIDE", None)
+        for event in ("session-start", "prompt", "stop", "listen", "session-end"):
+            self.assertEqual(self.hook(event, session_id="side-1"), "", event)
+        os.environ.pop("ATR_SIDE")
+        self.assertFalse(atr.read_claim("demo"))
 
     def test_turn_end_holds_only_for_unread_changes(self):
         self.assertIn("atr read", json.loads(self.hook("stop"))["reason"])

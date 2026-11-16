@@ -82,6 +82,16 @@ itself with the same arguments, under `atr service` or in a terminal, and the pa
 Claude Code sessions to load an updated plugin. A release bumps `version` in `pyproject.toml`, the plugin's
 `plugin.json` and `.claude-plugin/marketplace.json` together (a test keeps them equal) and is tagged `vX.Y.Z`.
 
+## Side questions
+
+Each project's page has a box to ask a side question about it ("why is T7 blocked?", "what did G3 change?").
+`atr serve` hands it to the lead provider, which answers in a new thread of the same tool in the project's
+repo; the answer shows under the box, with a box to follow up in that thread (and, for Claude Code, the
+`claude --resume ID` command to carry on in a terminal). That thread only reads: it sees the plan, code and
+history, but atr refuses every change from it (`ATR_SIDE`), and with Claude Code it runs in plan mode with the
+edit tools off. Side questions are kept beside the plan, not in it, so asking one never wakes the lead.
+See [docs/EXTENSIONS.md](docs/EXTENSIONS.md#lead-providers) for the provider's `ask` verb.
+
 ## Pull requests
 
 A pull request sits on a goal, not a task: `atr pr G1 URL --for T3` (the lead, or the worker that opened it).

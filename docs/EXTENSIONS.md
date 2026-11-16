@@ -41,18 +41,27 @@ A lead provider is any executable on `PATH` named `atr-lead-<tool>`. atr runs it
 - Start the lead so it reads its rules (`atr rules`) and the plan (`atr read`). The new project has no
   goals yet, so the lead should say so and wait for the owner.
 
-A provider also answers two verbs (atr passes them as the first argument, so a provider must check for them
+A provider also answers three verbs (atr passes them as the first argument, so a provider must check for them
 before it reads a project name):
 
 | Call | Answer |
 | --- | --- |
 | `atr-lead-<tool> resume ID [MESSAGE]` | bring thread `ID` back with its context and give it `MESSAGE`; exit 0 and print `thread-id: ID` and its link as for a start, or exit non-zero and say why on stderr |
 | `atr-lead-<tool> alive ID` | exit 0 when thread `ID` is running, 1 when it is not, anything else when it cannot tell |
+| `atr-lead-<tool> ask PROJECT QUESTION [ID]` | answer the owner's side question in a new thread, or as a follow-up in thread `ID`, reading only; exit 0 and print `thread-id: ID`, then the answer (markdown), or exit non-zero and say why on stderr |
 
 The Claude Code provider runs `claude --bg --resume ID MESSAGE` and `claude agents --json`. atr uses them
 to bring back a lead that is gone (it starts a fresh lead with the start call when the resume fails) and a
 worker the lead asks for (`atr resume T3`), and to check, before calling a lead gone, that its tool does not
 still run it. atr picks the provider that started the lead, or the one on `PATH`.
+
+**Side questions.** The page has a box on each project where the owner asks about it. `atr serve` runs
+`ask` in the background (up to 15 minutes) with `ATR_SIDE=1` set, and shows the answer under the box with a
+follow-up box. Under `ATR_SIDE` atr runs only `read` (which then marks nothing read), `next`, `rules`,
+`projects` and `unread`, and refuses every change; an extension's hooks should stay quiet in such a session
+(no lead claim, no listener, no worker rules). Side questions are kept in the project's `side.json`, outside
+the plan: they raise no revision and never wake the lead. The Claude Code provider runs `claude -p` in plan
+mode with the edit tools off, and `--resume ID` for a follow-up.
 
 `atr init` uses the provider when exactly one is on `PATH` (`--lead TOOL` picks one, `--lead none` skips).
 `atr install` (from a checkout) links every `extensions/*/bin/atr-lead-*` next to `atr`.
