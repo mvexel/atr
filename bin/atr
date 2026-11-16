@@ -41,8 +41,9 @@ except that a worker may report progress on its own task: `atr now T3 "what is h
 4. Record every judgment call: `atr decide T3 "what you chose" --why "..." --rejected "..."`.
    If it is hard to undo, add `--hard` and do not act: the task blocks until the owner answers.
    Check earlier decisions before proposing something that was already rejected.
-5. Start work from `atr next` (at most 3 tasks running). Attach what you write for the owner:
-   `atr attach T3 path/to/findings.md`.
+5. Start work from `atr next` (at most 3 tasks running). Work only the owner can do (record, test by
+   hand, grant a permission) gets `atr task set T3 owner=you`: it shows as their turn, not yours.
+   Attach what you write for the owner: `atr attach T3 path/to/findings.md`.
 """
 
 
@@ -170,14 +171,22 @@ def reaches(plan, start, target):
     return False
 
 
+def owners_turn(t):
+    """Work only the owner can do (owner=you): never offered to the lead, shown to the owner as their turn."""
+    return t["owner"] == "you"
+
+
 def ready(plan):
-    """Unblocked tasks to start now: at most MAX_RUNNING running, most-depended-on first."""
+    """Unblocked tasks the lead can start now: at most MAX_RUNNING running, most-depended-on first."""
     proposed = {g["id"] for g in plan["goals"] if g.get("proposed")}
     running = sum(t["status"] == "doing" for t in plan["tasks"])
     cand = [
         t
         for t in plan["tasks"]
-        if t["status"] == "todo" and t["goal"] not in proposed and deps_done(plan, t)
+        if t["status"] == "todo"
+        and t["goal"] not in proposed
+        and deps_done(plan, t)
+        and not owners_turn(t)
     ]
     weight = {
         t["id"]: sum(
@@ -637,6 +646,17 @@ def render(plan, since):
                 f"  - {d['id']} {d['on']}: {tag}{d['chosen']}{rej}"
                 + (f" | owner: {d['note']}" if d["note"] else "")
             )
+    yours = [
+        t
+        for t in plan["tasks"]
+        if t["status"] in ("todo", "doing") and owners_turn(t) and deps_done(plan, t)
+    ]
+    if yours:
+        out += [
+            "",
+            "THE OWNER'S TURN (only they can do these; do not start them): "
+            + ", ".join(label(t) for t in yours),
+        ]
     nxt = ready(plan)
     running = sum(t["status"] == "doing" for t in plan["tasks"])
     out += [

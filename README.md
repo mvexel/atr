@@ -40,7 +40,7 @@ The page has no login, so only bind it to networks you trust.
 | `atr read` | the plan, plus what the owner changed since the last read (`--peek` does not mark it read) |
 | `atr next` | unblocked tasks to start now; at most 3 run at once |
 | `atr task add G1 "title" --after T1,T2` | add a task under a goal; refused without an accepted goal |
-| `atr task set T3 status=doing thread=URL owner=NAME` | update a task; `doing` is refused while dependencies or a card are open; `after=T2` adds a dependency |
+| `atr task set T3 status=doing thread=URL owner=NAME` | update a task; `doing` is refused while dependencies or a card are open; `after=T2` adds a dependency; `owner=you` marks work only the owner can do |
 | `atr task stopped T3 "what was left"` | confirm work stopped on a task the owner dropped or parked |
 | `atr decide T3 "chosen" --why ".." --rejected ".."` | record a judgment call; `--hard` asks the owner instead and blocks the task; `--owner` records something the owner said (it is not shown back to the lead as unread) |
 | `atr goal propose "title" --done ".."` | suggest a goal; it gets no tasks until the owner accepts it |

@@ -230,6 +230,7 @@ function startLine(t, plan) {
   const goal = plan.goals.find(g => g.id === t.goal);
   if (goal?.proposed) return h("span", { class: "after" }, `starts once you accept ${goal.id}`);
   if (plan.decisions.some(d => d.on === t.id && d.state === "needs_you")) return null;  // the card's pill says why
+  if (t.owner === "you") return h("span", { class: "pill you" }, "your turn");  // only the owner can do it
   if (S.data.ready.includes(t.id)) return h("span", { class: "pill ready" }, "can start now");
   return h("span", { class: "after" }, "can start when one of the 3 running tasks finishes");
 }

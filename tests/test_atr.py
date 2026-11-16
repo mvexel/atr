@@ -239,6 +239,13 @@ class Plan(Base):
         self.cli("task", "set", "T1", "status=done")
         self.assertNotIn("now", self.task("T1"))
 
+    def test_owner_work_is_never_offered_to_the_lead(self):
+        self.cli("task", "add", "G1", "record an hour of TV")
+        self.cli("task", "add", "G1", "write the scorer")
+        self.cli("task", "set", "T1", "owner=you")
+        self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], ["T2"])
+        self.assertIn("THE OWNER'S TURN", self.cli("read")[1])
+
     def test_move_reorders_and_changes_goal(self):
         self.you("goal_add", title="Second")
         for title in ("a", "b"):
