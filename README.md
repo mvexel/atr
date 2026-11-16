@@ -23,8 +23,9 @@ My design principles for this project were:
   goals, set what comes after what, and drop or park tasks.
 - The lead agent adds tasks under your goals, keeps status current, records every judgment call with
   what it rejected, and attaches documents. It uses the `atr` command.
-- **Nothing is pushed to agents.** The lead runs `atr read` when a turn starts and before it ends, and sees
-  what you changed. The page shows when the lead has not read your changes yet; nudge it in its thread.
+- **atr itself pushes nothing.** The lead runs `atr read` when a turn starts and before it ends, and sees
+  what you changed. With the Claude Code plugin, your changes on the page also wake an idle lead. The page
+  shows when the lead has not read your changes yet; nudge it in its thread.
 
 Each project is one `plan.json` (plus a `docs/` folder) under `~/.local/share/atr/<project>/`, or under
 `ATR_DATA_DIR`. Only atr writes it. Back that folder up.
