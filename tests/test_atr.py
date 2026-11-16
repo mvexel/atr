@@ -298,6 +298,19 @@ class Plan(Base):
         Path(".atr").unlink()
         self.assertEqual(self.cli("next")[0], 2)
 
+    def test_a_lead_written_done_test_stays_a_guess_until_the_owner_confirms(self):
+        self.cli("goal", "propose", "Mute ads", "--done", "edges within 5 s")
+        self.cli("goal", "propose", "Record", "--done", "a file plays")
+        self.assertTrue(atr.get(atr.load("demo"), "goals", "G2")["test_guess"])
+        self.you("goal_accept", id="G2")  # accepting the goal is not accepting its test
+        self.assertIn("YOUR GUESS", self.cli("read")[1])
+        with self.assertRaises(atr.Refused):
+            self.agent("goal_confirm_test", id="G2")
+        self.you("goal_confirm_test", id="G2")
+        self.you("goal_accept", id="G3", test=True)
+        self.you("goal_edit", id="G1", done_when="sign-in works")  # the owner's own words
+        self.assertNotIn("YOUR GUESS", self.cli("read")[1])
+
 
 class Web(Base):
     def setUp(self):

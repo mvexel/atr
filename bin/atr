@@ -254,6 +254,10 @@ def op_goal_add(plan, by, a):
         "done_when": (a.get("done_when") or "").strip(),
         "proposed": by != "you",
     }
+    # A done test the lead wrote is its guess at what the owner wants, not the owner's word: it stays marked
+    # until the owner confirms or rewrites it (on adhush a lead-written test went unquestioned for days).
+    if by != "you" and g["done_when"]:
+        g["test_guess"] = True
     plan["goals"].append(g)
     return f"{'added' if by == 'you' else 'proposed'} goal {label(g)}"
 
@@ -264,6 +268,8 @@ def op_goal_edit(plan, by, a):
     for k in ("title", "done_when"):
         if a.get(k) is not None:
             g[k] = a[k].strip()
+    if a.get("done_when") is not None:
+        g.pop("test_guess", None)
     return f"edited goal {label(g)}"
 
 
@@ -271,7 +277,17 @@ def op_goal_accept(plan, by, a):
     owner_only(by, "accept a goal")
     g = get(plan, "goals", a["id"])
     g["proposed"] = False
+    if a.get("test") and g.pop("test_guess", None):
+        return f"accepted goal {label(g)} and its done test"
     return f"accepted goal {label(g)}"
+
+
+def op_goal_confirm_test(plan, by, a):
+    owner_only(by, "confirm a done test")
+    g = get(plan, "goals", a["id"])
+    if not g.pop("test_guess", None):
+        return None
+    return f"confirmed the done test of {label(g)}: {g['done_when']}"
 
 
 def op_goal_remove(plan, by, a):
@@ -573,6 +589,7 @@ OPS = {
     "goal_edit": op_goal_edit,
     "goal_accept": op_goal_accept,
     "goal_remove": op_goal_remove,
+    "goal_confirm_test": op_goal_confirm_test,
     "task_add": op_task_add,
     "task_set": op_task_set,
     "task_move": op_task_move,
@@ -622,7 +639,8 @@ def render(plan, since):
             f"{g['id']} {g['title']}{' [PROPOSED, not accepted]' if g.get('proposed') else ''}"
         )
         if g["done_when"]:
-            out.append(f"   done when: {g['done_when']}")
+            guess = " (YOUR GUESS, the owner has not confirmed it: treat it as a hypothesis)" if g.get("test_guess") else ""
+            out.append(f"   done when{guess}: {g['done_when']}")
         for t in (t for t in plan["tasks"] if t["goal"] == g["id"]):
             bits = [f"after {', '.join(t['after'])}"] if t["after"] else []
             bits += [f"{d['id']} needs owner" for d in needs_owner(plan, t["id"])]
