@@ -77,6 +77,9 @@
   .st.todo i { border: 1.5px solid var(--muted); } .st.dropped i { background: var(--bad); } .st.parked i { background: var(--muted); }
   .body { border-top: 1px solid var(--line); padding: 10px 12px 12px; font-size: 14px; }
   .body .note { margin-bottom: 8px; }
+  .stale { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); background: var(--text);
+    color: var(--bg); padding: 6px 12px; border-radius: 6px; font-size: 13px; }
+  .stale[hidden] { display: none; }
   .dec { border-left: 3px solid var(--line); padding: 2px 0 2px 10px; margin: 8px 0; }
   .dec.to_review { border-left-color: var(--info); } .dec.needs_you { border-left-color: var(--warn); } .dec.overturned { border-left-color: var(--bad); }
   .dec dl { display: grid; grid-template-columns: 76px 1fr; gap: 2px 10px; margin: 4px 0; }
@@ -377,18 +380,26 @@ async function load() {
     if (!project()) { S.data = null; return await drawProjects(); }
     S.data = await get("/api/p/" + encodeURIComponent(project()));
     S.sig = S.data.sig;
+    stale.hidden = true;
     draw();
   } catch (e) { mount(app, h("p", {}, e.message), h("button", { class: "back", onclick: () => location.hash = "" }, "← All projects")); }
 }
 const typing = () => ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName) && document.activeElement.value !== "";
-setInterval(async () => {
-  if (document.hidden || typing() || S.dragging) return;
+// Refreshing while the owner types or drags would wipe their input, so it waits, but says so: a page that is
+// quietly out of date reads as the truth (T8 looked "in progress" after the lead had finished it).
+const stale = document.body.appendChild(h("div", { class: "stale", role: "status", hidden: true },
+  "The plan has changed. It will refresh when you finish typing."));
+async function poll() {
+  if (document.hidden) return;
   try {
     const sigs = await get("/api/sig");
     if (!project()) { const all = JSON.stringify(sigs); if (all !== S.all) { S.all = all; drawProjects(); } }
-    else if (sigs[project()] && sigs[project()] !== S.sig) load();
+    else if (sigs[project()] && sigs[project()] !== S.sig) { if (typing() || S.dragging) stale.hidden = false; else load(); }
   } catch (e) { /* server away; keep what is on screen */ }
-}, 3000);
+}
+setInterval(poll, 3000);
+addEventListener("focusout", () => setTimeout(poll, 0));
+addEventListener("dragend", () => setTimeout(poll, 0));
 addEventListener("hashchange", () => { S.open.clear(); S.filter = "all"; S.editing = null; load(); });
 load();
 </script>
