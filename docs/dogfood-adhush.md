@@ -17,6 +17,8 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
 - **Page actions did not reach the lead.** Added `atr wait` and a generic extension contract
   (docs/EXTENSIONS.md), plus a Claude Code extension (extensions/claude-code) with turn-start, turn-end and
   doorbell hooks. The page shows "Lead listening" while a wait runs.
+- **The lead could not tell reviewed decisions from unreviewed ones.** `atr read` now marks the owner's
+  unreviewed calls with "(not reviewed yet)".
 
 ## Observed, not acted on yet
 
