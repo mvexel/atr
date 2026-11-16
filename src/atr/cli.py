@@ -1862,6 +1862,12 @@ def service_files(cmd, env, home, system):
     )
 
 
+def service_env(environ):
+    """What the service keeps of the installing shell's environment. PATH goes with it: launchd starts a
+    service with /usr/bin:/bin only, where atr serve finds no gh (PR states), claude or atr-lead-* (leads)."""
+    return {k: environ[k] for k in ("PATH", "ATR_DATA_DIR") if environ.get(k)}
+
+
 def service(a):
     """Install or remove a login service that keeps `atr serve` running."""
     import platform
@@ -1872,8 +1878,7 @@ def service(a):
     cmd = [*serve_command(), "serve", "--host", a.host, "--port", str(a.port)]
     for h in a.allow_host:
         cmd += ["--allow-host", h]
-    env = {"ATR_DATA_DIR": os.environ["ATR_DATA_DIR"]} if os.environ.get("ATR_DATA_DIR") else {}
-    path, text, start, stop = service_files(cmd, env, Path.home(), system)
+    path, text, start, stop = service_files(cmd, service_env(os.environ), Path.home(), system)
     if a.action == "uninstall":
         for c in stop:
             subprocess.run(c, check=False, capture_output=True)

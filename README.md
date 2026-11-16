@@ -67,7 +67,8 @@ Python 3.13+ on macOS or Linux (tested on 3.14), no dependencies.
 
 **Keep the page running.** `atr service install` registers a login service (launchd on macOS, a systemd
 user unit on Linux) that runs `atr serve` at login and restarts it if it stops. It takes `serve`'s
-`--host`, `--port` and `--allow-host`, and passes on `ATR_DATA_DIR` if set. Run it again after
+`--host`, `--port` and `--allow-host`, and passes on your shell's `PATH` (so the service finds `gh` for PR
+states, and `claude` and `atr-lead-*` for leads) and `ATR_DATA_DIR` if set. Run it again after
 `uv tool upgrade atr` to restart on the new code; `atr service uninstall` removes it. It needs a real
 install (`uv tool install` or a checkout), not `uvx`. Logs: `/tmp/atr.log` on macOS, `journalctl --user -u atr` on Linux.
 

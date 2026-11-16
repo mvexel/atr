@@ -777,6 +777,13 @@ class Service(Base):
         self.assertIn("Restart=on-failure", text)
         self.assertIn("enable", start[-1])
 
+    def test_the_service_keeps_the_shells_path(self):
+        # launchd gives a service PATH /usr/bin:/bin, where atr serve would find no gh and never see a PR merge
+        self.assertEqual(atr.service_env({"PATH": "/opt/bin:/usr/bin", "HOME": "/h"}), {"PATH": "/opt/bin:/usr/bin"})
+        self.assertEqual(atr.service_env({"PATH": "/b", "ATR_DATA_DIR": "/d"}), {"PATH": "/b", "ATR_DATA_DIR": "/d"})
+        text = atr.service_files(self.cmd, atr.service_env({"PATH": "/opt/bin"}), Path("/h"), "Darwin")[1]
+        self.assertIn("<key>PATH</key><string>/opt/bin</string>", text)
+
     def test_a_throwaway_uvx_environment_is_refused(self):
         real = atr.sys.executable
         self.addCleanup(setattr, atr.sys, "executable", real)
