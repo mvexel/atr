@@ -57,6 +57,8 @@ and put a pull request it opened on its goal (rule 7).
 6. Start work from `atr next` (at most 3 tasks running). Work only the owner can do (record, test by
    hand, grant a permission) gets `atr task set T3 owner=you`: it shows as their turn, not yours.
    Work you did that only counts once the owner checks it: `atr task set T3 status=review note="check .."`.
+   The note is the evidence the decisions do not hold (branch or PR, tests run, what you saw), not the
+   choices again: the owner sees the task's decisions beside it, and checking the task accepts them too.
    A task you set to done while it has decisions the owner has not reviewed goes to review instead,
    and is done once they accept them (an overturn sends it back to you).
    Attach what you write for the owner: `atr attach T3 path/to/findings.md`.
@@ -632,13 +634,9 @@ def op_task_set(plan, by, a):
         unreviewed = [d["id"] for d in plan["decisions"] if d["on"] == t["id"] and d["state"] == "to_review"]
         if status == "done" and by != "you" and unreviewed:
             # done only counts once the owner has seen the calls made on the way
-            status = "review"
+            status = "review"  # the page lists the decisions beside the check: no note needed to name them
             t["awaits"] = unreviewed
-            a["note"] = a.get("note") or f"review {', '.join(unreviewed)}"
-            if t["note"] != a["note"]:
-                t["note"] = a["note"]
-                said.append("note")
-        if status == "review" and not (a.get("note") or t["note"]):
+        if status == "review" and not (a.get("note") or t["note"] or t.get("awaits")):
             raise Refused(f'say what the owner should check: atr task set {t["id"]} status=review note="..."')
         if status == "doing":
             if not deps_done(plan, t):
@@ -678,9 +676,12 @@ def op_task_check(plan, by, a):
     if t["status"] != "review":
         raise Refused(f"{t['id']} is not waiting for a check")
     t.pop("awaits", None)
-    if a.get("ok"):
+    if a.get("ok"):  # one judgment: the task is right, and so are the calls made on the way (G13)
         t["status"] = "done"
-        return f"checked {label(t)}: it is right"
+        settled = [d for d in plan["decisions"] if d["on"] == t["id"] and d["state"] == "to_review"]
+        for d in settled:
+            d.update(state="accepted", note="")
+        return f"checked {label(t)}: it is right" + (f", accepting {', '.join(d['id'] for d in settled)}" if settled else "")
     why = (a.get("note") or "").strip()
     if not why:
         raise Refused("say what is wrong, so the lead can fix it")
