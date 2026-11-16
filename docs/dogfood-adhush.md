@@ -38,3 +38,6 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
 - The lead session for adhush runs in `~/dev/atr`, not in `~/dev/adhush`. Hooks key on the session's
   working directory, so the extension stays silent for this session. A lead should be started in its
   project's repo; the docs say so, but nothing warns when it is not.
+- Goals have no dependencies, only tasks do. The owner had to ask whether accepting G2 and G3 was linked.
+  G3 builds on G2, but before either has tasks, only the titles hint at it. Not acted on: cross-goal task
+  dependencies may be enough once tasks exist.
