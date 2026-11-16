@@ -325,7 +325,7 @@ function goalNode(g, plan, tasks) {
           { label: "Tries (blank: no limit)", value: g.budget?.tries ? String(g.budget.tries) : "" }, { label: "Days (blank: no limit)", value: g.budget?.days ? String(g.budget.days) : "" }],
           (title, done_when, tries, days) => act("goal_edit", { id: g.id, title, done_when, tries: tries || 0, days: days || 0 }))
       : h("div", { class: "muted small" }, g.done_when ? "Done when: " + g.done_when + " " : "No done test yet. ",
-          g.test_guess && [h("span", { class: "pill you", title: "The lead wrote this test. Is it what you want?" }, "the lead's guess"), " ",
+          g.test_guess && !g.proposed && [h("span", { class: "pill you", title: "The lead wrote this test. Is it what you want?" }, "the lead's guess"), " ",
             h("button", { class: "link", onclick: () => act("goal_confirm_test", { id: g.id }) }, "That's my test"), " · "],
           h("button", { class: "link", onclick: edit("g" + g.id) }, "Edit"),
           !tasks.length && !g.proposed ? [" · ", h("button", { class: "link", onclick: () => act("goal_remove", { id: g.id }) }, "Remove")] : null),
@@ -350,10 +350,11 @@ function drawProject() {
   const waiting = plan.decisions.filter(d => d.state === "needs_you"), proposed = plan.goals.filter(g => g.proposed);
   const review = plan.decisions.filter(d => d.state === "to_review" && !d.said);
   const said = plan.decisions.filter(d => d.state === "to_review" && d.said);
+  const checks = plan.tasks.filter(t => t.status === "review");
   const unstopped = plan.tasks.filter(t => t.pruned_by && t.stopped === false);
   const gone = plan.tasks.filter(t => ["parked", "dropped"].includes(t.status) && t.stopped !== false);
   const fresh = plan.tasks.filter(isNew).length;
-  const general = plan.decisions.filter(d => d.on === "project" && d.state !== "needs_you"), gdocs = plan.docs.filter(d => d.on === "project");
+  const general = plan.decisions.filter(d => d.on === "project" && d.state !== "needs_you" && !said.includes(d)), gdocs = plan.docs.filter(d => d.on === "project");
   document.title = (waiting.length + proposed.length ? `(${waiting.length + proposed.length}) ` : "") + plan.title + " · atr";
   mount(app,
     h("div", { class: "top" }, h("button", { class: "back", onclick: () => location.hash = "" }, "← All projects"), h("span", { class: "sp" }),
@@ -372,6 +373,8 @@ function drawProject() {
       h("div", { class: "btns" }, g.done_when ? [btn("Accept goal and test", () => act("goal_accept", { id: g.id, test: true }), "p"),
           btn("Accept goal, test still a guess", () => act("goal_accept", { id: g.id }))] : btn("Accept goal", () => act("goal_accept", { id: g.id }), "p"),
         btn("Reject", () => act("goal_remove", { id: g.id }))))),
+    checks.length ? h("div", { class: "banner" }, h("button", { class: "link", onclick: () => { checks.forEach(t => S.open.add(t.id)); draw(); } },
+      `${checks.length} task${checks.length > 1 ? "s" : ""} to check`), " — work the lead did that counts once you say it's right: ", checks.map(t => t.id).join(", ")) : null,
     said.map(d => h("div", { class: "card" }, h("div", { class: "k" }, `You said this in chat · ${d.id}` + (d.on !== "project" ? ` · on ${d.on}` : "")),
       h("div", { class: "q" }, d.chosen), d.why && h("div", {}, d.why),
       h("div", { class: "btns" }, btn("That's what I meant", () => act("review", { id: d.id, verdict: "accept" }), "p"),

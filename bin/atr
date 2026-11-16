@@ -866,7 +866,7 @@ def render(plan, since):
             out.append(f"   done when{guess}: {g['done_when']}")
         o = g.get("outlook")
         if o:
-            out.append(f"   your outlook ({o['at']}): {o['level']}, {o['text']}")
+            out.append(f"   your outlook ({ago(o['at'])}): {o['level']}, {o['text']}")
         elif not g.get("proposed") and any(
             t["goal"] == g["id"] and t["status"] in OPEN for t in plan["tasks"]
         ):
