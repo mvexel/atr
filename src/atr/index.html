@@ -72,7 +72,7 @@
   .task.s-dropped .tt { text-decoration: line-through; }
   .after { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
   .now { font-size: 13.5px; padding: 0 12px 8px 46px; }
-  .now.quiet .muted:last-child::after { content: " · no news for a while"; color: var(--warn); }
+  .now .warn { color: var(--warn); }
   .working { margin: 4px 0 14px; display: grid; gap: 6px; }
   .working .k { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
   .working .run { all: unset; cursor: pointer; display: block; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
@@ -187,7 +187,31 @@ function nowLine(t) {
   const said = t.now ? [h("b", {}, "Now: "), t.now, h("span", { class: "muted" }, " · " + ago(t.now_at))]
     : [h("span", { class: "muted" }, "No update yet" + (t.doing_since ? " · started " + ago(t.doing_since) : ""))];
   const last = t.now_at || t.doing_since;
-  return h("div", { class: "now" + (last && quietFor(last) > 30 ? " quiet" : "") }, said);
+  // atr tells the lead when a worker's session ends or it goes 30 min without news; the page says so too.
+  const worry = t.ended_at ? " · its worker ended: the lead has been told"
+    : t.silent_at || (last && quietFor(last) > 30) ? " · silent: no news for a while" + (t.silent_at ? ", the lead has been told" : "") : "";
+  return h("div", { class: "now" }, said, worry && h("span", { class: "warn" }, worry));
+}
+const threadLink = th => /^https?:\/\//.test(th) ? h("a", { href: th, target: "_blank", rel: "noopener" }, "Open thread ↗")
+  : h("span", {}, "Thread ", h("code", { style: "user-select:all" }, th));
+// The lead's thread: listening (your changes wake it), working (between turns), running (its tool says it is
+// alive, but it has not listened for 10 min) or gone (its session ended, or no sign of it for 10 min).
+function leadLine(lead, resumed) {
+  if (!lead?.state) return null;
+  if (lead.state === "listening") return h("span", { class: "muted small live", title: "Your changes wake the lead right away" }, "Lead listening");
+  if (lead.state === "working") return h("span", { class: "muted small", title: "The lead took a turn in the last 10 minutes; it listens again when the turn ends" }, "Lead working");
+  if (lead.state === "running") return h("span", { class: "muted small", title: "Its tool says the lead's session is running, but it has not listened for your changes in 10 minutes" }, "Lead running, not listening");
+  const why = lead.why === "ended" ? `its session ended ${ago(lead.since * 1000)}` : `not heard from since ${ago(lead.since * 1000)}`;
+  return h("span", { class: "small" }, h("span", { class: "pill bad", title: resumed?.said || "" }, "Lead gone: " + why), " ",
+    btn("Bring the lead back", async () => {
+      toast("Bringing the lead back…");
+      try {
+        const r = await fetch("/api/resume/" + encodeURIComponent(project()), { method: "POST", headers: { "X-Atr": "1" } });
+        const body = await r.json();
+        toast(r.ok ? body.said : body.error);
+      } catch (e) { toast("The atr server did not answer."); }
+      load();
+    }));
 }
 const isNew = t => !t.agreed && ["todo", "doing", "blocked", "review"].includes(t.status);  // finished work is not news
 const status = s => h("span", { class: "st " + s }, h("i"), LABEL[s]);
@@ -295,6 +319,8 @@ function taskNode(t, plan) {
     startLine(t, plan), marks,
     files.length ? h("span", { class: "after" }, `📄 ${files.length}`) : null,
     pruned && t.stopped === false ? h("span", { class: "pill you" }, "lead has not stopped it yet") : null,
+    t.status === "doing" && (t.ended_at || t.silent_at) ? h("span", { class: "pill bad", title: "atr told the lead: it checks the worker, brings it back or sets the task back" },
+      t.ended_at ? "worker ended" : "silent") : null,
     status(t.status)));
   if (t.status === "doing") node.append(nowLine(t));
   if (!S.open.has(t.id)) return node;
@@ -305,7 +331,7 @@ function taskNode(t, plan) {
   node.append(h("div", { class: "body" },
     S.editing === "tt" + t.id ? form("tt" + t.id, [{ label: "Title", value: t.title }], title => act("task_set", { id: t.id, title })) : null,
     t.note && h("div", { class: "note" }, h("span", { class: "muted" }, "Lead's note: "), t.note),
-    (t.owner || t.thread) && h("div", { class: "muted small" }, t.owner && `Worker: ${t.owner} `, t.thread && h("a", { href: t.thread, target: "_blank", rel: "noopener" }, "Open thread ↗")),
+    (t.owner || t.thread) && h("div", { class: "muted small" }, t.owner && `Worker: ${t.owner} `, t.thread && threadLink(t.thread)),
     on.map(d => decision(d, plan)), docs(files),
     t.status === "review" && h("div", { class: "card" }, h("div", { class: "k" }, "The lead asks you to check this"), t.note && h("div", {}, t.note),
       h("div", { class: "btns" }, btn("It's right", () => act("task_check", { id: t.id, ok: true }), "p"),
@@ -414,7 +440,8 @@ function workingOn(plan) {
       h("span", { class: "live" }, h("span", { class: "id" }, t.id), " ", h("span", {}, t.title)), nowLine(t))));
 }
 function drawProject() {
-  const { plan, lead_waiting: listening } = S.data;
+  const { plan, lead_waiting: listening, lead } = S.data;
+  const leadGone = lead?.state === "gone";
   const unread = S.data.unread.filter(c => c.by === "you");  // GitHub's news on PRs is for the lead, not yours
   const waiting = plan.decisions.filter(d => d.state === "needs_you"), proposed = plan.goals.filter(g => g.proposed);
   const review = plan.decisions.filter(d => d.state === "to_review" && !d.said);
@@ -428,7 +455,7 @@ function drawProject() {
   document.title = (waiting.length + proposed.length ? `(${waiting.length + proposed.length}) ` : "") + plan.title + " · atr";
   mount(app,
     h("div", { class: "top" }, h("button", { class: "back", onclick: () => location.hash = "" }, "← All projects"), h("span", { class: "sp" }),
-      listening && h("span", { class: "muted small live", title: "Your changes wake the lead right away" }, "Lead listening"),
+      leadLine(lead, S.data.resumed),
       plan.lead.thread && (/^https?:\/\//.test(plan.lead.thread)
         ? h("a", { href: plan.lead.thread, target: "_blank", rel: "noopener" }, "Lead thread ↗")
         // A local tool's thread has no URL; its provider stores the command that opens it.
@@ -442,7 +469,9 @@ function drawProject() {
     workingOn(plan),
     h("div", { class: "chips" }, ["all", "doing", "blocked", "review", "todo", "done"].map(f =>
       h("button", { class: "chip", "aria-pressed": String(S.filter === f), onclick: () => { S.filter = f; draw(); } }, f === "all" ? "All" : LABEL[f]))),
-    unread.length ? h("div", { class: "banner" }, `The lead has not read your ${unread.length} change${unread.length > 1 ? "s" : ""} yet. ${listening ? "It is being woken now." : "It picks them up on its next turn; nudge it in its thread if it is idle."}`,
+    unread.length ? h("div", { class: "banner" }, `The lead has not read your ${unread.length} change${unread.length > 1 ? "s" : ""} yet. ${listening ? "It is being woken now."
+        : leadGone ? "The lead is gone: atr brings it back when you act (once it has been gone 10 minutes, at most once an hour), or use Bring the lead back."
+        : "It picks them up on its next turn; nudge it in its thread if it is idle."}`,
       h("ul", {}, unread.slice(-5).map(c => h("li", {}, c.what)))) : null,
     unstopped.length ? h("div", { class: "banner" }, "Waiting for the lead to stop work on " + unstopped.map(t => t.id).join(", ") + ".") : null,
     waiting.map(card),
@@ -550,7 +579,8 @@ async function drawProjects() {
       h("div", { class: "bar" }, h("i", { style: `width:${p.tasks ? Math.round(100 * p.done / p.tasks) : 0}%` })),
       p.needs_you ? h("span", { class: "pill you" }, `${p.needs_you} waiting on you`)
         : h("span", { class: "muted small" }, p.to_review ? `${p.to_review} agent calls to review` : "Nothing needs you"),
-      p.unread ? h("div", { class: "muted small" }, `Lead has not read ${p.unread} of your changes`) : null)))
+      p.unread ? h("div", { class: "muted small" }, `Lead has not read ${p.unread} of your changes`) : null,
+      p.lead_gone ? h("div", { class: "small" }, h("span", { class: "pill bad" }, "Lead gone")) : null)))
     : h("p", { class: "muted" }, "No projects yet. In a repo, run: atr init my-project \"My project\""));
 }
 function draw() {

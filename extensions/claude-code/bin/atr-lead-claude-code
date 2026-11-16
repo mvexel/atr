@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """atr lead provider for Claude Code: start the project's lead as a background Claude Code session.
 
-Usage (from `atr init` or `atr lead --start`): atr-lead-claude-code PROJECT [TITLE], run in the project's repo.
-Prints the session's id (`thread-id: <id>`), so atr knows which session leads, then the command that opens
-the lead (`claude attach <id>`), which atr stores as the lead link.
+Usage, run by atr in the project's repo:
+  atr-lead-claude-code PROJECT [TITLE]   start the lead (`atr init`, `atr lead --start`): `claude --bg`
+  atr-lead-claude-code resume ID [MSG]   bring thread ID back with its context: `claude --bg --resume ID`
+  atr-lead-claude-code alive ID          exit 0 when thread ID is running, 1 when it is not (`claude agents --json`)
+Start and resume print the session's id (`thread-id: <id>`), so atr knows which session it is, then the
+command that opens it (`claude attach <id>`), which atr stores as the lead link.
 Finds Claude Code via CLAUDE_BIN or PATH.
 """
 
+import json
 import os
 import re
 import shutil
@@ -21,33 +25,65 @@ PROMPT = (
 )
 
 
+RESUMED = "atr resumed you, in the same session. Run `atr read` and carry on where you left off."
+
+
+def claude(exe, args, timeout=90):
+    try:
+        return subprocess.run([exe, *args], capture_output=True, text=True, timeout=timeout, check=False)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"could not run claude: {e}", file=sys.stderr)
+        return None
+
+
+def alive(exe, thread):
+    """claude agents --json lists the active sessions, interactive and background."""
+    r = claude(exe, ["agents", "--json"], timeout=30)
+    if r is None or r.returncode:
+        print((r.stderr.strip() if r else "") or "claude agents failed", file=sys.stderr)
+        return 2
+    try:
+        sessions = json.loads(r.stdout)
+    except ValueError:
+        print("claude agents --json did not print JSON", file=sys.stderr)
+        return 2
+    for s in sessions if isinstance(sessions, list) else []:
+        for sid in (s.get("sessionId"), s.get("id")):
+            if sid and (sid.startswith(thread) or thread.startswith(sid)):
+                print(s.get("state") or "running")
+                return 0
+    print("not running")
+    return 1
+
+
+def started(r, fallback=""):
+    """Print what atr reads from `claude --bg`: the session's id and the command that opens it."""
+    m = re.search(r"backgrounded\s*·\s*([0-9A-Za-z-]+)", r.stdout)
+    sid = m.group(1) if m else fallback
+    if r.returncode or not sid:
+        print(r.stderr.strip() or r.stdout.strip() or f"claude exited {r.returncode}", file=sys.stderr)
+        return 1
+    print(f"thread-id: {sid}")
+    print(f"claude attach {sid}")
+    return 0
+
+
 def main(argv):
     if not argv:
-        print("usage: atr-lead-claude-code PROJECT [TITLE]", file=sys.stderr)
+        print("usage: atr-lead-claude-code PROJECT [TITLE] | resume ID [MESSAGE] | alive ID", file=sys.stderr)
         return 2
-    project, title = argv[0], (argv[1] if len(argv) > 1 else argv[0])
     exe = os.environ.get("CLAUDE_BIN") or shutil.which("claude")
     if not exe:
         print("Claude Code (claude) is not on PATH", file=sys.stderr)
-        return 1
-    try:
-        r = subprocess.run(
-            [exe, "--bg", "-n", f"{project} · lead", PROMPT.format(project=project, title=title)],
-            capture_output=True,
-            text=True,
-            timeout=90,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError) as e:
-        print(f"could not run claude: {e}", file=sys.stderr)
-        return 1
-    m = re.search(r"backgrounded\s*·\s*([0-9A-Za-z-]+)", r.stdout)
-    if r.returncode or not m:
-        print(r.stderr.strip() or r.stdout.strip() or f"claude exited {r.returncode}", file=sys.stderr)
-        return 1
-    print(f"thread-id: {m.group(1)}")
-    print(f"claude attach {m.group(1)}")
-    return 0
+        return 2 if argv[0] == "alive" else 1
+    if argv[0] == "alive" and len(argv) > 1:
+        return alive(exe, argv[1])
+    if argv[0] == "resume" and len(argv) > 1:
+        r = claude(exe, ["--bg", "--resume", argv[1], argv[2] if len(argv) > 2 else RESUMED])
+        return 1 if r is None else started(r, argv[1])
+    project, title = argv[0], (argv[1] if len(argv) > 1 else argv[0])
+    r = claude(exe, ["--bg", "-n", f"{project} · lead", PROMPT.format(project=project, title=title)])
+    return 1 if r is None else started(r)
 
 
 if __name__ == "__main__":

@@ -91,7 +91,7 @@ def listen(cwd, session):
     if not lead(cwd, session)[0]:
         return  # the owner let another thread lead while this one was idle
     state = json.loads(out)
-    lines = ["The owner acted on the atr page (or GitHub on your PRs) while you were idle:"]
+    lines = ["The owner acted on the atr page (or GitHub on your PRs, or atr on your workers) while you were idle:"]
     for c in state["unread"]:
         data = json.dumps({"op": c["op"], "args": c["args"]}) if "op" in c else ""
         lines.append(f"- [{state['project']}] {c['what']} {data}".rstrip())
@@ -116,8 +116,9 @@ def main(event):
             listen(cwd, session)
         return
     if event == "session-end":
-        if session:
-            atr(cwd, "lead", "--release", session)
+        # lets go of the lead, and tells the lead at once when a worker's session ends
+        if session and atr(cwd, "ended", session)[0] == 2:
+            atr(cwd, "lead", "--release", session)  # an atr from before `atr ended`
         return
     is_lead, who = lead(cwd, session)
     if is_lead is None:
@@ -137,7 +138,8 @@ def main(event):
                     f"This folder is atr project {here}. Its lead is another session ({who['id']}); you are "
                     "not the lead. Do not plan, read or change the atr plan as its lead. If the owner asked you "
                     "for work here, do it as a worker: you may report progress on your own task "
-                    "(`atr now T3 \"...\"`) and record your own judgment calls with `--by`."
+                    f"(`atr now T3 \"...\"`; the first time, add `--thread {session}` so the lead can check on "
+                    "and resume this session) and record your own judgment calls with `--by`."
                 )
         return
     code, out = atr(cwd, "unread", "--json")
@@ -149,8 +151,8 @@ def main(event):
         if state.get("running"):
             print(
                 "\nThese tasks show as in progress. A worker from an earlier session may be gone. Check that "
-                "each is still running; for any that is not, set it back with "
-                "`atr task set ID status=todo` and say so:\n"
+                "each is still running (`atr alive ID` for a task with a thread); for any that is not, bring it "
+                "back with `atr resume ID` or set it back with `atr task set ID status=todo`, and say so:\n"
                 + "\n".join(
                     f"  - {t['id']} {t['title']} (last news {t['last_news_at'] or 'unknown'})"
                     for t in state["running"]
@@ -158,7 +160,7 @@ def main(event):
             )
     elif event == "prompt":
         if state["unread"]:
-            print(f"The owner (or GitHub) changed the atr plan of {state['project']} since you last read it:\n\n{atr(cwd, 'read')[1]}")
+            print(f"The owner (or GitHub, or atr) changed the atr plan of {state['project']} since you last read it:\n\n{atr(cwd, 'read')[1]}")
     elif event == "stop":
         if hook.get("stop_hook_active"):
             return  # already continuing because of this hook: let the turn end
