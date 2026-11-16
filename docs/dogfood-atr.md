@@ -19,6 +19,13 @@ Same format as [dogfood-adhush.md](dogfood-adhush.md): what happened, what it sa
   decisions goes to review ("review D1"), and becomes done once the owner accepts them. An overturn sends
   it back to the lead.
 
+- **A dropped task held back the tasks after it.** T5 came after the channel spike T3. The lead dropped T3
+  once the other spike worked, and T5 never became ready. A dropped task now counts as settled for the
+  tasks after it. A parked one still holds them, since it may come back.
+
+- **The push reached the lead in this repo's own session.** The owner passed T2 on the page; the listener
+  woke the lead with `{"op": "task_check", "args": {"id": "T2", "ok": true}}`.
+
 ## Observed, not acted on yet
 
 - **The server had to be restarted twice in one session** for new operations to work on the page. T11 now

@@ -446,6 +446,17 @@ class Plan(Base):
         self.you("review", id="D1", verdict="overturn", note="one is enough")
         self.assertEqual(self.task("T1")["status"], "todo")
 
+    def test_a_dropped_task_holds_nothing_back_a_parked_one_does(self):
+        self.cli("task", "add", "G1", "spike A")
+        self.cli("task", "add", "G1", "spike B")
+        self.cli("task", "add", "G1", "build", "--after", "T1", "--after", "T2")
+        self.cli("task", "set", "T1", "status=done")
+        self.you("task_prune", id="T2", mode="park")
+        self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], [])
+        self.you("task_restore", id="T2")
+        self.cli("task", "set", "T2", "status=dropped")
+        self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], ["T3"])
+
     def test_parking_with_a_reason_tells_the_lead_why(self):
         self.cli("task", "add", "G1", "later")
         self.cli("read")
@@ -633,25 +644,55 @@ class ClaudeCodeExtension(Base):
         self.assertIn("THE OWNER CHANGED", self.hook("prompt"))
         self.assertEqual(self.hook("prompt"), "")
 
-    def test_session_start_gives_the_plan_and_asks_for_the_doorbell(self):
-        out = self.hook("session-start")
-        self.assertIn("G1 Sign in", out)
-        self.assertIn("atr wait", out)
+    def test_session_start_gives_the_plan(self):
+        self.assertIn("G1 Sign in", self.hook("session-start"))
 
-    def test_turn_end_holds_for_unread_changes_then_for_the_doorbell(self):
+    def test_turn_end_holds_only_for_unread_changes(self):
         self.assertIn("atr read", json.loads(self.hook("stop"))["reason"])
-        self.cli("read")
-        self.assertIn("atr wait", json.loads(self.hook("stop"))["reason"])
         self.assertEqual(self.hook("stop", stop_hook_active=True), "")
-        th = threading.Thread(target=atr.wait, args=("demo", 10))
-        th.start()
-        for _ in range(50):
+        self.cli("read")
+        self.assertEqual(self.hook("stop"), "")
+
+    def listener(self, session="s1", cwd=None):
+        return subprocess.Popen(
+            [sys.executable, str(self.HOOK), "listen"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            env={**os.environ, "ATR_BIN": str(SOURCE)},
+        ), json.dumps({"cwd": cwd or self.tmp.name, "session_id": session})
+
+    def until_listening(self):
+        for _ in range(100):
             if atr.waiting("demo"):
-                break
+                return
             threading.Event().wait(0.05)
-        self.assertEqual(self.hook("stop"), "")  # armed: the turn may end
-        self.you("goal_add", title="wake up")
-        th.join(5)
+        self.fail("the listener never started waiting")
+
+    def test_the_listener_wakes_the_lead_with_the_owners_action(self):
+        self.cli("read")
+        proc, payload = self.listener()
+        proc.stdin.write(payload)
+        proc.stdin.close()
+        self.until_listening()
+        self.you("goal_add", title="wake up", done_when="it pushes")
+        out, err = proc.communicate(timeout=10)
+        self.assertEqual(proc.returncode, 2)  # asyncRewake: exit 2 wakes the session, stderr is the message
+        self.assertIn('added goal G2 "wake up"', err)
+        self.assertIn('"op": "goal_add"', err)
+
+    def test_a_new_listener_replaces_the_one_before(self):
+        self.cli("read")
+        first, payload = self.listener()
+        first.stdin.write(payload)
+        first.stdin.close()
+        self.until_listening()
+        second, payload = self.listener()
+        second.stdin.write(payload)
+        second.stdin.close()
+        first.communicate(timeout=10)
+        self.assertEqual(first.returncode, 0)  # stopped quietly: no second wake for one action
+        self.you("goal_add", title="once")
+        second.communicate(timeout=10)
+        self.assertEqual(second.returncode, 2)
 
     def test_session_start_asks_the_lead_to_confirm_running_tasks(self):
         self.cli("task", "add", "G1", "long run")
@@ -675,7 +716,7 @@ class ClaudeCodeExtension(Base):
     def test_silent_outside_an_atr_project(self):
         os.environ.pop("ATR_PROJECT")
         with tempfile.TemporaryDirectory() as elsewhere:
-            for event in ("session-start", "prompt", "stop"):
+            for event in ("session-start", "prompt", "stop", "listen"):
                 self.assertEqual(self.hook(event, cwd=elsewhere), "")
 
 

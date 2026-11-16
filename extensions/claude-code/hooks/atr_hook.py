@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """atr for Claude Code: the turn start, turn end and doorbell jobs from docs/EXTENSIONS.md.
 
-Usage (from hooks.json): atr_hook.py session-start | prompt | stop, with the hook's JSON on stdin.
-Finds atr via ATR_BIN or PATH. Silent outside atr projects. ATR_DOORBELL=0 turns the doorbell reminder off.
+Usage (from hooks.json): atr_hook.py session-start | prompt | stop | listen, with the hook's JSON on stdin.
+Finds atr via ATR_BIN or PATH. Silent outside atr projects. ATR_DOORBELL=0 turns the listener (the push) off.
 """
 
 import json
@@ -10,14 +10,6 @@ import os
 import shutil
 import subprocess
 import sys
-
-DOORBELL = (
-    "Before ending your turn, arm the atr doorbell so the owner's changes on the page wake you: run "
-    "`atr wait --timeout 7000` with the Bash tool, run_in_background true and timeout 7200000. When it "
-    "exits 0, run `atr read` (`atr -p NAME read` for each other project it names) and act on it. Exit 1 "
-    "means it timed out with nothing new: arm it again."
-)
-
 
 def atr(cwd, *args):
     exe = os.environ.get("ATR_BIN") or shutil.which("atr")
@@ -100,16 +92,15 @@ def main(event):
         hook = {}
     cwd = hook.get("cwd") or os.getcwd()
     if event == "listen":
-        return listen(cwd, hook.get("session_id"))
+        if os.environ.get("ATR_DOORBELL") != "0":
+            listen(cwd, hook.get("session_id"))
+        return
     code, out = atr(cwd, "unread", "--json")
     if code == 2:
         return  # not an atr project (and following none), or atr is not installed
     state = json.loads(out)
     # Every project this folder's lead follows: its own, plus any added with `atr watch NAME`.
     projects = state.get("projects") or [state]
-    # The listen hook pushes the owner's changes now; the old ask-the-lead-to-arm-atr-wait doorbell is opt-in.
-    doorbell = os.environ.get("ATR_DOORBELL") == "bash"
-    listening = all(p["lead_waiting"] for p in projects)
 
     def plan(p):
         return atr(cwd, "read")[1] if p.get("own", True) else atr(cwd, "-p", p["project"], "read")[1]
@@ -128,8 +119,6 @@ def main(event):
                         for t in p["running"]
                     )
                 )
-        if doorbell and not listening:
-            print("\n" + DOORBELL)
     elif event == "prompt":
         for p in projects:
             if p["unread"]:
@@ -145,8 +134,6 @@ def main(event):
                 if p["unread"]
             )
             block(f"The owner changed the atr plan while you worked. Run {how} and act on it before ending your turn.")
-        elif doorbell and not listening:
-            block(DOORBELL)
 
 if __name__ == "__main__":
     main(sys.argv[1] if len(sys.argv) > 1 else "")

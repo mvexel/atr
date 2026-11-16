@@ -190,7 +190,8 @@ def label(t):
 
 
 def deps_done(plan, t):
-    return all(get(plan, "tasks", a)["status"] == "done" for a in t["after"])
+    # a dropped task will never be done, so nothing waits on it; a parked one may come back, so it still holds
+    return all(get(plan, "tasks", a)["status"] in ("done", "dropped") for a in t["after"])
 
 
 def needs_owner(plan, on):
