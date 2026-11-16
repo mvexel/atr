@@ -76,6 +76,7 @@
   .st.done i { background: var(--good); } .st.doing i { background: var(--info); } .st.blocked i { background: var(--warn); }
   .st.todo i { border: 1.5px solid var(--muted); } .st.dropped i { background: var(--bad); } .st.parked i { background: var(--muted); }
   .body { border-top: 1px solid var(--line); padding: 10px 12px 12px; font-size: 14px; }
+  .body .note { margin-bottom: 8px; }
   .dec { border-left: 3px solid var(--line); padding: 2px 0 2px 10px; margin: 8px 0; }
   .dec.to_review { border-left-color: var(--info); } .dec.needs_you { border-left-color: var(--warn); } .dec.overturned { border-left-color: var(--bad); }
   .dec dl { display: grid; grid-template-columns: 76px 1fr; gap: 2px 10px; margin: 4px 0; }
@@ -194,11 +195,11 @@ function card(d) {
 function taskNode(t, plan) {
   const on = plan.decisions.filter(d => d.on === t.id), files = plan.docs.filter(d => d.on === t.id);
   const pruned = t.status === "parked" || t.status === "dropped";
-  const node = h("div", { class: `task s-${t.status}` + (isNew(t) ? " new" : ""), "data-id": t.id, draggable: !pruned && matchMedia("(pointer: fine)").matches });
+  const node = h("div", { class: `task s-${t.status}` + (isNew(t) ? " new" : ""), "data-id": t.id });
   const marks = on.filter(d => d.state !== "accepted").map(d => h("span", { class: "pill" + (d.state === "needs_you" ? " you" : "") },
     d.id + ({ needs_you: " needs you", to_review: " to review", overturned: " overturned" }[d.state])));
-  node.append(h("div", { class: "row", onclick: () => { S.open.has(t.id) ? S.open.delete(t.id) : S.open.add(t.id); draw(); } },
-    h("span", { class: "grip", title: "Drag to reorder or move to another goal" }, "⋮⋮"), h("span", { class: "id" }, t.id), h("span", { class: "tt" }, t.title),
+  node.append(h("div", { class: "row", onclick: () => { if (String(getSelection())) return; S.open.has(t.id) ? S.open.delete(t.id) : S.open.add(t.id); draw(); } },
+    h("span", { class: "grip", title: "Drag to reorder or move to another goal", draggable: !pruned && matchMedia("(pointer: fine)").matches }, "⋮⋮"), h("span", { class: "id" }, t.id), h("span", { class: "tt" }, t.title),
     isNew(t) && h("span", { class: "pill added" }, "+ new from agent"),
     t.after.length ? h("span", { class: "after" }, "after " + t.after.join(", ")) : null, marks,
     files.length ? h("span", { class: "after" }, `📄 ${files.length}`) : null,
@@ -208,7 +209,7 @@ function taskNode(t, plan) {
   const others = plan.tasks.filter(o => o.id !== t.id && !t.after.includes(o.id) && !["parked", "dropped"].includes(o.status));
   node.append(h("div", { class: "body" },
     S.editing === "tt" + t.id ? form("tt" + t.id, [{ label: "Title", value: t.title }], title => act("task_set", { id: t.id, title })) : null,
-    t.note && h("div", {}, t.note),
+    t.note && h("div", { class: "note" }, h("span", { class: "muted" }, "Lead's note: "), t.note),
     (t.owner || t.thread) && h("div", { class: "muted small" }, t.owner && `Worker: ${t.owner} `, t.thread && h("a", { href: t.thread, target: "_blank", rel: "noopener" }, "Open thread ↗")),
     on.map(d => decision(d, plan)), docs(files),
     h("div", { class: "btns" },
@@ -287,7 +288,10 @@ function drawProject() {
 
 // ---- drag to rearrange ----
 const clearMarks = () => document.querySelectorAll(".before, .over").forEach(e => e.classList.remove("before", "over"));
-app.addEventListener("dragstart", e => { const t = e.target.closest?.(".task"); if (t) { S.dragging = t.dataset.id; e.dataTransfer.effectAllowed = "move"; } });
+app.addEventListener("dragstart", e => {
+  const t = e.target.closest?.(".grip") && e.target.closest(".task");  // only the grip starts a drag
+  if (t) { S.dragging = t.dataset.id; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setDragImage(t, 16, 16); }
+});
 app.addEventListener("dragover", e => {
   if (!S.dragging) return;
   const task = e.target.closest(".task"), goal = e.target.closest("details[data-goal]");
