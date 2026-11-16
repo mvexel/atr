@@ -61,6 +61,16 @@ def main(event):
         print(
             f"This folder is atr project {state['project']}; you are its lead. The plan:\n\n{plan}"
         )
+        if state.get("running"):
+            print(
+                "\nThese tasks show as in progress. A worker from an earlier session may be gone. Check that "
+                "each is still running; for any that is not, set it back with `atr task set ID status=todo` "
+                "and say so:\n"
+                + "\n".join(
+                    f"  - {t['id']} {t['title']} (last news {t['last_news_at'] or 'unknown'})"
+                    for t in state["running"]
+                )
+            )
         if doorbell and not state["lead_waiting"]:
             print("\n" + DOORBELL)
     elif event == "prompt":

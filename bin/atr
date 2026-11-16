@@ -64,6 +64,33 @@ def now():
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%MZ")
 
 
+def ago(ts):
+    """'12 min ago' for one of now()'s timestamps."""
+    try:
+        then = datetime.strptime(ts, "%Y-%m-%dT%H:%MZ").replace(tzinfo=UTC)
+    except (TypeError, ValueError):
+        return "at an unknown time"
+    m = round((datetime.now(UTC) - then).total_seconds() / 60)
+    if m < 1:
+        return "just now"
+    if m < 60:
+        return f"{m} min ago"
+    return f"{round(m / 60)} h ago" if m < 48 * 60 else f"{round(m / 1440)} days ago"
+
+
+def running(plan):
+    """Tasks in progress, with when there was last news of them (a progress line, or the start)."""
+    return [
+        {
+            "id": t["id"],
+            "title": t["title"],
+            "last_news_at": t.get("now_at") or t.get("doing_since") or "",
+        }
+        for t in plan["tasks"]
+        if t["status"] == "doing"
+    ]
+
+
 def data_dir():
     return Path(
         os.environ.get("ATR_DATA_DIR") or Path.home() / ".local/share/atr"
@@ -792,7 +819,9 @@ def render(plan, since):
                 + (f"  ({'; '.join(bits)})" if bits else "")
             )
             if t.get("now"):
-                out.append(f"        now: {t['now']} ({t['now_at']})")
+                out.append(f"        now: {t['now']} ({ago(t['now_at'])})")
+            elif t["status"] == "doing":
+                out.append(f"        no news since it started {ago(t.get('doing_since'))}")
     made = [d for d in plan["decisions"] if d["state"] in ("accepted", "to_review")]
     if made or overturned:
         out += ["", "DECISIONS (do not re-propose what was rejected):"]
@@ -1142,6 +1171,7 @@ def main(argv=None):
                             "lead_thread": plan["lead"]["thread"],
                             "lead_waiting": waiting(name),
                             "unread": items,
+                            "running": running(plan),
                         }
                     )
                 )

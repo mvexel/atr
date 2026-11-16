@@ -494,6 +494,14 @@ class ClaudeCodeExtension(Base):
         self.you("goal_add", title="wake up")
         th.join(5)
 
+    def test_session_start_asks_the_lead_to_confirm_running_tasks(self):
+        self.cli("task", "add", "G1", "long run")
+        self.cli("task", "set", "T1", "status=doing")
+        self.assertIn("no news since it started", self.cli("read")[1])
+        out = self.hook("session-start")
+        self.assertIn("may be gone", out)
+        self.assertIn("T1 long run", out)
+
     def test_silent_outside_an_atr_project(self):
         os.environ.pop("ATR_PROJECT")
         with tempfile.TemporaryDirectory() as elsewhere:

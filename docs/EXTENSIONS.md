@@ -41,7 +41,8 @@ installed globally and only act where a `.atr` file exists.
   "project": "adhush",
   "lead_thread": "https://…",
   "lead_waiting": true,
-  "unread": [{"rev": 4, "by": "you", "at": "2026-11-15T20:01Z", "what": "accepted goal G1 \"…\""}]
+  "unread": [{"rev": 4, "by": "you", "at": "2026-11-15T20:01Z", "what": "accepted goal G1 \"…\""}],
+  "running": [{"id": "T3", "title": "…", "last_news_at": "2026-11-15T19:40Z"}]
 }
 ```
 
@@ -49,6 +50,9 @@ installed globally and only act where a `.atr` file exists.
 - `lead_waiting` is true while an `atr wait` for this project is running. The page shows "Lead listening"
   and tells the owner the lead is being woken. Turn-end checks can use it: if it is false, the doorbell is
   not armed.
+- `running` lists the tasks in progress and when there was last news of each. A session start should
+  show them to the lead and ask it to confirm each still has a worker: workers often die with the
+  session that started them, and atr cannot tell.
 
 ## Rules for extensions
 
