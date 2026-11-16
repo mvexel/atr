@@ -78,10 +78,12 @@
   .working .run { all: unset; cursor: pointer; display: block; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
   .working .run .now { padding: 2px 0 0; }
   .dec.folded { all: unset; display: block; cursor: pointer; font-size: 14px; padding: 3px 0; color: var(--text2); }
+  select.b { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
+  .pill.outlook.likely { color: var(--good); } .pill.outlook.unlikely { background: var(--warn-soft); border: 1px solid var(--bad); color: var(--text); }
   .pill.ready { background: var(--card); border: 1px solid var(--line); color: var(--text); }
   .st { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; white-space: nowrap; }
   .st i { width: 9px; height: 9px; border-radius: 50%; }
-  .st.done i { background: var(--good); } .st.doing i { background: var(--info); } .st.blocked i { background: var(--warn); }
+  .st.done i { background: var(--good); } .st.review i { background: var(--warn); } .st.doing i { background: var(--info); } .st.blocked i { background: var(--warn); }
   .st.todo i { border: 1.5px solid var(--muted); } .st.dropped i { background: var(--bad); } .st.parked i { background: var(--muted); }
   .body { border-top: 1px solid var(--line); padding: 10px 12px 12px; font-size: 14px; }
   .body .note { margin-bottom: 8px; }
@@ -115,7 +117,7 @@
 <div id="toast" hidden role="status"></div>
 <script>
 "use strict";
-const LABEL = { todo: "To do", doing: "In progress", blocked: "Blocked", done: "Done", parked: "Parked", dropped: "Dropped" };
+const LABEL = { todo: "To do", doing: "In progress", blocked: "Blocked", review: "Your check", done: "Done", parked: "Parked", dropped: "Dropped" };
 const S = { data: null, sig: "", filter: "all", open: new Set(), editing: null, dragging: null };
 const app = document.getElementById("app");
 
@@ -172,7 +174,7 @@ function nowLine(t) {
   const last = t.now_at || t.doing_since;
   return h("div", { class: "now" + (last && quietFor(last) > 30 ? " quiet" : "") }, said);
 }
-const isNew = t => !t.agreed && ["todo", "doing", "blocked"].includes(t.status);  // finished work is not news
+const isNew = t => !t.agreed && ["todo", "doing", "blocked", "review"].includes(t.status);  // finished work is not news
 const status = s => h("span", { class: "st " + s }, h("i"), LABEL[s]);
 function form(key, fields, save, saveLabel) {
   // An inline form; `key` keeps it open across redraws.
@@ -187,7 +189,7 @@ function form(key, fields, save, saveLabel) {
 const edit = key => () => { S.editing = key; draw(); };
 
 function decision(d, plan) {
-  const who = d.options ? "you, from the lead's options" : d.by === "you" ? "you" : "the lead, without asking";
+  const who = d.said ? "you, in chat (the lead wrote it down)" : d.options ? "you, from the lead's options" : d.by === "you" ? "you" : d.by.startsWith("worker:") ? `worker ${d.by.slice(7)}, without asking` : "the lead, without asking";
   if (d.state === "accepted" && !S.open.has(d.id))
     return h("button", { class: "dec folded", title: "Show the whole decision", onclick: e => { e.stopPropagation(); S.open.add(d.id); draw(); } },
       h("b", {}, d.id), " ", d.chosen, h("span", { class: "muted" }, " · accepted"));
@@ -212,26 +214,39 @@ function docs(list) {
 function card(d) {
   const answer = choice => act("answer", { id: d.id, choice });
   return h("div", { class: "card" },
-    h("div", { class: "k" }, `Waiting on you · ${d.id}` + (d.on !== "project" ? ` · blocks ${d.on}` : "")),
+    h("div", { class: "k" }, `${d.ask ? "A question for you" : "Waiting on you"} · ${d.id}` + (d.on !== "project" ? ` · blocks ${d.on}` : "")),
     h("div", { class: "q" }, d.question || d.recommended),
     d.why && h("div", {}, d.why),
-    h("div", { class: "btns" }, d.options.map((o, i) => btn(o + (i === 0 ? " (suggested)" : ""), () => answer(o), i === 0 ? "p" : ""))),
-    form(null, [{ label: "Or write your own answer" }], text => text && answer(text), "Answer"));
+    // A plain question (atr ask) has no suggestion: its options are equal, and the answer may be yours alone.
+    h("div", { class: "btns" }, d.options.map((o, i) => btn(o + (i === 0 && !d.ask ? " (suggested)" : ""), () => answer(o), i === 0 && !d.ask ? "p" : ""))),
+    form(null, [{ label: d.ask && !d.options.length ? "Your answer" : "Or write your own answer" }], text => text && answer(text), "Answer"));
 }
 
 // ---- project view ----
 // When will this task start? A to-do starts once its goal is accepted, everything it comes after is done and
 // no card holds it; the lead then picks it, at most 3 running at once.
+const short = (s, n = 60) => s.length > n ? s.slice(0, n - 1) + "…" : s;
+// True when task `id` waits for `target`, directly or through other tasks.
+function waitsFor(plan, id, target, seen = new Set()) {
+  if (seen.has(id)) return false;
+  seen.add(id);
+  const t = plan.tasks.find(o => o.id === id);
+  return !!t && t.after.some(a => a === target || waitsFor(plan, a, target, seen));
+}
 function startLine(t, plan) {
-  if (t.status === "parked") return h("span", { class: "after" }, "won't start until you restore it");
+  if (t.status === "parked") return h("span", { class: "after" }, "won't start until you restore it" + (t.pruned_why ? ` · ${short(t.pruned_why, 50)}` : ""));
+  if (t.status === "review") return h("span", { class: "pill you" }, "your turn: check it");
   if (t.status !== "todo") return null;
   const waits = t.after.filter(a => plan.tasks.find(o => o.id === a)?.status !== "done");
   if (waits.length) return h("span", { class: "after" }, "starts after " + waits.join(", "));
   const goal = plan.goals.find(g => g.id === t.goal);
   if (goal?.proposed) return h("span", { class: "after" }, `starts once you accept ${goal.id}`);
   if (plan.decisions.some(d => d.on === t.id && d.state === "needs_you")) return null;  // the card's pill says why
+  const held = plan.decisions.find(d => d.on === t.goal && d.state === "needs_you");  // a card on the goal holds all of it
+  if (held) return h("span", { class: "after" }, `starts once you answer ${held.id}`);
+  if (t.owner === "you") return h("span", { class: "pill you" }, "your turn");  // only the owner can do it
   if (S.data.ready.includes(t.id)) return h("span", { class: "pill ready" }, "can start now");
-  return h("span", { class: "after" }, "can start when one of the 3 running tasks finishes");
+  return h("span", { class: "after" }, "next in line (the lead runs 3 at a time)");
 }
 function taskNode(t, plan) {
   const on = plan.decisions.filter(d => d.on === t.id), files = plan.docs.filter(d => d.on === t.id);
@@ -248,25 +263,47 @@ function taskNode(t, plan) {
     status(t.status)));
   if (t.status === "doing") node.append(nowLine(t));
   if (!S.open.has(t.id)) return node;
-  const others = plan.tasks.filter(o => o.id !== t.id && !t.after.includes(o.id) && !["parked", "dropped"].includes(o.status));
+  // Only open tasks make sense to wait for (a done one is already done), and none that already waits for this
+  // one, which would make a loop.
+  const others = plan.tasks.filter(o => o.id !== t.id && !t.after.includes(o.id) && ["todo", "doing", "blocked"].includes(o.status)
+    && !waitsFor(plan, o.id, t.id));
   node.append(h("div", { class: "body" },
     S.editing === "tt" + t.id ? form("tt" + t.id, [{ label: "Title", value: t.title }], title => act("task_set", { id: t.id, title })) : null,
     t.note && h("div", { class: "note" }, h("span", { class: "muted" }, "Lead's note: "), t.note),
     (t.owner || t.thread) && h("div", { class: "muted small" }, t.owner && `Worker: ${t.owner} `, t.thread && h("a", { href: t.thread, target: "_blank", rel: "noopener" }, "Open thread ↗")),
     on.map(d => decision(d, plan)), docs(files),
+    t.status === "review" && h("div", { class: "card" }, h("div", { class: "k" }, "The lead asks you to check this"), t.note && h("div", {}, t.note),
+      h("div", { class: "btns" }, btn("It's right", () => act("task_check", { id: t.id, ok: true }), "p"),
+        S.editing === "ck" + t.id ? form("ck" + t.id, [{ label: "What is wrong?" }], note => act("task_check", { id: t.id, note }), "Send back") : btn("Not right…", edit("ck" + t.id)))),
     h("div", { class: "btns" },
       t.after.map(a => btn(`after ${a} ✕`, () => act("dep", { id: t.id, other: a, remove: true }))),
-      !pruned && others.length ? h("select", { class: "b", "aria-label": "Add a dependency", onclick: e => e.stopPropagation(),
+      ["todo", "blocked"].includes(t.status) && others.length ? h("select", { class: "b", "aria-label": "Add a dependency", onclick: e => e.stopPropagation(),
         onchange: e => e.target.value && act("dep", { id: t.id, other: e.target.value }) },
-        h("option", { value: "" }, "+ comes after…"), others.map(o => h("option", { value: o.id }, `${o.id} ${o.title}`))) : null),
+        h("option", { value: "" }, "+ comes after…"), others.map(o => h("option", { value: o.id, title: o.title }, `${o.id} ${short(o.title)}`))) : null),
     S.editing === "dc" + t.id ? form("dc" + t.id, [{ label: "What you decided" }, { label: "What you ruled out (optional)" }],
       (chosen, rejected) => act("decide", { on: t.id, chosen, rejected: rejected ? [rejected] : [] }), "Record") : null,
     h("div", { class: "btns" },
       pruned ? btn("Restore", () => act("task_restore", { id: t.id })) : [btn("Rename", edit("tt" + t.id)), btn("Record a decision", edit("dc" + t.id)),
-        btn("Park", () => act("task_prune", { id: t.id, mode: "park" })), btn("Drop", () => act("task_prune", { id: t.id, mode: "drop" }), "d")])));
+        // A reason (optional) tells the lead what you mean; a bare park reads as a trail of clicks.
+        ["park", "drop"].map(mode => S.editing === mode + t.id
+          ? form(mode + t.id, [{ label: `Why ${mode} it? (optional)` }], why => act("task_prune", { id: t.id, mode, why }), mode === "park" ? "Park" : "Drop")
+          : btn(mode === "park" ? "Park…" : "Drop…", edit(mode + t.id), mode === "drop" ? "d" : ""))])));
   return node;
 }
 
+// How much of its budget a goal has used. When it runs out, the lead stops and asks you how the goal goes on.
+function budgetLine(g) {
+  const b = g.budget, tries = g.tries || [];
+  if (!b && !tries.length) return null;
+  const bits = [];
+  if (b?.tries) bits.push(`${b.used || 0} of ${b.tries} tries used`);
+  if (b?.days) { const left = b.days - (Date.now() - new Date(b.from)) / 864e5; bits.push(left > 0 ? `${left < 1 ? "under a day" : Math.floor(left) + " days"} left` : "out of time"); }
+  if (!b) bits.push(`${tries.length} tr${tries.length === 1 ? "y" : "ies"}, no limit set`);
+  const out = b && ((b.tries && (b.used || 0) >= b.tries) || bits.includes("out of time"));
+  return h("details", { class: "small", style: "margin:4px 0" }, h("summary", { class: out ? "" : "muted" }, "Budget: " + bits.join(" · "),
+      out ? h("span", { class: "pill you", style: "margin-left:6px" }, "out: the lead will ask you how to go on") : null),
+    tries.length ? h("ol", { style: "margin:4px 0" }, tries.map(t => h("li", {}, t.what, h("span", { class: "muted" }, " · " + ago(t.at))))) : h("span", { class: "muted" }, "No tries recorded yet."));
+}
 function goalNode(g, plan, tasks) {
   const live = tasks.filter(t => !["parked", "dropped"].includes(t.status));
   const done = live.filter(t => t.status === "done").length, added = live.filter(isNew).length;
@@ -279,16 +316,30 @@ function goalNode(g, plan, tasks) {
     localStorage.setItem(collapsedKey(), JSON.stringify([...c]));
   });
   node.append(h("summary", {}, h("span", { class: "id" }, g.id), h("span", { class: "gt" }, g.title),
-    g.proposed && h("span", { class: "pill you" }, "proposed by the lead"), needs ? h("span", { class: "pill you" }, `${needs} waiting on you`) : null,
+    g.proposed && h("span", { class: "pill you" }, "proposed by the lead"),
+    g.met_at && h("span", { class: "pill ready" }, "✓ met"),
+    g.outlook && h("span", { class: "pill outlook " + g.outlook.level, title: `The lead's outlook, ${ago(g.outlook.at)}: ${g.outlook.text}` }, "lead: " + g.outlook.level), needs ? h("span", { class: "pill you" }, `${needs} waiting on you`) : null,
     h("span", { class: "count" }, `${done} of ${live.length} done` + (added ? ` · ${added} new from agents` : ""))));
   node.append(h("div", { class: "gbody" },
     S.editing === "g" + g.id
-      ? form("g" + g.id, [{ label: "Goal", value: g.title }, { label: "Done when…", value: g.done_when }], (title, done_when) => act("goal_edit", { id: g.id, title, done_when }))
-      : h("div", { class: "muted small" }, g.done_when ? "Done when: " + g.done_when + " " : "No done test yet. ", h("button", { class: "link", onclick: edit("g" + g.id) }, "Edit"),
+      ? form("g" + g.id, [{ label: "Goal", value: g.title }, { label: "Done when…", value: g.done_when },
+          { label: "Tries (blank: no limit)", value: g.budget?.tries ? String(g.budget.tries) : "" }, { label: "Days (blank: no limit)", value: g.budget?.days ? String(g.budget.days) : "" }],
+          (title, done_when, tries, days) => act("goal_edit", { id: g.id, title, done_when, tries: tries || 0, days: days || 0 }))
+      : h("div", { class: "muted small" }, g.done_when ? "Done when: " + g.done_when + " " : "No done test yet. ",
+          g.test_guess && !g.proposed && [h("span", { class: "pill you", title: "The lead wrote this test. Is it what you want?" }, "the lead's guess"), " ",
+            h("button", { class: "link", onclick: () => act("goal_confirm_test", { id: g.id }) }, "That's my test"), " · "],
+          h("button", { class: "link", onclick: edit("g" + g.id) }, "Edit"),
           !tasks.length && !g.proposed ? [" · ", h("button", { class: "link", onclick: () => act("goal_remove", { id: g.id }) }, "Remove")] : null),
+    g.outlook && h("div", { class: "small" }, h("b", {}, `Lead's outlook: ${g.outlook.level}. `), g.outlook.text, h("span", { class: "muted" }, " · " + ago(g.outlook.at))),
+    budgetLine(g),
+    !g.proposed && !g.met_at && live.length && live.every(t => t.status === "done")
+      ? h("div", { class: "card" }, h("div", { class: "k" }, `All of ${g.id}'s tasks are done`), h("div", {}, g.done_when ? "Does it pass its done test? " + g.done_when : "Is this goal met?"),
+          h("div", { class: "btns" }, btn("This goal is met", () => act("goal_met", { id: g.id }), "p"), h("span", { class: "muted small" }, "Not yet? Add a task below saying what is missing.")))
+      : null,
+    g.met_at && h("div", { class: "small" }, h("span", { class: "pill ready" }, "✓ met " + ago(g.met_at)), " ", h("button", { class: "link", onclick: () => act("goal_reopen", { id: g.id }) }, "Reopen")),
     on.map(d => decision(d, plan)), docs(files),
     shown.map(t => taskNode(t, plan)),
-    !g.proposed && S.filter === "all" ? form(null, [{ label: "Add a task to " + g.id }], title => title && act("task_add", { goal: g.id, title }), "Add") : null));
+    !g.proposed && !g.met_at && S.filter === "all" ? form(null, [{ label: "Add a task to " + g.id }], title => title && act("task_add", { goal: g.id, title }), "Add") : null));
   return node;
 }
 
@@ -303,11 +354,14 @@ function workingOn(plan) {
 function drawProject() {
   const { plan, unread, lead_waiting: listening } = S.data;
   const waiting = plan.decisions.filter(d => d.state === "needs_you"), proposed = plan.goals.filter(g => g.proposed);
-  const review = plan.decisions.filter(d => d.state === "to_review");
+  const review = plan.decisions.filter(d => d.state === "to_review" && !d.said);
+  const said = plan.decisions.filter(d => d.state === "to_review" && d.said);
+  const checks = plan.tasks.filter(t => t.status === "review");
+  const met = plan.goals.filter(g => g.met_at);
   const unstopped = plan.tasks.filter(t => t.pruned_by && t.stopped === false);
   const gone = plan.tasks.filter(t => ["parked", "dropped"].includes(t.status) && t.stopped !== false);
   const fresh = plan.tasks.filter(isNew).length;
-  const general = plan.decisions.filter(d => d.on === "project" && d.state !== "needs_you"), gdocs = plan.docs.filter(d => d.on === "project");
+  const general = plan.decisions.filter(d => d.on === "project" && d.state !== "needs_you" && !said.includes(d)), gdocs = plan.docs.filter(d => d.on === "project");
   document.title = (waiting.length + proposed.length ? `(${waiting.length + proposed.length}) ` : "") + plan.title + " · atr";
   mount(app,
     h("div", { class: "top" }, h("button", { class: "back", onclick: () => location.hash = "" }, "← All projects"), h("span", { class: "sp" }),
@@ -315,21 +369,32 @@ function drawProject() {
       plan.lead.thread && h("a", { href: plan.lead.thread, target: "_blank", rel: "noopener" }, "Lead thread ↗")),
     h("h1", {}, plan.title),
     workingOn(plan),
-    h("div", { class: "chips" }, ["all", "doing", "blocked", "todo", "done"].map(f =>
+    h("div", { class: "chips" }, ["all", "doing", "blocked", "review", "todo", "done"].map(f =>
       h("button", { class: "chip", "aria-pressed": String(S.filter === f), onclick: () => { S.filter = f; draw(); } }, f === "all" ? "All" : LABEL[f]))),
     unread.length ? h("div", { class: "banner" }, `The lead has not read your ${unread.length} change${unread.length > 1 ? "s" : ""} yet. ${listening ? "It is being woken now." : "It picks them up on its next turn; nudge it in its thread if it is idle."}`,
       h("ul", {}, unread.slice(-5).map(c => h("li", {}, c.what)))) : null,
     unstopped.length ? h("div", { class: "banner" }, "Waiting for the lead to stop work on " + unstopped.map(t => t.id).join(", ") + ".") : null,
     waiting.map(card),
     proposed.map(g => h("div", { class: "card" }, h("div", { class: "k" }, `The lead proposes a goal · ${g.id}`), h("div", { class: "q" }, g.title),
-      g.done_when && h("div", {}, "Done when: " + g.done_when),
-      h("div", { class: "btns" }, btn("Accept goal", () => act("goal_accept", { id: g.id }), "p"), btn("Reject", () => act("goal_remove", { id: g.id }))))),
+      g.done_when && h("div", {}, "Done when (the lead's guess): " + g.done_when),
+      h("div", { class: "btns" }, g.done_when ? [btn("Accept goal and test", () => act("goal_accept", { id: g.id, test: true }), "p"),
+          btn("Accept goal, test still a guess", () => act("goal_accept", { id: g.id }))] : btn("Accept goal", () => act("goal_accept", { id: g.id }), "p"),
+        btn("Reject", () => act("goal_remove", { id: g.id }))))),
+    checks.length ? h("div", { class: "banner" }, h("button", { class: "link", onclick: () => { checks.forEach(t => S.open.add(t.id)); draw(); } },
+      `${checks.length} task${checks.length > 1 ? "s" : ""} to check`), " — work the lead did that counts once you say it's right: ", checks.map(t => t.id).join(", ")) : null,
+    said.map(d => h("div", { class: "card" }, h("div", { class: "k" }, `You said this in chat · ${d.id}` + (d.on !== "project" ? ` · on ${d.on}` : "")),
+      h("div", { class: "q" }, d.chosen), d.why && h("div", {}, d.why),
+      h("div", { class: "btns" }, btn("That's what I meant", () => act("review", { id: d.id, verdict: "accept" }), "p"),
+        S.editing === "ov" + d.id ? form("ov" + d.id, [{ label: "What did you mean?" }], note => act("review", { id: d.id, verdict: "overturn", note }), "Correct it")
+          : btn("Not quite…", edit("ov" + d.id))))),
     review.length ? h("div", { class: "banner" }, h("button", { class: "link", onclick: () => { review.forEach(d => S.open.add(d.on)); draw(); } },
       `${review.length} agent call${review.length > 1 ? "s" : ""} to review`), " — choices the lead made without asking.") : null,
     fresh ? h("div", { class: "banner" }, `${fresh} task${fresh > 1 ? "s" : ""} added by agents since you last agreed the plan (marked "new"). Drop what you do not want, then `,
       h("button", { class: "link", onclick: () => act("agree", {}) }, "agree the plan as it stands"), ".") : null,
     general.length || gdocs.length ? [h("h2", {}, "Whole project"), general.map(d => decision(d, plan)), docs(gdocs)] : null,
-    plan.goals.map(g => goalNode(g, plan, plan.tasks.filter(t => t.goal === g.id && !gone.includes(t)))),
+    plan.goals.filter(g => !g.met_at).map(g => goalNode(g, plan, plan.tasks.filter(t => t.goal === g.id && !gone.includes(t)))),
+    met.length ? h("details", { class: "goal" }, h("summary", {}, h("span", { class: "gt" }, "Met goals"), h("span", { class: "count" }, String(met.length))),
+      h("div", { class: "gbody" }, met.map(g => goalNode(g, plan, plan.tasks.filter(t => t.goal === g.id && !gone.includes(t)))))) : null,
     plan.goals.length ? null : h("p", { class: "muted" }, "No goals yet. Goals are yours: add the first one below, then the lead can add tasks under it."),
     h("h2", {}, "Add a goal"),
     form(null, [{ label: "Goal, in one line" }, { label: "Done when…" }], (title, done_when) => title && act("goal_add", { title, done_when }), "Add goal"),
@@ -410,7 +475,7 @@ async function drawProjects() {
   list.sort((a, b) => (b.needs_you > 0) - (a.needs_you > 0) || b.to_review - a.to_review || a.title.localeCompare(b.title));
   mount(app, h("div", { class: "top" }, h("h1", {}, "Projects")),
     list.length ? h("div", { class: "tiles" }, list.map(p => h("button", { class: "tile" + (p.needs_you ? " needs" : ""), onclick: () => location.hash = p.name },
-      h("b", {}, p.title), h("span", { class: "muted small" }, `${p.goals} goals · ${p.tasks} tasks · ${p.running} running`),
+      h("b", {}, p.title), h("span", { class: "muted small" }, `${p.goals} goals${p.met ? ` (${p.met} met)` : ""} · ${p.tasks} tasks · ${p.running} running`),
       h("div", { class: "bar" }, h("i", { style: `width:${p.tasks ? Math.round(100 * p.done / p.tasks) : 0}%` })),
       p.needs_you ? h("span", { class: "pill you" }, `${p.needs_you} waiting on you`)
         : h("span", { class: "muted small" }, p.to_review ? `${p.to_review} agent calls to review` : "Nothing needs you"),
@@ -437,10 +502,17 @@ const typing = () => ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeEle
 // quietly out of date reads as the truth (T8 looked "in progress" after the lead had finished it).
 const stale = document.body.appendChild(h("div", { class: "stale", role: "status", hidden: true },
   "The plan has changed. It will refresh when you finish typing."));
+// The page is read from disk on every load, the server's code only when it starts: after an update the two
+// disagree, and a button that needs new server code fails for no visible reason.
+const outdated = document.body.appendChild(h("div", { class: "banner", role: "status", hidden: true,
+  style: "position:fixed;top:8px;left:50%;transform:translateX(-50%);border:1px solid var(--warn);background:var(--warn-soft);z-index:20" },
+  "atr was updated. Restart ", h("code", {}, "atr serve"), " to run the new version."));
 async function poll() {
   if (document.hidden) return;
   try {
     const sigs = await get("/api/sig");
+    outdated.hidden = !sigs[""]?.outdated;
+    delete sigs[""];
     if (!project()) { const all = JSON.stringify(sigs); if (all !== S.all) { S.all = all; drawProjects(); } }
     else if (sigs[project()] && sigs[project()] !== S.sig) { if (typing() || S.dragging) stale.hidden = false; else load(); }
   } catch (e) { /* server away; keep what is on screen */ }

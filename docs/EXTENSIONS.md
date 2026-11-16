@@ -17,7 +17,9 @@ An extension can do any of these three jobs. Each one is useful on its own.
    lead is never held forever.
 3. **Doorbell.** While the lead is idle, wake it when the owner acts. Run `atr wait`. When it exits 0, wake
    the lead in whatever way the harness offers, for example a message to `lead_thread` or a background job
-   that re-invokes the session. Then run `atr wait` again.
+   that re-invokes the session. Hand the lead the owner's changes from `atr wait --json` (`what`, `op`,
+   `args`) so it can act without asking. Then run `atr wait` again. The Claude Code extension does this
+   with an `asyncRewake` hook, so the lead never has to arm it.
 
 ## The contract
 
@@ -41,14 +43,28 @@ installed globally and only act where a `.atr` file exists.
   "project": "adhush",
   "lead_thread": "https://…",
   "lead_waiting": true,
-  "unread": [{"rev": 4, "by": "you", "at": "2026-11-15T20:01Z", "what": "accepted goal G1 \"…\""}]
+  "unread": [{"rev": 4, "by": "you", "at": "2026-11-15T20:01Z", "what": "answered D1 (…): sqlite",
+              "op": "answer", "args": {"id": "D1", "choice": "sqlite", "note": ""}}],
+  "running": [{"id": "T3", "title": "…", "last_news_at": "2026-11-15T19:40Z"}],
+  "own": true,
+  "projects": [{"project": "adhush", "own": true, "…": "the same fields, once per followed project"}]
 }
 ```
 
-- `unread` lists only the owner's changes. The lead's own changes never wake it.
+- `unread` lists only the owner's changes. The lead's own changes never wake it. Each one has `what`,
+  a sentence for the lead, and `op` and `args`: the page action and what the owner sent with it (the
+  card's answer, the decision's verdict, a task's new goal). Pass them on as they are. Changes recorded
+  before atr kept `op` have only `what`.
 - `lead_waiting` is true while an `atr wait` for this project is running. The page shows "Lead listening"
   and tells the owner the lead is being woken. Turn-end checks can use it: if it is false, the doorbell is
   not armed.
+- `projects` lists every project the folder's lead follows: the folder's own (`own: true`) first, then
+  any added with `atr watch NAME` from that folder. The top-level fields repeat the first entry. Cover
+  every entry: read a followed project with `atr -p NAME read`. `atr wait` returns when any of them changes,
+  and exit 2 means the folder has no project and follows none.
+- `running` lists the tasks in progress and when there was last news of each. A session start should
+  show them to the lead and ask it to confirm each still has a worker: workers often die with the
+  session that started them, and atr cannot tell.
 
 ## Rules for extensions
 

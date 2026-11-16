@@ -1,6 +1,6 @@
 # Dogfooding atr on adhush
 
-adhush (`~/dev/adhush`, atr project `adhush`): a macOS menu bar app that mutes commercials in audio the Mac
+adhush (discarded 2026-11-16; summary in [learnings-adhush.md](learnings-adhush.md)): a macOS menu bar app that mutes commercials in audio the Mac
 plays. Used as a real project to find where atr gets in the lead's or the owner's way.
 
 Each entry: what happened, what it says about atr, and what changed (or why nothing did).
@@ -23,6 +23,15 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
   text reordered T3 twice instead. Now only the grip drags.
 - **The lead's task note read as part of a decision.** The owner read "tested on a fake device" (T3's note)
   as part of D4, shown right below it. The note is now labelled "Lead's note".
+- **"Can start now" on work only the owner could do.** The owner asked whether it meant "waiting for me".
+  Tasks with `owner=you` now show "your turn", are not offered to the lead, and are listed separately in
+  `atr read`. (This settles the owner-hands pattern noted under T5 and T6.)
+- **The dependency dropdown offered finished tasks and overflowed its card.** Now it offers only open tasks
+  that would not make a loop, with titles shortened.
+- **The page's server runs the code it started with.** After a fix to `ready()`, the owner's page still
+  showed old behaviour until `atr serve` was restarted. Page fixes apply on reload, server fixes need a
+  restart, and nothing tells the owner which is which. A version check (the page notices the server is
+  older than `bin/atr` on disk) would help.
 
 ## Observed, not acted on yet
 
@@ -78,3 +87,23 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
   for this, but is not installed, and this session's folder is the atr repo, so it would stay silent anyway.
   Leading one project from another project's folder is a real pattern: the extension could take a list of
   projects to watch, not only the one in the folder.
+- **Progress lines work.** The T10 worker posted 4 `atr now` lines over ~20 minutes, at natural milestones,
+  with no extra prompting beyond the brief. The worker's decisions still came back only in its report, so
+  the lead recorded them by hand (D16-D18).
+- Workers run `atr` by its full path (`~/dev/atr/bin/atr -p adhush`), because atr is not on the PATH yet.
+- The owner asked for a reality check ("how likely are we to make this work?"). atr has nothing for that:
+  the plan shows tasks and decisions, but not how confident the lead is that a goal can be met. A per-goal
+  "outlook" line the lead keeps current (like `atr now` for goals) might have answered it before they asked.
+- **A worker died with the lead's session, and atr still said "doing".** The T12 worker stopped when the
+  lead's session ended. It left no commits, and atr kept showing T12 in progress with its last progress
+  line. The "no news for a while" marker on the page is the only hint. atr cannot know a worker is gone;
+  a lead starting a session should check its `doing` tasks against what is actually running. A SessionStart
+  hook could prompt exactly that.
+- The lead recorded the second test set itself by driving adhush's menu with UI scripting, once the owner
+  had granted the terminal Accessibility permission. atr had no part in that. But T15 is an odd task: done by
+  the lead, and only valid once the owner checks the marks. That is a third kind of "owner's turn" (review)
+  that `owner=you` does not express.
+- The lead could not revise its own goal proposals. While writing up adhush, the lead wanted to widen G2 (in
+  the follow-up project `atr`) before the owner had accepted it. `goal edit` is owner-only, even for
+  proposals that have not been accepted, so the lead proposed G5 instead. The lead should probably be able
+  to edit or withdraw its own proposals until they are accepted.

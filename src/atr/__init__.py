@@ -1,2 +1,3 @@
-def main() -> None:
-    print("Hello from atr!")
+from atr.cli import main
+
+__all__ = ["main"]

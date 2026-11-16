@@ -16,8 +16,10 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE = Path(__file__).resolve().parent.parent / "bin/atr"
-loader = importlib.machinery.SourceFileLoader("atr", str(SOURCE))
+ROOT = Path(__file__).resolve().parent.parent
+SOURCE = ROOT / "bin/atr"  # the checkout launcher
+CODE = ROOT / "src/atr/cli.py"
+loader = importlib.machinery.SourceFileLoader("atr", str(CODE))
 atr = importlib.util.module_from_spec(importlib.util.spec_from_loader("atr", loader))
 loader.exec_module(atr)
 
@@ -192,8 +194,11 @@ class Plan(Base):
         code, out = self.cli("decide", "project", "audio comes from the Mac", "--owner")
         self.assertEqual(code, 0, out)
         d = atr.load("demo")["decisions"][-1]
-        self.assertEqual((d["by"], d["state"]), ("you", "accepted"))
+        self.assertEqual((d["by"], d["state"], d["said"]), ("you", "to_review", True))
+        self.assertIn("said this in chat; not confirmed", self.cli("read")[1])
         self.assertEqual(self.cli("unread")[0], 1)
+        self.you("review", id=d["id"], verdict="accept")
+        self.assertIn("confirmed D1", self.cli("read")[1])
         self.assertEqual(self.cli("decide", "T1", "x", "--owner", "--hard")[0], 2)
 
     def test_wait_returns_owner_changes_and_times_out_without_them(self):
@@ -238,6 +243,13 @@ class Plan(Base):
         self.assertEqual(self.cli("unread")[0], 1)  # progress is not owner news
         self.cli("task", "set", "T1", "status=done")
         self.assertNotIn("now", self.task("T1"))
+
+    def test_owner_work_is_never_offered_to_the_lead(self):
+        self.cli("task", "add", "G1", "record an hour of TV")
+        self.cli("task", "add", "G1", "write the scorer")
+        self.cli("task", "set", "T1", "owner=you")
+        self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], ["T2"])
+        self.assertIn("THE OWNER'S TURN", self.cli("read")[1])
 
     def test_move_reorders_and_changes_goal(self):
         self.you("goal_add", title="Second")
@@ -290,6 +302,208 @@ class Plan(Base):
         self.assertEqual(self.cli("next")[0], 0)
         Path(".atr").unlink()
         self.assertEqual(self.cli("next")[0], 2)
+
+    def test_a_lead_written_done_test_stays_a_guess_until_the_owner_confirms(self):
+        self.cli("goal", "propose", "Mute ads", "--done", "edges within 5 s")
+        self.cli("goal", "propose", "Record", "--done", "a file plays")
+        self.assertTrue(atr.get(atr.load("demo"), "goals", "G2")["test_guess"])
+        self.you("goal_accept", id="G2")  # accepting the goal is not accepting its test
+        self.assertIn("YOUR GUESS", self.cli("read")[1])
+        with self.assertRaises(atr.Refused):
+            self.agent("goal_confirm_test", id="G2")
+        self.you("goal_confirm_test", id="G2")
+        self.you("goal_accept", id="G3", test=True)
+        self.you("goal_edit", id="G1", done_when="sign-in works")  # the owner's own words
+        self.assertNotIn("YOUR GUESS", self.cli("read")[1])
+
+    def test_a_card_on_a_goal_holds_that_goals_tasks(self):
+        self.cli("task", "add", "G1", "build it")
+        self.cli("decide", "G1", "go on-device", "--hard", "--question", "where does it run?")
+        self.assertEqual(atr.ready(atr.load("demo")), [])
+        self.assertEqual(self.cli("task", "set", "T1", "status=doing")[0], 2)
+        self.you("answer", id="D1", choice="go on-device")
+        self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], ["T1"])
+
+    def test_a_goal_out_of_tries_holds_until_the_owner_says_how_it_goes_on(self):
+        self.cli("goal", "propose", "Detect ads", "--done", "x", "--tries", "2")
+        self.you("goal_accept", id="G2")
+        self.cli("task", "add", "G2", "tune")
+        self.cli("try", "G2", "prompt A: 12 of 33")
+        self.you("goal_edit", id="G2", title="Detect ads well", tries=2)  # same budget: not a reset
+        self.cli("try", "G2", "prompt B: 15 of 31")
+        self.assertEqual(atr.ready(atr.load("demo")), [])
+        self.assertEqual(self.cli("task", "set", "T1", "status=doing")[0], 2)
+        self.assertIn("OUT OF BUDGET", self.cli("read")[1])
+        self.cli("decide", "G2", "change the method", "--hard", "--rejected", "keep going")
+        self.assertNotIn("OUT OF BUDGET", self.cli("read")[1])  # asked already
+        self.you("answer", id="D1", choice="change the method")
+        self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], ["T1"])
+        self.assertEqual(atr.get(atr.load("demo"), "goals", "G2")["budget"]["used"], 0)
+
+    def test_a_goal_out_of_days_holds(self):
+        self.you("goal_edit", id="G1", days=1)
+        self.cli("task", "add", "G1", "x")
+        def backdate(plan, by, a):
+            plan["goals"][0]["budget"]["from"] = "2020-01-01T00:00Z"
+            return "backdated"
+        atr.change("demo", "agent", backdate)
+        self.assertEqual(atr.ready(atr.load("demo")), [])
+        self.you("goal_edit", id="G1", days=0)  # the owner lifts the limit
+        self.assertNotIn("budget", atr.get(atr.load("demo"), "goals", "G1"))
+
+    def test_the_lead_keeps_an_outlook_per_goal(self):
+        self.cli("task", "add", "G1", "x")
+        self.assertIn("no outlook yet", self.cli("read")[1])
+        self.assertEqual(self.cli("outlook", "G1", "maybe", "x")[0], 2)
+        code, out = self.cli("outlook", "G1", "unlikely", "catches", "half")
+        self.assertEqual(code, 0, out)
+        self.assertIn("your outlook", self.cli("read")[1])
+        self.assertEqual(atr.load("demo")["goals"][0]["outlook"]["level"], "unlikely")
+
+    def test_workers_record_their_own_calls_for_the_lead_to_check(self):
+        self.cli("task", "add", "G1", "x")
+        self.cli("read")
+        code, out = self.cli("decide", "T1", "use AAC", "--why", "small", "--by", "w1")
+        self.assertEqual(code, 0, out)
+        d = atr.load("demo")["decisions"][0]
+        self.assertEqual((d["by"], d["state"]), ("worker:w1", "to_review"))
+        self.assertEqual(self.cli("unread")[0], 1)  # not owner news
+        self.assertIn("FROM YOUR WORKERS", self.cli("read")[1])
+        self.assertNotIn("FROM YOUR WORKERS", self.cli("read")[1])  # once
+        self.assertEqual(self.cli("decide", "T1", "x", "--by", "W 1")[0], 2)
+
+    def test_install_links_atr_onto_the_path(self):
+        bindir = Path(self.tmp.name) / "bin"
+        code, out = self.cli("install", "--dir", str(bindir))
+        self.assertEqual(code, 0, out)
+        self.assertEqual((bindir / "atr").resolve(), SOURCE.resolve())
+        self.assertIn("not on your PATH", out)
+        self.assertIn("already points", self.cli("install", "--dir", str(bindir))[1])
+        (bindir / "atr").unlink()
+        (bindir / "atr").write_text("someone else's")
+        self.assertEqual(self.cli("install", "--dir", str(bindir))[0], 2)
+
+    def test_the_lead_is_told_when_it_works_from_another_folder(self):
+        self.assertNotIn("NOTE: you are in", self.cli("read")[1])
+        elsewhere = tempfile.TemporaryDirectory()
+        self.addCleanup(elsewhere.cleanup)
+        os.chdir(elsewhere.name)
+        self.assertIn("NOTE: you are in", self.cli("read")[1])
+
+    def test_a_plain_question_has_no_recommendation_and_holds_the_task(self):
+        self.cli("task", "add", "G1", "detector")
+        code, out = self.cli("ask", "T1", "What do you watch with ads?", "--option", "cable", "--option", "streaming")
+        self.assertEqual(code, 0, out)
+        d = atr.load("demo")["decisions"][0]
+        self.assertEqual((d["recommended"], d["options"], d["state"]), ("", ["cable", "streaming"], "needs_you"))
+        self.assertEqual(self.task("T1")["status"], "blocked")
+        self.you("answer", id="D1", choice="streaming in the browser")
+        self.assertEqual(self.task("T1")["status"], "todo")
+        self.assertEqual(self.cli("ask", "T1", "")[0], 2)
+
+    def test_a_task_in_review_counts_only_once_the_owner_checks_it(self):
+        self.cli("task", "add", "G1", "mark the test set")
+        self.cli("task", "add", "G1", "score it", "--after", "T1")
+        self.assertEqual(self.cli("task", "set", "T1", "status=review")[0], 2)  # needs what to check
+        self.cli("task", "set", "T1", "status=review", "note=check the break edges")
+        self.assertIn("THE OWNER'S TURN", self.cli("read")[1])
+        self.assertEqual(self.cli("task", "set", "T1", "status=done")[0], 2)
+        self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], [])
+        self.you("task_check", id="T1", note="break 2 ends at 6:20")
+        self.assertEqual(self.task("T1")["status"], "todo")
+        self.cli("task", "set", "T1", "status=review")
+        self.you("task_check", id="T1", ok=True)
+        self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], ["T2"])
+
+    def test_a_task_is_not_done_while_its_decisions_wait_for_review(self):
+        self.cli("task", "add", "G1", "plan it")
+        self.cli("task", "add", "G1", "build", "--after", "T1")
+        self.cli("decide", "T1", "spike two paths")
+        self.cli("decide", "T1", "stdlib only")
+        self.cli("task", "set", "T1", "status=done")
+        self.assertEqual((self.task("T1")["status"], self.task("T1")["note"]), ("review", "review D1, D2"))
+        self.you("review", id="D1", verdict="accept")
+        self.assertEqual(self.task("T1")["status"], "review")
+        self.you("review", id="D2", verdict="accept")
+        self.assertEqual(self.task("T1")["status"], "done")
+        self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], ["T2"])
+
+    def test_owner_changes_carry_the_action_as_data(self):
+        self.cli("task", "add", "G1", "build")
+        self.cli("decide", "T1", "which db?", "--hard")
+        self.cli("read")
+        self.you("answer", id="D1", choice="sqlite", note="keep it local")
+        code, out = self.cli("unread", "--json")
+        (c,) = json.loads(out)["unread"]
+        self.assertEqual((c["op"], c["args"]), ("answer", {"id": "D1", "choice": "sqlite", "note": "keep it local"}))
+        lead = [c for c in atr.load("demo")["changes"] if c["by"] != "you"]
+        self.assertTrue(lead and not any("op" in c for c in lead))  # the lead's own changes stay as they were
+
+    def test_an_overturned_decision_sends_its_waiting_task_back(self):
+        self.cli("task", "add", "G1", "plan it")
+        self.cli("decide", "T1", "spike two paths")
+        self.cli("task", "set", "T1", "status=done")
+        self.you("review", id="D1", verdict="overturn", note="one is enough")
+        self.assertEqual(self.task("T1")["status"], "todo")
+
+    def test_a_dropped_task_holds_nothing_back_a_parked_one_does(self):
+        self.cli("task", "add", "G1", "spike A")
+        self.cli("task", "add", "G1", "spike B")
+        self.cli("task", "add", "G1", "build", "--after", "T1", "--after", "T2")
+        self.cli("task", "set", "T1", "status=done")
+        self.you("task_prune", id="T2", mode="park")
+        self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], [])
+        self.you("task_restore", id="T2")
+        self.cli("task", "set", "T2", "status=dropped")
+        self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], ["T3"])
+
+    def test_parking_with_a_reason_tells_the_lead_why(self):
+        self.cli("task", "add", "G1", "later")
+        self.cli("read")
+        self.you("task_prune", id="T1", mode="park", why="after the trip")
+        out = self.cli("read")[1]
+        self.assertIn("parked T1 \"later\": after the trip", out)
+        self.assertIn("owner's reason: after the trip", out)
+        self.you("task_restore", id="T1")
+        self.assertNotIn("pruned_why", self.task("T1"))
+
+    def test_a_lead_follows_another_project_from_its_folder(self):
+        elsewhere = tempfile.TemporaryDirectory()
+        self.addCleanup(elsewhere.cleanup)
+        os.environ.pop("ATR_PROJECT")
+        self.cli("read")
+        os.chdir(elsewhere.name)
+        self.assertEqual(self.cli("unread")[0], 2)  # no project here, none followed
+        self.assertEqual(self.cli("watch", "nope")[0], 2)
+        self.assertIn("follows: demo", self.cli("watch", "demo")[1])
+        self.assertNotIn("NOTE: you are in", self.cli("-p", "demo", "read")[1])
+        self.assertEqual(self.cli("unread")[0], 1)
+        self.you("goal_add", title="Second")
+        code, out = self.cli("unread", "--json")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["projects"][0]["project"], "demo")
+        self.assertEqual(self.cli("wait", "--timeout", "1")[0], 0)
+        self.assertIn("no other projects", self.cli("watch", "demo", "--stop")[1])
+
+    def test_only_the_owner_says_a_goal_is_met_and_met_goals_take_no_new_work(self):
+        self.cli("goal", "propose", "Mute ads", "--done", "most ads muted")
+        self.you("goal_accept", id="G2")
+        self.cli("task", "add", "G2", "build")
+        with self.assertRaises(atr.Refused):
+            self.you("goal_met", id="G2")  # an open task
+        self.cli("task", "set", "T1", "status=done")
+        self.assertIn("say whether G2 is met", self.cli("read")[1])
+        with self.assertRaises(atr.Refused):
+            self.agent("goal_met", id="G2")
+        self.you("goal_met", id="G2")
+        g = atr.get(atr.load("demo"), "goals", "G2")
+        self.assertNotIn("test_guess", g)
+        out = self.cli("read")[1]
+        self.assertIn("MET (the owner closed these)", out)
+        self.assertNotIn("say whether G2", out)
+        self.assertEqual(self.cli("task", "add", "G2", "more")[0], 2)
+        self.you("goal_reopen", id="G2", why="edges still late")
+        self.assertEqual(self.cli("task", "add", "G2", "more")[0], 0)
 
 
 class Web(Base):
@@ -364,6 +578,12 @@ class Web(Base):
             400,
         )
 
+    def test_the_page_hears_when_the_server_runs_older_code(self):
+        atr.Handler.started_with = atr.code_stamp()
+        self.assertFalse(self.call("/api/sig")[1][""]["outdated"])
+        atr.Handler.started_with = (0, 0)  # as if the code changed after the server started
+        self.assertTrue(self.call("/api/sig")[1][""]["outdated"])
+
     def test_signature_changes_when_the_lead_reads(self):
         before = self.call("/api/sig")[1]["demo"]
         self.cli("read")
@@ -377,8 +597,34 @@ class Web(Base):
         self.assertEqual(self.call("/api/doc/demo/A9")[0], 404)
 
 
+class Service(Base):
+    cmd = ["/py", "/my atr/atr", "serve", "--port", "9"]
+
+    def test_launchd_agent_runs_the_command_and_restarts_it(self):
+        path, text, start, stop = atr.service_files(self.cmd, {"ATR_DATA_DIR": "/d&d"}, Path("/h"), "Darwin")
+        self.assertEqual(path, Path("/h/Library/LaunchAgents/atr.serve.plist"))
+        for want in ("<string>/my atr/atr</string>", "<key>KeepAlive</key><true/>", "<string>/d&amp;d</string>"):
+            self.assertIn(want, text)
+        self.assertEqual(start[-1][:2], ["launchctl", "bootstrap"])
+        self.assertEqual(stop[0][:2], ["launchctl", "bootout"])
+
+    def test_systemd_unit_quotes_the_command(self):
+        path, text, start, stop = atr.service_files(self.cmd, {}, Path("/h"), "Linux")
+        self.assertEqual(path, Path("/h/.config/systemd/user/atr.service"))
+        self.assertIn('ExecStart="/py" "/my atr/atr" "serve" "--port" "9"', text)
+        self.assertIn("Restart=on-failure", text)
+        self.assertIn("enable", start[-1])
+
+    def test_a_throwaway_uvx_environment_is_refused(self):
+        real = atr.sys.executable
+        self.addCleanup(setattr, atr.sys, "executable", real)
+        atr.sys.executable = "/c/uv/archive-v0/abc/bin/python"
+        with self.assertRaises(atr.Refused):
+            atr.serve_command()
+
+
 class ClaudeCodeExtension(Base):
-    HOOK = SOURCE.parent.parent / "extensions/claude-code/hooks/atr_hook.py"
+    HOOK = ROOT / "extensions/claude-code/hooks/atr_hook.py"
 
     def hook(self, event, cwd=None, **payload):
         env = {**os.environ, "ATR_BIN": str(SOURCE)}
@@ -398,30 +644,79 @@ class ClaudeCodeExtension(Base):
         self.assertIn("THE OWNER CHANGED", self.hook("prompt"))
         self.assertEqual(self.hook("prompt"), "")
 
-    def test_session_start_gives_the_plan_and_asks_for_the_doorbell(self):
-        out = self.hook("session-start")
-        self.assertIn("G1 Sign in", out)
-        self.assertIn("atr wait", out)
+    def test_session_start_gives_the_plan(self):
+        self.assertIn("G1 Sign in", self.hook("session-start"))
 
-    def test_turn_end_holds_for_unread_changes_then_for_the_doorbell(self):
+    def test_turn_end_holds_only_for_unread_changes(self):
         self.assertIn("atr read", json.loads(self.hook("stop"))["reason"])
-        self.cli("read")
-        self.assertIn("atr wait", json.loads(self.hook("stop"))["reason"])
         self.assertEqual(self.hook("stop", stop_hook_active=True), "")
-        th = threading.Thread(target=atr.wait, args=("demo", 10))
-        th.start()
-        for _ in range(50):
+        self.cli("read")
+        self.assertEqual(self.hook("stop"), "")
+
+    def listener(self, session="s1", cwd=None):
+        return subprocess.Popen(
+            [sys.executable, str(self.HOOK), "listen"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            env={**os.environ, "ATR_BIN": str(SOURCE)},
+        ), json.dumps({"cwd": cwd or self.tmp.name, "session_id": session})
+
+    def until_listening(self):
+        for _ in range(100):
             if atr.waiting("demo"):
-                break
+                return
             threading.Event().wait(0.05)
-        self.assertEqual(self.hook("stop"), "")  # armed: the turn may end
-        self.you("goal_add", title="wake up")
-        th.join(5)
+        self.fail("the listener never started waiting")
+
+    def test_the_listener_wakes_the_lead_with_the_owners_action(self):
+        self.cli("read")
+        proc, payload = self.listener()
+        proc.stdin.write(payload)
+        proc.stdin.close()
+        self.until_listening()
+        self.you("goal_add", title="wake up", done_when="it pushes")
+        out, err = proc.communicate(timeout=10)
+        self.assertEqual(proc.returncode, 2)  # asyncRewake: exit 2 wakes the session, stderr is the message
+        self.assertIn('added goal G2 "wake up"', err)
+        self.assertIn('"op": "goal_add"', err)
+
+    def test_a_new_listener_replaces_the_one_before(self):
+        self.cli("read")
+        first, payload = self.listener()
+        first.stdin.write(payload)
+        first.stdin.close()
+        self.until_listening()
+        second, payload = self.listener()
+        second.stdin.write(payload)
+        second.stdin.close()
+        first.communicate(timeout=10)
+        self.assertEqual(first.returncode, 0)  # stopped quietly: no second wake for one action
+        self.you("goal_add", title="once")
+        second.communicate(timeout=10)
+        self.assertEqual(second.returncode, 2)
+
+    def test_session_start_asks_the_lead_to_confirm_running_tasks(self):
+        self.cli("task", "add", "G1", "long run")
+        self.cli("task", "set", "T1", "status=doing")
+        self.assertIn("no news since it started", self.cli("read")[1])
+        out = self.hook("session-start")
+        self.assertIn("may be gone", out)
+        self.assertIn("T1 long run", out)
+
+    def test_watched_projects_reach_a_lead_in_another_folder(self):
+        elsewhere = tempfile.TemporaryDirectory()
+        self.addCleanup(elsewhere.cleanup)
+        os.environ.pop("ATR_PROJECT")
+        os.chdir(elsewhere.name)
+        self.assertEqual(self.hook("prompt", cwd=elsewhere.name), "")
+        self.cli("watch", "demo")
+        self.assertIn("You follow atr project demo", self.hook("session-start", cwd=elsewhere.name))
+        self.you("goal_add", title="Second")
+        self.assertIn("plan of demo", self.hook("prompt", cwd=elsewhere.name))
 
     def test_silent_outside_an_atr_project(self):
         os.environ.pop("ATR_PROJECT")
         with tempfile.TemporaryDirectory() as elsewhere:
-            for event in ("session-start", "prompt", "stop"):
+            for event in ("session-start", "prompt", "stop", "listen"):
                 self.assertEqual(self.hook(event, cwd=elsewhere), "")
 
 

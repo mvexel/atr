@@ -8,6 +8,12 @@
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/atr_hook.py\" session-start",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/atr_hook.py\" listen",
+            "asyncRewake": true,
+            "timeout": 86400
           }
         ]
       }
@@ -30,6 +36,12 @@
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/atr_hook.py\" stop",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/atr_hook.py\" listen",
+            "asyncRewake": true,
+            "timeout": 86400
           }
         ]
       }

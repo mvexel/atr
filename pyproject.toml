@@ -1,8 +1,10 @@
 [project]
 name = "atr"
 version = "0.1.0"
-description = "Add your description here"
+description = "A goal tree, tasks and decisions for a team of coding agents, on one page you can touch."
 readme = "README.md"
+license = "FSL-1.1-ALv2"
+license-files = ["LICENSE.md"]
 authors = [
     { name = "Martijn van Exel", email = "m@rtijn.org" }
 ]
