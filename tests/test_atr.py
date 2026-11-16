@@ -5,6 +5,8 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -262,6 +264,47 @@ class Web(Base):
         self.cli("attach", "G1", "notes.md")
         self.assertEqual(self.call("/api/doc/demo/A1")[1]["text"], "hello")
         self.assertEqual(self.call("/api/doc/demo/A9")[0], 404)
+
+
+class ClaudeCodeExtension(Base):
+    HOOK = SOURCE.parent.parent / "extensions/claude-code/hooks/atr_hook.py"
+
+    def hook(self, event, cwd=None, **payload):
+        env = {**os.environ, "ATR_BIN": str(SOURCE)}
+        r = subprocess.run([sys.executable, str(self.HOOK), event], input=json.dumps({"cwd": cwd or self.tmp.name, **payload}),
+                           capture_output=True, text=True, env=env, timeout=30, check=False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def test_turn_start_shows_owner_changes_once(self):
+        self.assertIn("THE OWNER CHANGED", self.hook("prompt"))
+        self.assertEqual(self.hook("prompt"), "")
+
+    def test_session_start_gives_the_plan_and_asks_for_the_doorbell(self):
+        out = self.hook("session-start")
+        self.assertIn("G1 Sign in", out)
+        self.assertIn("atr wait", out)
+
+    def test_turn_end_holds_for_unread_changes_then_for_the_doorbell(self):
+        self.assertIn("atr read", json.loads(self.hook("stop"))["reason"])
+        self.cli("read")
+        self.assertIn("atr wait", json.loads(self.hook("stop"))["reason"])
+        self.assertEqual(self.hook("stop", stop_hook_active=True), "")
+        th = threading.Thread(target=atr.wait, args=("demo", 10))
+        th.start()
+        for _ in range(50):
+            if atr.waiting("demo"):
+                break
+            threading.Event().wait(0.05)
+        self.assertEqual(self.hook("stop"), "")                    # armed: the turn may end
+        self.you("goal_add", title="wake up")
+        th.join(5)
+
+    def test_silent_outside_an_atr_project(self):
+        os.environ.pop("ATR_PROJECT")
+        with tempfile.TemporaryDirectory() as elsewhere:
+            for event in ("session-start", "prompt", "stop"):
+                self.assertEqual(self.hook(event, cwd=elsewhere), "")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,38 @@
+{
+  "description": "atr: owner changes at turn start, a check at turn end, a doorbell for an idle lead",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/atr_hook.py\" session-start",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/atr_hook.py\" prompt",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/atr_hook.py\" stop",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}
