@@ -682,13 +682,27 @@ async function serverAct(what, busy) {
   } catch (e) { S.busy = null; S.server = ""; toast(e.message); }
 }
 if (sessionStorage.getItem("atr:toast")) { toast(sessionStorage.getItem("atr:toast")); sessionStorage.removeItem("atr:toast"); }
+// The footer: the version atr runs, and a check for a newer one now (atr also asks GitHub every 6 h on its own).
+function drawVersion(ver) {
+  const foot = document.getElementById("ver");
+  foot.dataset.ver = ver;
+  mount(foot, ver, ver && [" · ", h("button", { class: "link", onclick: async () => {
+    try {
+      const r = await fetch("/api/check", { method: "POST", headers: { "X-Atr": "1" } });
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.error || r.statusText);
+      if (body.latest) drawServer({ latest: body.latest, version: body.version });
+      else toast(`atr ${body.version} is the latest (or GitHub did not answer).`);
+    } catch (e) { toast("The atr server did not answer."); }
+  } }, "Check for updates")]);
+}
 async function poll() {
   if (document.hidden) return;
   try {
     const sigs = await get("/api/sig");
     if (!S.busy) drawServer(sigs[""]);
     const ver = sigs[""]?.version ? "atr " + sigs[""].version : "";
-    if (document.getElementById("ver").textContent !== ver) document.getElementById("ver").textContent = ver;
+    if (document.getElementById("ver").dataset.ver !== ver) drawVersion(ver);
     delete sigs[""];
     if (!project()) { const all = JSON.stringify(sigs); if (all !== S.all) { S.all = all; drawProjects(); } }
     else if (sigs[project()] && sigs[project()] !== S.sig) { if (typing() || S.dragging) stale.hidden = false; else load(); }

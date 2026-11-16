@@ -72,7 +72,7 @@ states, and `claude` and `atr-lead-*` for leads) and `ATR_DATA_DIR` if set. Run 
 `uv tool upgrade atr` to restart on the new code; `atr service uninstall` removes it. It needs a real
 install (`uv tool install` or a checkout), not `uvx`. Logs: `/tmp/atr.log` on macOS, `journalctl --user -u atr` on Linux.
 
-**Upgrading.** `atr serve` asks GitHub for the latest atr release every 15 minutes (every push to `main` is one), in the background,
+**Upgrading.** `atr serve` asks GitHub for the latest atr release every 6 hours, in the background (**Check for updates** at the foot of the page asks at once),
 and says nothing if GitHub does not answer (`ATR_UPDATE_CHECK=0` turns the check off). When a release is newer
 than the version you run (`atr --version`, also at the foot of the page), the page offers **Upgrade and
 restart**. The server picks the command from how atr is installed: `git pull --ff-only` for a checkout
