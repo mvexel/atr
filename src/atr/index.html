@@ -81,6 +81,10 @@
   select.b { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
   .pill.outlook.likely { color: var(--good); } .pill.outlook.unlikely { background: var(--warn-soft); border: 1px solid var(--bad); color: var(--text); }
   .pill.ready { background: var(--card); border: 1px solid var(--line); color: var(--text); }
+  .pill.bad { background: var(--warn-soft); border: 1px solid var(--bad); color: var(--text); }
+  a.pill { text-decoration: none; }
+  .pr { margin: 6px 0; padding: 8px 12px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); font-size: 14px; overflow-wrap: anywhere; }
+  .pr.turn { background: var(--warn-soft); border-color: var(--warn); }
   .st { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; white-space: nowrap; }
   .st i { width: 9px; height: 9px; border-radius: 50%; }
   .st.done i { background: var(--good); } .st.review i { background: var(--warn); } .st.doing i { background: var(--info); } .st.blocked i { background: var(--warn); }
@@ -335,11 +339,36 @@ function budgetLine(g) {
       out ? h("span", { class: "pill you", style: "margin-left:6px" }, "out: the lead will ask you how to go on") : null),
     tries.length ? h("ol", { style: "margin:4px 0" }, tries.map(t => h("li", {}, t.what, h("span", { class: "muted" }, " · " + ago(t.at))))) : h("span", { class: "muted" }, "No tries recorded yet."));
 }
+// A pull request sits on its goal: merging it on GitHub is your turn. atr serve asks GitHub (through gh) what
+// state it is in; once it merges, it moves into the goal's history and its tasks in review are done.
+const prTurn = p => p.state === "open" && !(p.known && (p.draft || p.ci === "failing" || p.mergeable === "conflicting"));
+function prState(p) {
+  if (!p.known) return "state unknown (atr serve could not ask GitHub: is gh installed and logged in?)";
+  return [p.draft ? "draft" : "open", "CI " + (p.ci || "none"),
+    { conflicting: "conflicts with its base", mergeable: "mergeable" }[p.mergeable] || "mergeability unknown"].join(" · ");
+}
+function prPill(p) {
+  const why = !p.known ? "" : p.ci === "failing" ? "CI failing" : p.mergeable === "conflicting" ? "conflicts" : p.draft ? "draft" : "";
+  return h("a", { class: "pill" + (prTurn(p) ? " you" : why ? " bad" : ""), href: p.url, target: "_blank", rel: "noopener", title: prState(p),
+    onclick: e => e.stopPropagation() }, `PR #${p.number}: ` + (prTurn(p) ? "your turn, merge it ↗" : (why || "state unknown") + " ↗"));
+}
+function prRow(p) {
+  return h("div", { class: "pr" + (prTurn(p) ? " turn" : "") }, h("b", {}, `Pull request #${p.number}`), p.for.length ? ` for ${p.for.join(", ")}` : "", " · ",
+    h("span", { class: "muted" }, prState(p)), " · ",
+    h("a", { href: p.url, target: "_blank", rel: "noopener" }, prTurn(p) ? "Merge it on GitHub ↗" : "Open on GitHub ↗"));
+}
+function prHistory(prs) {
+  const past = prs.filter(p => p.state !== "open");
+  return past.length ? h("details", { class: "small", style: "margin:4px 0" }, h("summary", { class: "muted" }, `Pull requests: ${past.length} merged or closed`),
+    h("ul", { style: "margin:4px 0" }, past.map(p => h("li", {}, h("a", { href: p.url, target: "_blank", rel: "noopener" }, `#${p.number}`),
+      p.for.length ? ` for ${p.for.join(", ")}` : "", h("span", { class: "muted" }, ` · ${p.state} ` + ago(p.merged_at || p.closed_at)))))) : null;
+}
 function goalNode(g, plan, tasks) {
   const live = tasks.filter(t => !["parked", "dropped"].includes(t.status));
   const done = live.filter(t => t.status === "done").length, added = live.filter(isNew).length;
   const on = plan.decisions.filter(d => d.on === g.id), files = plan.docs.filter(d => d.on === g.id);
-  const needs = plan.decisions.filter(d => d.state === "needs_you" && (d.on === g.id || tasks.some(t => t.id === d.on))).length;
+  const prs = g.prs || [], open = prs.filter(p => p.state === "open");
+  const needs = plan.decisions.filter(d => d.state === "needs_you" && (d.on === g.id || tasks.some(t => t.id === d.on))).length;  // an open PR says its own turn
   const shown = tasks.filter(t => S.filter === "all" || t.status === S.filter);
   const node = h("details", { class: "goal" + (g.proposed ? " proposed" : ""), open: !collapsed().has(g.id), "data-goal": g.id });
   node.addEventListener("toggle", () => {
@@ -350,6 +379,7 @@ function goalNode(g, plan, tasks) {
     g.proposed && h("span", { class: "pill you" }, "proposed by the lead"),
     g.met_at && h("span", { class: "pill ready" }, "✓ met"),
     g.outlook && h("span", { class: "pill outlook " + g.outlook.level, title: `The lead's outlook, ${ago(g.outlook.at)}: ${g.outlook.text}` }, "lead: " + g.outlook.level), needs ? h("span", { class: "pill you" }, `${needs} waiting on you`) : null,
+    open.map(prPill),
     h("span", { class: "count" }, `${done} of ${live.length} done` + (added ? ` · ${added} new from agents` : ""))));
   node.append(h("div", { class: "gbody" },
     S.editing === "g" + g.id
@@ -363,6 +393,7 @@ function goalNode(g, plan, tasks) {
           !tasks.length && !g.proposed ? [" · ", h("button", { class: "link", onclick: () => act("goal_remove", { id: g.id }) }, "Remove")] : null),
     g.outlook && h("div", { class: "small" }, h("b", {}, `Lead's outlook: ${g.outlook.level}. `), g.outlook.text, h("span", { class: "muted" }, " · " + ago(g.outlook.at))),
     budgetLine(g),
+    open.map(prRow), prHistory(prs),
     !g.proposed && !g.met_at && live.length && live.every(t => t.status === "done")
       ? h("div", { class: "card" }, h("div", { class: "k" }, `All of ${g.id}'s tasks are done`), h("div", {}, g.done_when ? "Does it pass its done test? " + g.done_when : "Is this goal met?"),
           h("div", { class: "btns" }, btn("This goal is met", () => act("goal_met", { id: g.id }), "p"), h("span", { class: "muted small" }, "Not yet? Add a task below saying what is missing.")))
@@ -383,7 +414,8 @@ function workingOn(plan) {
       h("span", { class: "live" }, h("span", { class: "id" }, t.id), " ", h("span", {}, t.title)), nowLine(t))));
 }
 function drawProject() {
-  const { plan, unread, lead_waiting: listening } = S.data;
+  const { plan, lead_waiting: listening } = S.data;
+  const unread = S.data.unread.filter(c => c.by === "you");  // GitHub's news on PRs is for the lead, not yours
   const waiting = plan.decisions.filter(d => d.state === "needs_you"), proposed = plan.goals.filter(g => g.proposed);
   const review = plan.decisions.filter(d => d.state === "to_review" && !d.said);
   const said = plan.decisions.filter(d => d.state === "to_review" && d.said);

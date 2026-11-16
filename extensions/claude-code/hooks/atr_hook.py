@@ -91,7 +91,7 @@ def listen(cwd, session):
     if not lead(cwd, session)[0]:
         return  # the owner let another thread lead while this one was idle
     state = json.loads(out)
-    lines = ["The owner acted on the atr page while you were idle:"]
+    lines = ["The owner acted on the atr page (or GitHub on your PRs) while you were idle:"]
     for c in state["unread"]:
         data = json.dumps({"op": c["op"], "args": c["args"]}) if "op" in c else ""
         lines.append(f"- [{state['project']}] {c['what']} {data}".rstrip())
@@ -158,7 +158,7 @@ def main(event):
             )
     elif event == "prompt":
         if state["unread"]:
-            print(f"The owner changed the atr plan of {state['project']} since you last read it:\n\n{atr(cwd, 'read')[1]}")
+            print(f"The owner (or GitHub) changed the atr plan of {state['project']} since you last read it:\n\n{atr(cwd, 'read')[1]}")
     elif event == "stop":
         if hook.get("stop_hook_active"):
             return  # already continuing because of this hook: let the turn end

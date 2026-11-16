@@ -70,10 +70,11 @@ installed globally and only act where a `.atr` file exists.
 }
 ```
 
-- `unread` lists only the owner's changes. The lead's own changes never wake it. Each one has `what`,
-  a sentence for the lead, and `op` and `args`: the page action and what the owner sent with it (the
-  card's answer, the decision's verdict, a task's new goal). Pass them on as they are. Changes recorded
-  before atr kept `op` have only `what`.
+- `unread` lists the owner's changes (`by: "you"`) and news from GitHub about the project's pull requests
+  (`by: "github"`: one merged, its CI turned failing, or it conflicts). The lead's own changes never wake it.
+  Each one has `what`, a sentence for the lead. The owner's also have `op` and `args`: the page action and
+  what the owner sent with it (the card's answer, the decision's verdict, a task's new goal). Pass them on as
+  they are. GitHub's news, and changes recorded before atr kept `op`, have only `what`.
 - `lead_waiting` is true while an `atr wait` for this project is running. The page shows "Lead listening"
   and tells the owner the lead is being woken. Turn-end checks can use it: if it is false, the doorbell is
   not armed.
