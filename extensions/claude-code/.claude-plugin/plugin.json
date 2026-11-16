@@ -1,6 +1,6 @@
 {
   "name": "atr",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "description": "Keep a Claude Code lead in step with its atr plan: owner changes at turn start, a check at turn end, and a doorbell that wakes an idle lead.",
   "author": {
     "name": "Martijn van Exel"
