@@ -46,3 +46,6 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
   form.
 - T6 (record and mark an hour of shows) is the owner's work. atr has no way to say a task is waiting on the
   owner's hands rather than on an answer, so the task's owner field (`owner=`) is the only hint.
+- T5 got stuck on something only the owner can do (grant macOS audio permission from their own terminal).
+  The lead could only mark the task `blocked` and explain it in the note. That's the second case of owner
+  work after T6: a task waiting on the owner's hands is a recurring shape, not an exception.
