@@ -37,6 +37,8 @@ record its own judgment calls with its name: `atr decide T3 "..." --why "..." --
 1. Run `atr read` when a turn starts and again before it ends. Act on what the owner changed.
 2. Every task belongs to a goal: `atr task add G1 "title" --after T2`. Work that fits no goal is
    proposed with `atr goal propose "title" --done "what makes it done"`, not started.
+   When you pick up a goal that has no tasks yet, first add a task for planning it and set it to
+   doing, before you research anything, so the page shows the goal was picked up.
 3. Never change goals. Keep status current: `atr task set T3 status=doing thread=URL`. While a task
    runs, say what is happening every few steps, in a few words: `atr now T3 "scoring run 2 of 3"`.
 4. Record every judgment call: `atr decide T3 "what you chose" --why "..." --rejected "..."`.

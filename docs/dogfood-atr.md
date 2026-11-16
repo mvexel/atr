@@ -10,6 +10,10 @@ Same format as [dogfood-adhush.md](dogfood-adhush.md): what happened, what it sa
   goals fold away at the bottom, take no new tasks from the lead, and can be reopened. Only the owner can
   close a goal: it is a judgment on the done test, which is theirs (T1).
 
+- **A new goal looked untouched while the lead planned it.** The owner added G1 in `atr-claude-extension`.
+  The lead read it and spent several steps researching, but the page showed nothing until the owner asked.
+  The rules now say: when a goal has no tasks, add a planning task and set it to doing first.
+
 ## Observed, not acted on yet
 
 - **The server had to be restarted twice in one session** for new operations to work on the page. T11 now
