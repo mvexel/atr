@@ -67,6 +67,8 @@ and put a pull request it opened on its goal (rule 7).
    it on GitHub: that is their check, so such a task needs no review note and gets no check of its own;
    the merge moves it to done and accepts its decisions (never the goal: that stays the owner's call).
    `atr read` tells you when it merges, its CI fails or it conflicts: fix those on the same branch.
+   Tie each checklist box of the PR to the task that covers it (`--item T3='text of the box'`), or `--drop`
+   one no task covers; atr ticks a box when its task is finished, and lists the boxes not yet tied.
    atr codes (G1, T3, D5) mean nothing on GitHub: PR titles, bodies and commits say what changed in words.
 8. When `atr read` says a worker went silent (no news for 30 min) or ended, check it: `atr alive T3`.
    If it is not running, bring it back with `atr resume T3`, or set the task back to todo and say why.
@@ -1098,7 +1100,9 @@ def op_pr(plan, by, a):
         raise Refused(f"{g['id']} is met; the owner reopens it first")
     owner, repo, number = pr_parse(a.get("url"))
     url = f"https://github.com/{owner}/{repo}/pull/{number}"
-    tasks = list(dict.fromkeys(a.get("for") or []))
+    items = dict(a.get("items") or {})  # task -> the text of its checklist box (G14)
+    drops = [x.strip() for x in a.get("drop") or [] if x.strip()]
+    tasks = list(dict.fromkeys([*(a.get("for") or []), *items]))
     for tid in tasks:
         t = get(plan, "tasks", tid)
         if t["goal"] != g["id"]:
@@ -1110,11 +1114,22 @@ def op_pr(plan, by, a):
         if p["state"] != "open":
             raise Refused(f"PR #{number} is already {p['state']}")
         new = [t for t in tasks if t not in p["for"]]
-        if not new:
+        ties = {t: x for t, x in items.items() if (p.get("items") or {}).get(t) != x}
+        dropped = [x for x in drops if x not in p.get("dropped", [])]
+        if not (new or ties or dropped):
             return None
         p["for"] += new
-        return f"PR #{number} on {g['id']} is also for {', '.join(new)}"
+        p["items"] = {**(p.get("items") or {}), **ties}
+        p["ticked"] = [t for t in p.get("ticked", []) if t not in ties]  # a new tie is ticked afresh
+        p["dropped"] = p.get("dropped", []) + dropped
+        said = ([f"is also for {', '.join(new)}"] if new else []) + [f"ties {t} to '{x}'" for t, x in ties.items()]
+        said += [f"drops '{x}'" for x in dropped]
+        return f"PR #{number} on {g['id']} " + ", ".join(said)
     p = {"url": url, "repo": f"{owner}/{repo}", "number": number, "for": tasks, "by": by, "at": now(), "state": "open", "known": False}
+    if items:
+        p["items"] = items
+    if drops:
+        p["dropped"] = drops
     g.setdefault("prs", []).append(p)
     return f"PR #{number} on {g['id']}" + (f" for {', '.join(tasks)}" if tasks else "") + f": {url}"
 
@@ -1131,6 +1146,8 @@ def op_pr_seen(plan, by, a):
         return None
     was = dict(p)
     p.update(known=True, draft=bool(a.get("draft")), mergeable=a.get("mergeable") or "unknown", ci=a.get("ci") or "none")
+    if a.get("boxes") is not None:
+        p["boxes"] = a["boxes"]
     tag = f"PR #{p['number']} on {g['id']}"
     if a.get("state") == "merged":
         p.update(state="merged", merged_at=now())
@@ -1156,6 +1173,123 @@ def op_pr_seen(plan, by, a):
     if p["mergeable"] == "conflicting" and was.get("mergeable") != "conflicting":
         news.append("it conflicts with its base branch")
     return f"{tag}: {' and '.join(news)} ({p['url']})" if news else None
+
+
+# ---- PR checklists: a box ticks when the task tied to it is finished (G14) ------------------------------
+# The tie lives in atr (atr pr --item T3='text of the box'): nothing atr writes to GitHub names a goal, task
+# or decision (D42, D43). A box is matched by its text, ignoring case, spacing, the tick and atr's own mark.
+
+BOX_RE = re.compile(r"^(\s*[-*+]\s+\[)([ xX])(\]\s+)(.*?)\s*$")
+DONE_MARK = re.compile(r"\s+—\s+done(?::\s*\S+)?$")
+
+
+def box_key(text):
+    return " ".join(DONE_MARK.sub("", text or "").lower().split())
+
+
+def boxes(body):
+    """The checklist of a PR body, as [[text, ticked]], with atr's ' — done: link' left off the text."""
+    out = []
+    for line in (body or "").splitlines():
+        m = BOX_RE.match(line)
+        if m:
+            out.append([DONE_MARK.sub("", m.group(4)).strip(), m.group(2) != " "])
+    return out
+
+
+def evidence(plan, t):
+    """The link that shows a task's work: the first http(s) link in its note, else its first attached link."""
+    m = re.search(r"https?://[^\s)>\]]+", t.get("note") or "")
+    if m:
+        return m.group(0).rstrip(".,;")
+    return next((d["url"] for d in plan["docs"] if d["on"] == t["id"] and d.get("url")), "")
+
+
+def finished_on(plan, p, tid):
+    """A tied task counts as finished for its box when it is done, or in review waiting for this PR's merge."""
+    t = next((t for t in plan["tasks"] if t["id"] == tid), None)
+    return bool(t) and (t["status"] == "done" or (t["status"] == "review" and p["state"] == "open"))
+
+
+def ticked_body(plan, p, body):
+    """`body` with the boxes of p's finished tied tasks ticked and marked ' — done: <link>'. Returns (new body,
+    or None when nothing changes; the tasks whose box is now ticked). A box ticked by hand is left as it is,
+    and atr never unticks one."""
+    want = {box_key(text): tid for tid, text in (p.get("items") or {}).items()
+            if tid not in p.get("ticked", []) and finished_on(plan, p, tid)}
+    if not want:
+        return None, []
+    lines, done = [], []
+    for line in body.split("\n"):
+        cr = "\r" if line.endswith("\r") else ""
+        m = BOX_RE.match(line.rstrip("\r"))
+        tid = m and want.get(box_key(m.group(4)))
+        if tid and tid not in done:
+            if m.group(2) == " ":
+                link = evidence(plan, next(t for t in plan["tasks"] if t["id"] == tid))
+                line = f"{m.group(1)}x{m.group(3)}{m.group(4)}" + (f" — done: {link}" if link else "") + cr
+            done.append(tid)
+        lines.append(line)
+    new = "\n".join(lines)
+    return (new if new != body else None), done
+
+
+def gh_pr_body(repo, number, body=None):
+    """Read a PR's body through gh, or write `body` to it. Returns the body (or True when written), None on failure."""
+    gh = shutil.which("gh")
+    if not gh:
+        return None
+    path = f"repos/{repo}/pulls/{number}"
+    try:
+        if body is None:
+            r = subprocess.run([gh, "api", path], capture_output=True, text=True, timeout=30, check=False)
+            return json.loads(r.stdout).get("body") or "" if r.returncode == 0 else None
+        r = subprocess.run([gh, "api", "-X", "PATCH", path, "--input", "-"], input=json.dumps({"body": body}),
+                           capture_output=True, text=True, timeout=30, check=False)
+        return True if r.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
+        return None
+
+
+def sync_checklist(name, url, body):
+    """Tick the boxes of a PR's finished tied tasks. The body from the poll says whether there is anything to do;
+    the edit starts from the body as it is now, so a change made since the poll is kept."""
+    plan = load(name)
+    _, p = find_pr(plan, url)
+    if not p or not ticked_body(plan, p, body or "")[1]:
+        return
+    fresh = gh_pr_body(p["repo"], p["number"])
+    if fresh is None:
+        return
+    new, done = ticked_body(load(name), p, fresh)
+    if done and (new is None or gh_pr_body(p["repo"], p["number"], new)):
+        change(name, "github", op_pr_ticked, {"url": url, "ids": done})
+
+
+def op_pr_ticked(plan, by, a):
+    """atr ticked (or found ticked) the boxes of these tasks: it leaves them alone from now on. Not news."""
+    _, p = find_pr(plan, a.get("url"))
+    if p:
+        p["ticked"] = list(dict.fromkeys(p.get("ticked", []) + list(a.get("ids") or [])))
+
+
+def checklist_lines(g, p):
+    """For atr read: how far the PR's checklist is, and the boxes the lead still has to tie or drop."""
+    if p.get("boxes") is None:
+        return []
+    known = {box_key(x) for x in [*(p.get("items") or {}).values(), *p.get("dropped", [])]}
+    have = {box_key(text) for text, _ in p["boxes"]}
+    out = []
+    if p["boxes"]:
+        out.append(f"      checklist: {sum(t for _, t in p['boxes'])} of {len(p['boxes'])} ticked")
+    loose = [text for text, _ in p["boxes"] if box_key(text) not in known]
+    if loose:
+        out.append(f"      NOT TIED (tie: atr pr {g['id']} {p['url']} --item T3='text'; or --drop 'text'): "
+                   + "; ".join(f"'{x}'" for x in loose))
+    lost = [f"{tid} '{text}'" for tid, text in (p.get("items") or {}).items() if box_key(text) not in have]
+    if lost:
+        out.append("      TIE LOST (no box with that text any more; tie it again): " + "; ".join(lost))
+    return out
 
 
 def op_lead(plan, by, a):
@@ -1195,6 +1329,7 @@ OPS = {
     "decide": op_decide,
     "answer": op_answer,
     "review": op_review,
+    "pr_ticked": op_pr_ticked,
 }
 
 
@@ -1289,6 +1424,7 @@ def render(plan, since):
             if p["state"] == "open":
                 carries = f" for {', '.join(p['for'])}" if p["for"] else ""
                 out.append(f"   PR #{p['number']}{carries}: {pr_words(p)} {p['url']}")
+                out += checklist_lines(g, p)
         for t in (t for t in plan["tasks"] if t["goal"] == g["id"]):
             bits = [f"after {', '.join(t['after'])}"] if t["after"] else []
             bits += [f"{d['id']} needs owner" for d in held_by(plan, t)]
@@ -1480,7 +1616,7 @@ CI_STATES = {"SUCCESS": "passing", "FAILURE": "failing", "ERROR": "failing", "PE
 def pr_query(prs):
     """One GraphQL query for all of `prs` [(owner, repo, number)], aliased p0, p1, ..., and the rate limit.
     pr_parse only lets letters, digits, '.', '_' and '-' into owner and repo, so they cannot break the query."""
-    fields = "state isDraft mergeable commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }"
+    fields = "state isDraft mergeable body commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }"
     return "query { rateLimit { limit remaining } " + " ".join(
         f'p{i}: repository(owner: "{o}", name: "{r}") {{ pullRequest(number: {n}) {{ {fields} }} }}'
         for i, (o, r, n) in enumerate(prs)
@@ -1513,6 +1649,7 @@ def pr_fields(pr):
         "draft": bool(pr.get("isDraft")),
         "mergeable": (pr.get("mergeable") or "unknown").lower(),
         "ci": CI_STATES.get(rollup.get("state"), "none"),
+        "boxes": boxes(pr.get("body")),
     }
 
 
@@ -1532,6 +1669,10 @@ def check_prs():
         if any(p.get(k) != v for k, v in seen.items()):
             with contextlib.suppress(OSError, ValueError, Refused):
                 change(name, "github", op_pr_seen, {"url": p["url"], **seen})
+        body = ((data.get(f"p{i}") or {}).get("pullRequest") or {}).get("body")
+        if body is not None and p.get("items"):
+            with contextlib.suppress(OSError, ValueError, Refused):
+                sync_checklist(name, p["url"], body)
     limit = data.get("rateLimit") or {}
     try:
         slow = limit["remaining"] < 0.2 * limit["limit"]
@@ -2433,6 +2574,9 @@ def main(argv=None):
         "--for", dest="for_", action="append", default=[], metavar="TASK",
         help="task(s) the PR carries; they go to done when it merges (repeat or comma-separate)",
     )
+    x.add_argument("--item", action="append", default=[], metavar="T3=TEXT",
+                   help="tie a checklist box of the PR (by its text) to a task: atr ticks it when the task is finished")
+    x.add_argument("--drop", action="append", default=[], metavar="TEXT", help="a checklist box no task covers: stop listing it")
     x = sub.add_parser("lead", help="store the lead's thread link, or start a lead thread (--start)")
     x.add_argument("thread", nargs="?")
     x.add_argument("--start", metavar="TOOL", help="start the lead thread with atr-lead-TOOL ('auto': the one on PATH)")
@@ -2595,7 +2739,11 @@ def main(argv=None):
             note = change(name, "atr", op_thread_ended, {"thread": a.thread})[1]
             return print("\n".join(x for x in ["released the lead" if released else "", note or ""] if x) or "nothing ran in that thread")
         elif a.cmd == "pr":
-            fn, args = op_pr, {"goal": a.goal, "url": a.url, "for": [t for s in a.for_ for t in s.split(",") if t]}
+            if any("=" not in x for x in a.item):
+                raise Refused("usage: atr pr G1 URL --item T3='text of the checklist box'")
+            items = dict(x.split("=", 1) for x in a.item)
+            fn, args = op_pr, {"goal": a.goal, "url": a.url, "for": [t for s in a.for_ for t in s.split(",") if t],
+                               "items": {k.strip(): v.strip() for k, v in items.items()}, "drop": a.drop}
         elif a.start:
             return print(start_lead(name, a.start))
         elif a.claim:

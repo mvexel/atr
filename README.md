@@ -112,6 +112,14 @@ marked ready) are stored silently and only redraw the page. When a PR merges it 
 history, and the tasks named with `--for` that are in review are done. The goal is never marked met by it:
 that stays your call. A PR closed without merging also moves into the history, silently.
 
+**Checklists.** A PR's checklist boxes (`- [ ] ...` lines in its description) can follow the tasks: the lead
+ties a box to the task that covers it with `atr pr G1 URL --item T3='text of the box'`, or `--drop 'text'`
+for a box no task covers. When a tied task is done (or in review, waiting for this PR), `atr serve` ticks its
+box through `gh` and adds ` — done: <link>`, the first link in the task's note or its first attached link.
+The tie lives in atr and nothing atr writes to GitHub names a goal, task or decision. atr never unticks a box
+and leaves one ticked by hand alone. `atr read` shows how many boxes are ticked, the boxes not yet tied, and
+ties whose box text has changed.
+
 To open the page from a phone on your tailnet: `atr serve --host 0.0.0.0 --allow-host my-laptop.tailnet.ts.net`.
 The page has no login, so only bind it to networks you trust.
 

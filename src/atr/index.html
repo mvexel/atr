@@ -395,6 +395,7 @@ function prPill(p) {
 function prRow(p) {
   return h("div", { class: "pr" + (prTurn(p) ? " turn" : "") }, h("b", {}, `Pull request #${p.number}`), p.for.length ? ` for ${p.for.join(", ")}` : "", " · ",
     h("span", { class: "muted" }, prState(p)), " · ",
+    p.boxes?.length ? [h("span", { class: "muted" }, `checklist ${p.boxes.filter(b => b[1]).length} of ${p.boxes.length} ticked`), " · "] : null,
     h("a", { href: p.url, target: "_blank", rel: "noopener" }, prTurn(p) ? "Merge it on GitHub ↗" : "Open on GitHub ↗"));
 }
 function prHistory(prs) {
