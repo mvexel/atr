@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+from unittest import mock
 import time
 import unittest
 import urllib.error
@@ -606,6 +607,45 @@ class Web(Base):
         atr.Handler.started_with = (0, 0)  # as if the code changed after the server started
         self.assertTrue(self.call("/api/sig")[1][""]["outdated"])
 
+    def test_the_page_hears_of_a_newer_release_only(self):
+        self.addCleanup(setattr, atr.Handler, "latest", {})
+        atr.Handler.latest = {"version": atr.version(), "url": "u"}
+        self.assertIsNone(self.call("/api/sig")[1][""]["latest"])
+        atr.Handler.latest = {"version": "99.0.0", "url": "u"}
+        info = self.call("/api/sig")[1][""]
+        self.assertEqual((info["latest"]["version"], info["version"]), ("99.0.0", atr.version()))
+
+    def test_upgrade_needs_a_newer_release_and_the_header(self):
+        self.addCleanup(setattr, atr.Handler, "latest", {})
+        self.assertEqual(self.call("/api/upgrade", {}, {"Content-Type": "application/json"})[0], 403)
+        code, body = self.call("/api/upgrade", {})
+        self.assertEqual(code, 400)
+        self.assertIn("no newer atr", body["error"])
+
+    def test_upgrade_runs_then_restarts(self):
+        self.addCleanup(setattr, atr.Handler, "latest", {})
+        self.addCleanup(setattr, atr.Handler, "restart", atr.Handler.restart)
+        restarted = threading.Event()
+        atr.Handler.restart = restarted.set
+        atr.Handler.latest = {"version": "99.0.0", "url": "u"}
+        with mock.patch.object(atr, "upgrade", return_value=(False, ["atr: failed (no network)"])):
+            code, body = self.call("/api/upgrade", {})
+        self.assertEqual(code, 500)
+        self.assertIn("no network", body["error"])
+        self.assertFalse(restarted.is_set())
+        with mock.patch.object(atr, "upgrade", return_value=(True, ["atr: upgraded"])):
+            code, body = self.call("/api/upgrade", {})
+        self.assertEqual((code, body["log"]), (200, ["atr: upgraded"]))
+        self.assertTrue(restarted.wait(5))
+
+    def test_restart_answers_then_restarts(self):
+        restarted = threading.Event()
+        self.addCleanup(setattr, atr.Handler, "restart", atr.Handler.restart)
+        atr.Handler.restart = restarted.set
+        code, body = self.call("/api/restart", {})
+        self.assertEqual((code, body["restarting"]), (200, True))
+        self.assertTrue(restarted.wait(5))
+
     def test_signature_changes_when_the_lead_reads(self):
         before = self.call("/api/sig")[1]["demo"]
         self.cli("read")
@@ -729,6 +769,56 @@ class LeadProviders(Base):
         out, link = self.init()
         self.assertEqual(link, "")
         self.assertIn("Workspace not trusted", out)
+
+
+class Versions(unittest.TestCase):
+    def test_release_tags_compare_as_versions(self):
+        self.assertTrue(atr.newer("v0.10.0", "0.4.0"))
+        self.assertTrue(atr.newer("0.4.1", "0.4.0"))
+        self.assertFalse(atr.newer("v0.4.0", "0.4.0"))
+        self.assertFalse(atr.newer("v0.3.0", "0.4.0"))
+        self.assertFalse(atr.newer(None, "0.4.0"))
+
+    def test_the_plugin_and_the_package_share_one_version(self):
+        plugin = json.loads((ROOT / "extensions/claude-code/.claude-plugin/plugin.json").read_text())["version"]
+        market = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text())["plugins"][0]["version"]
+        self.assertEqual({atr.version(), plugin, market}, {atr.version()})
+        self.assertGreater(atr.vtuple(atr.version()), (0, 3, 0))  # past the last release before versions were kept
+
+    def test_a_checkout_upgrades_with_a_fast_forward_pull(self):
+        self.assertEqual(atr.install_kind(), "checkout")
+        try:
+            with mock.patch.object(atr.shutil, "which", return_value=None):
+                steps = atr.upgrade_steps()
+        except atr.Refused as e:  # a branch or local changes: the owner upgrades by hand
+            self.assertIn("by hand", str(e))
+            return
+        self.assertEqual(steps[0][1][-2:], ["pull", "--ff-only"])
+
+
+    def test_a_uv_install_upgrades_with_uv_and_updates_the_plugin(self):
+        def which(name):
+            return {"uv": "/bin/uv", "claude": "/bin/claude"}.get(name)
+
+        listed = subprocess.CompletedProcess([], 0, "atr@atr  0.3.0\n", "")
+        with (
+            mock.patch.object(atr, "install_kind", return_value="uv"),
+            mock.patch.object(atr.shutil, "which", side_effect=which),
+            mock.patch.object(atr.subprocess, "run", return_value=listed),
+        ):
+            steps = atr.upgrade_steps()
+        self.assertEqual([s[1] for s in steps], [["/bin/uv", "tool", "upgrade", "atr"], ["/bin/claude", "plugin", "update", "atr@atr"]])
+        self.assertEqual([s[2] for s in steps], [True, False])  # a failed plugin update does not fail the upgrade
+
+    def test_an_unknown_install_is_refused(self):
+        with mock.patch.object(atr, "install_kind", return_value=""), self.assertRaises(atr.Refused):
+            atr.upgrade_steps()
+
+    def test_the_command_line_reports_the_version(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+            atr.main(["--version"])
+        self.assertEqual(out.getvalue().strip(), f"atr {atr.version()}")
 
 
 class ClaudeCodeExtension(Base):
