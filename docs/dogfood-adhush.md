@@ -64,3 +64,7 @@ Each entry: what happened, what it says about atr, and what changed (or why noth
 - **The owner could not tell if or when a task would start.** The page showed "after T1" whether T1 was done
   or not, and nothing for a task that could start now. Each to-do now says when it starts. Parked tasks say
   they won't start until restored.
+- **Long tasks gave no feedback.** During T8 (over an hour, run by a worker) the page said only "In progress".
+  Added `atr now T8 "..."` (workers may use it), a "Working on" strip at the top of the page, and a progress
+  line on each running task. Accepted decisions fold to one line so a task's body stays short.
+- **Answered cards were labelled "decided by the lead, without asking".** Fixed.
