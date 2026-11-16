@@ -214,11 +214,12 @@ function docs(list) {
 function card(d) {
   const answer = choice => act("answer", { id: d.id, choice });
   return h("div", { class: "card" },
-    h("div", { class: "k" }, `Waiting on you · ${d.id}` + (d.on !== "project" ? ` · blocks ${d.on}` : "")),
+    h("div", { class: "k" }, `${d.ask ? "A question for you" : "Waiting on you"} · ${d.id}` + (d.on !== "project" ? ` · blocks ${d.on}` : "")),
     h("div", { class: "q" }, d.question || d.recommended),
     d.why && h("div", {}, d.why),
-    h("div", { class: "btns" }, d.options.map((o, i) => btn(o + (i === 0 ? " (suggested)" : ""), () => answer(o), i === 0 ? "p" : ""))),
-    form(null, [{ label: "Or write your own answer" }], text => text && answer(text), "Answer"));
+    // A plain question (atr ask) has no suggestion: its options are equal, and the answer may be yours alone.
+    h("div", { class: "btns" }, d.options.map((o, i) => btn(o + (i === 0 && !d.ask ? " (suggested)" : ""), () => answer(o), i === 0 && !d.ask ? "p" : ""))),
+    form(null, [{ label: d.ask && !d.options.length ? "Your answer" : "Or write your own answer" }], text => text && answer(text), "Answer"));
 }
 
 // ---- project view ----

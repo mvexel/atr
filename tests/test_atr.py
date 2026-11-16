@@ -385,6 +385,17 @@ class Plan(Base):
         os.chdir(elsewhere.name)
         self.assertIn("NOTE: you are in", self.cli("read")[1])
 
+    def test_a_plain_question_has_no_recommendation_and_holds_the_task(self):
+        self.cli("task", "add", "G1", "detector")
+        code, out = self.cli("ask", "T1", "What do you watch with ads?", "--option", "cable", "--option", "streaming")
+        self.assertEqual(code, 0, out)
+        d = atr.load("demo")["decisions"][0]
+        self.assertEqual((d["recommended"], d["options"], d["state"]), ("", ["cable", "streaming"], "needs_you"))
+        self.assertEqual(self.task("T1")["status"], "blocked")
+        self.you("answer", id="D1", choice="streaming in the browser")
+        self.assertEqual(self.task("T1")["status"], "todo")
+        self.assertEqual(self.cli("ask", "T1", "")[0], 2)
+
 
 class Web(Base):
     def setUp(self):

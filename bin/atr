@@ -41,6 +41,7 @@ record its own judgment calls with its name: `atr decide T3 "..." --why "..." --
    runs, say what is happening every few steps, in a few words: `atr now T3 "scoring run 2 of 3"`.
 4. Record every judgment call: `atr decide T3 "what you chose" --why "..." --rejected "..."`.
    If it is hard to undo, add `--hard` and do not act: the task blocks until the owner answers.
+   A question only the owner can answer, with no answer to recommend: `atr ask T3 "..." --option ..`.
    Check earlier decisions before proposing something that was already rejected.
 5. Record each attempt at a goal (a run, an approach, a tuning round): `atr try G1 "prompt B: 15 of 31"`.
    Keep each goal's outlook current, especially after a try: `atr outlook G1 unsure "half the ads"`.
@@ -596,6 +597,8 @@ def op_decide(plan, by, a):
     on = a.get("on") or "project"
     check_on(plan, on)
     chosen = (a.get("chosen") or "").strip()
+    if a.get("ask"):
+        return ask(plan, on, a)
     if not chosen:
         raise Refused(
             "a decision needs what was chosen (or, with --hard, what you recommend)"
@@ -641,6 +644,36 @@ def op_decide(plan, by, a):
         if t["status"] in ("todo", "doing"):
             t.update(was=t["status"], status="blocked", blocked_by=d["id"])
     return f"{d['id']} on {on} needs the owner: {d['question'] or chosen}"
+
+
+def ask(plan, on, a):
+    """A plain question for the owner, with no recommendation: some answers are theirs alone
+    ("what do you watch with ads?"), and a suggested answer would only be made up."""
+    question = (a.get("question") or "").strip()
+    if not question:
+        raise Refused('a question needs its text: atr ask T3 "what do you watch?"')
+    d = {
+        "id": new_id(plan, "D"),
+        "on": on,
+        "by": "agent",
+        "at": now(),
+        "question": question,
+        "chosen": "",
+        "why": (a.get("why") or "").strip(),
+        "rejected": [],
+        "undo": "hard",
+        "state": "needs_you",
+        "note": "",
+        "options": [o.strip() for o in a.get("options") or [] if o.strip()],
+        "recommended": "",
+        "ask": True,
+    }
+    plan["decisions"].append(d)
+    if on.startswith("T"):
+        t = get(plan, "tasks", on)
+        if t["status"] in ("todo", "doing"):
+            t.update(was=t["status"], status="blocked", blocked_by=d["id"])
+    return f"{d['id']} on {on} asks the owner: {question}"
 
 
 def op_answer(plan, by, a):
@@ -1163,6 +1196,13 @@ def main(argv=None):
     x.add_argument(
         "--by", default="", metavar="WORKER", help="a worker records its own call (its name)"
     )
+    x = sub.add_parser(
+        "ask", help="ask the owner a plain question with no recommendation (holds the task or goal)"
+    )
+    x.add_argument("on", help="task or goal id, or 'project'")
+    x.add_argument("question")
+    x.add_argument("--option", action="append", default=[], help="a possible answer (repeat); they can also write their own")
+    x.add_argument("--why", default="", help="why you need to know")
     x = sub.add_parser("attach", help="link a document to a task or goal")
     x.add_argument("on")
     x.add_argument("src", help="file path or http(s) link")
@@ -1312,6 +1352,8 @@ def main(argv=None):
                     "worker": a.by,
                 },
             )
+        elif a.cmd == "ask":
+            fn, args = op_decide, {"on": a.on, "question": a.question, "options": a.option, "why": a.why, "ask": True}
         elif a.cmd == "attach":
             fn, args = op_attach, {"on": a.on, "src": a.src, "title": a.title}
         elif a.cmd == "now":
