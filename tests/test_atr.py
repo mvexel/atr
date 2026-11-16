@@ -423,6 +423,24 @@ class Plan(Base):
         self.you("task_restore", id="T1")
         self.assertNotIn("pruned_why", self.task("T1"))
 
+    def test_a_lead_follows_another_project_from_its_folder(self):
+        elsewhere = tempfile.TemporaryDirectory()
+        self.addCleanup(elsewhere.cleanup)
+        os.environ.pop("ATR_PROJECT")
+        self.cli("read")
+        os.chdir(elsewhere.name)
+        self.assertEqual(self.cli("unread")[0], 2)  # no project here, none followed
+        self.assertEqual(self.cli("watch", "nope")[0], 2)
+        self.assertIn("follows: demo", self.cli("watch", "demo")[1])
+        self.assertNotIn("NOTE: you are in", self.cli("-p", "demo", "read")[1])
+        self.assertEqual(self.cli("unread")[0], 1)
+        self.you("goal_add", title="Second")
+        code, out = self.cli("unread", "--json")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["projects"][0]["project"], "demo")
+        self.assertEqual(self.cli("wait", "--timeout", "1")[0], 0)
+        self.assertIn("no other projects", self.cli("watch", "demo", "--stop")[1])
+
 
 class Web(Base):
     def setUp(self):
@@ -563,6 +581,17 @@ class ClaudeCodeExtension(Base):
         out = self.hook("session-start")
         self.assertIn("may be gone", out)
         self.assertIn("T1 long run", out)
+
+    def test_watched_projects_reach_a_lead_in_another_folder(self):
+        elsewhere = tempfile.TemporaryDirectory()
+        self.addCleanup(elsewhere.cleanup)
+        os.environ.pop("ATR_PROJECT")
+        os.chdir(elsewhere.name)
+        self.assertEqual(self.hook("prompt", cwd=elsewhere.name), "")
+        self.cli("watch", "demo")
+        self.assertIn("You follow atr project demo", self.hook("session-start", cwd=elsewhere.name))
+        self.you("goal_add", title="Second")
+        self.assertIn("plan of demo", self.hook("prompt", cwd=elsewhere.name))
 
     def test_silent_outside_an_atr_project(self):
         os.environ.pop("ATR_PROJECT")

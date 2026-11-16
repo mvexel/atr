@@ -42,7 +42,9 @@ installed globally and only act where a `.atr` file exists.
   "lead_thread": "https://…",
   "lead_waiting": true,
   "unread": [{"rev": 4, "by": "you", "at": "2026-11-15T20:01Z", "what": "accepted goal G1 \"…\""}],
-  "running": [{"id": "T3", "title": "…", "last_news_at": "2026-11-15T19:40Z"}]
+  "running": [{"id": "T3", "title": "…", "last_news_at": "2026-11-15T19:40Z"}],
+  "own": true,
+  "projects": [{"project": "adhush", "own": true, "…": "the same fields, once per followed project"}]
 }
 ```
 
@@ -50,6 +52,10 @@ installed globally and only act where a `.atr` file exists.
 - `lead_waiting` is true while an `atr wait` for this project is running. The page shows "Lead listening"
   and tells the owner the lead is being woken. Turn-end checks can use it: if it is false, the doorbell is
   not armed.
+- `projects` lists every project the folder's lead follows: the folder's own (`own: true`) first, then
+  any added with `atr watch NAME` from that folder. The top-level fields repeat the first entry. Cover
+  every entry: read a followed project with `atr -p NAME read`. `atr wait` returns when any of them changes,
+  and exit 2 means the folder has no project and follows none.
 - `running` lists the tasks in progress and when there was last news of each. A session start should
   show them to the lead and ask it to confirm each still has a worker: workers often die with the
   session that started them, and atr cannot tell.

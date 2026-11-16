@@ -51,6 +51,8 @@ The page has no login, so only bind it to networks you trust.
 | `atr try G1 "prompt B: 15 of 31 caught"` | record one attempt at a goal; when its tries or days run out, its tasks stop until the owner answers a card on the goal |
 | `atr outlook G1 unsure "half the ads"` | the lead's current read on whether a goal can be met as written (`likely`, `unsure`, `unlikely`) |
 | `atr attach T3 file-or-link` | link a document; files are copied into the project so they outlive a worktree |
+| `atr watch NAME` | follow another project from this folder (`--stop` to stop): the hooks and `atr wait` cover it too |
+| `atr install` | link `~/.local/bin/atr` to this checkout |
 | `atr lead URL` | store the lead's thread link |
 
 `-p NAME` or `ATR_PROJECT` selects a project when there is no `.atr` file. From your own terminal,

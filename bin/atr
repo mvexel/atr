@@ -304,28 +304,72 @@ def waiting(name):
 
 
 def wait(name, timeout):
-    """Block until the owner changes something the lead has not read. Returns the unread changes, or [] on timeout.
+    """Block until the owner changes something the lead has not read. Returns the unread changes, or [] on timeout."""
+    return wait_all([name], timeout)[name]
 
-    Registers itself in the project's .waiting file so the page and extensions can tell the lead is listening.
+
+def wait_all(names, timeout):
+    """wait() over several projects: returns {name: unread changes} as soon as any project has some.
+
+    Registers itself in each project's .waiting file so the page and extensions can tell the lead is listening.
     """
-    path, mark = project_dir(name) / "plan.json", project_dir(name) / ".waiting"
-    mark.write_text(str(os.getpid()))
-    deadline, seen = time.monotonic() + timeout, None
+    marks = [project_dir(n) / ".waiting" for n in names]
+    for m in marks:
+        m.write_text(str(os.getpid()))
+    deadline, seen = time.monotonic() + timeout, {}
     try:
         while True:
-            mtime = path.stat().st_mtime_ns
-            if mtime != seen:
-                seen = mtime
-                items = unread(load(name))
-                if items:
-                    return items
+            changed = False
+            for n in names:
+                mtime = (project_dir(n) / "plan.json").stat().st_mtime_ns
+                if mtime != seen.get(n):
+                    seen[n], changed = mtime, True
+            if changed:
+                found = {n: unread(load(n)) for n in names}
+                if any(found.values()):
+                    return found
             if time.monotonic() >= deadline:
-                return []
+                return {n: [] for n in names}
             time.sleep(1)
     finally:
-        with contextlib.suppress(OSError, ValueError):
-            if int(mark.read_text()) == os.getpid():
-                mark.unlink()
+        for m in marks:
+            with contextlib.suppress(OSError, ValueError):
+                if int(m.read_text()) == os.getpid():
+                    m.unlink()
+
+
+# ---- watching: a lead that runs in one folder and follows projects whose repos are elsewhere ----------
+
+
+def watch_file():
+    return data_dir() / "watch.json"
+
+
+def watched(folder):
+    """Projects the lead in `folder` follows besides the folder's own (atr watch NAME)."""
+    try:
+        return json.loads(watch_file().read_text()).get(str(folder), [])
+    except (OSError, ValueError):
+        return []
+
+
+def set_watch(folder, name, on):
+    data_dir().mkdir(parents=True, exist_ok=True)
+    with open(data_dir() / ".watch.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            data = json.loads(watch_file().read_text())
+        except (OSError, ValueError):
+            data = {}
+        names = [n for n in data.get(str(folder), []) if n != name] + ([name] if on else [])
+        if names:
+            data[str(folder)] = names
+        else:
+            data.pop(str(folder), None)
+        tmp = watch_file().with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=1))
+        os.replace(tmp, watch_file())
+    return names
 
 
 # ---- operations: fn(plan, by, args) -> note ------------------------------------------------------
@@ -1117,12 +1161,12 @@ def wrong_folder(plan):
     if not repo:
         return ""
     here = repo_root(Path.cwd())
-    if here == Path(repo) or Path(repo) in here.parents:
+    if here == Path(repo) or Path(repo) in here.parents or plan["name"] in watched(here):
         return ""
     return (
         f"NOTE: you are in {here}, but {plan['name']}'s repo is {repo}. The atr hooks only see the project "
         f"of the folder a session runs in, so the owner's changes will not reach you by themselves: "
-        f"run `atr read -p {plan['name']}` at every turn, or start the lead in {repo}.\n"
+        f"run `atr watch {plan['name']}` here so they do, or start the lead in {repo}.\n"
     )
 
 
@@ -1149,6 +1193,49 @@ def find_project(explicit):
     raise Refused(
         "which project? Run from a folder with a .atr file, or pass -p NAME (atr projects lists them)"
     )
+
+
+def followed(explicit):
+    """The projects this folder's lead follows, and which of them is the folder's own: -p (just that one),
+    else its own .atr plus atr watch."""
+    if explicit or os.environ.get("ATR_PROJECT"):
+        n = find_project(explicit)
+        return [n], [n]
+    try:
+        own = [find_project(None)]
+    except Refused:
+        own = []
+    names = own + [n for n in watched(repo_root(Path.cwd())) if n not in own and n in projects()]
+    if not names:
+        find_project(None)  # raises the usual "which project?"
+    return names, own
+
+
+def report(a):
+    """atr unread / atr wait. The first project is the folder's own; the top-level fields describe it."""
+    names, own = followed(a.project)
+    found = (
+        {n: unread(load(n)) for n in names} if a.cmd == "unread" else wait_all(names, a.timeout)
+    )
+    if a.json:
+        each = []
+        for n in names:
+            plan = load(n)
+            each.append(
+                {
+                    "project": n,
+                    "lead_thread": plan["lead"]["thread"],
+                    "lead_waiting": waiting(n),
+                    "unread": found[n],
+                    "running": running(plan),
+                    "own": n in own,
+                }
+            )
+        print(json.dumps({**each[0], "projects": each}))
+    else:
+        many = len(names) > 1
+        print("\n".join(f"{n}: {c['what']}" if many else c["what"] for n in names for c in found[n]))
+    return 0 if any(found.values()) else 1
 
 
 def main(argv=None):
@@ -1192,6 +1279,11 @@ def main(argv=None):
     )
     x.add_argument("--timeout", type=float, default=3600, help="seconds (default 3600)")
     x.add_argument("--json", action="store_true")
+    x = sub.add_parser(
+        "watch", help="follow another project from this folder: the hooks and atr wait then cover it too"
+    )
+    x.add_argument("name", nargs="?", help="project to follow (none: list what this folder follows)")
+    x.add_argument("--stop", action="store_true", help="stop following it")
     sub.add_parser("next", help="unblocked tasks to start now")
     x = sub.add_parser("goal", help="propose a goal to the owner")
     x.add_argument("action", choices=["propose", "add"])
@@ -1302,6 +1394,18 @@ def main(argv=None):
             return print(
                 f"created {d}\nwrote .atr here (commit it). Next: add goals on the page (atr serve), and add `atr rules` to AGENTS.md or CLAUDE.md."
             )
+        if a.cmd == "watch":
+            here = repo_root(Path.cwd())
+            if a.name:
+                load(a.name)
+                names = set_watch(here, a.name, not a.stop)
+            else:
+                names = watched(here)
+            return print(
+                f"{here} follows: {', '.join(names)}" if names else f"{here} follows no other projects"
+            )
+        if a.cmd in ("unread", "wait"):
+            return report(a)
         name = find_project(a.project)
         if a.cmd == "read":
             plan = load(name)
@@ -1312,24 +1416,6 @@ def main(argv=None):
             if not a.peek:
                 change(name, by, op_mark_read)
             return
-        if a.cmd in ("unread", "wait"):
-            plan = load(name)
-            items = unread(plan) if a.cmd == "unread" else wait(name, a.timeout)
-            if a.json:
-                print(
-                    json.dumps(
-                        {
-                            "project": name,
-                            "lead_thread": plan["lead"]["thread"],
-                            "lead_waiting": waiting(name),
-                            "unread": items,
-                            "running": running(plan),
-                        }
-                    )
-                )
-            else:
-                print("\n".join(c["what"] for c in items))
-            return 0 if items else 1
         if a.cmd == "next":
             return print(
                 "\n".join(label(t) for t in ready(load(name))) or "nothing is ready"
