@@ -1100,9 +1100,10 @@ def op_pr(plan, by, a):
         raise Refused(f"{g['id']} is met; the owner reopens it first")
     owner, repo, number = pr_parse(a.get("url"))
     url = f"https://github.com/{owner}/{repo}/pull/{number}"
-    items = dict(a.get("items") or {})  # task -> the text of its checklist box (G14)
+    # [box text, task]: a task may cover several boxes, a box belongs to one task (the last tie given wins)
+    items = list({box_key(text): [text, tid] for text, tid in a.get("items") or []}.values())
     drops = [x.strip() for x in a.get("drop") or [] if x.strip()]
-    tasks = list(dict.fromkeys([*(a.get("for") or []), *items]))
+    tasks = list(dict.fromkeys([*(a.get("for") or []), *(tid for _, tid in items)]))
     for tid in tasks:
         t = get(plan, "tasks", tid)
         if t["goal"] != g["id"]:
@@ -1114,15 +1115,17 @@ def op_pr(plan, by, a):
         if p["state"] != "open":
             raise Refused(f"PR #{number} is already {p['state']}")
         new = [t for t in tasks if t not in p["for"]]
-        ties = {t: x for t, x in items.items() if (p.get("items") or {}).get(t) != x}
+        had = {box_key(text): tid for text, tid in p.get("items") or []}
+        ties = [[text, tid] for text, tid in items if had.get(box_key(text)) != tid]
         dropped = [x for x in drops if x not in p.get("dropped", [])]
         if not (new or ties or dropped):
             return None
         p["for"] += new
-        p["items"] = {**(p.get("items") or {}), **ties}
-        p["ticked"] = [t for t in p.get("ticked", []) if t not in ties]  # a new tie is ticked afresh
+        retied = {box_key(text) for text, _ in ties}  # a box belongs to one task: a new tie replaces the old
+        p["items"] = [x for x in p.get("items") or [] if box_key(x[0]) not in retied] + ties
+        p["ticked"] = [k for k in p.get("ticked", []) if k not in retied]  # and is ticked afresh
         p["dropped"] = p.get("dropped", []) + dropped
-        said = ([f"is also for {', '.join(new)}"] if new else []) + [f"ties {t} to '{x}'" for t, x in ties.items()]
+        said = ([f"is also for {', '.join(new)}"] if new else []) + [f"ties '{x}' to {t}" for x, t in ties]
         said += [f"drops '{x}'" for x in dropped]
         return f"PR #{number} on {g['id']} " + ", ".join(said)
     p = {"url": url, "repo": f"{owner}/{repo}", "number": number, "for": tasks, "by": by, "at": now(), "state": "open", "known": False}
@@ -1213,22 +1216,22 @@ def finished_on(plan, p, tid):
 
 def ticked_body(plan, p, body):
     """`body` with the boxes of p's finished tied tasks ticked and marked ' — done: <link>'. Returns (new body,
-    or None when nothing changes; the tasks whose box is now ticked). A box ticked by hand is left as it is,
+    or None when nothing changes; the boxes, by key, that are now ticked). A box ticked by hand is left as it is,
     and atr never unticks one."""
-    want = {box_key(text): tid for tid, text in (p.get("items") or {}).items()
-            if tid not in p.get("ticked", []) and finished_on(plan, p, tid)}
+    want = {box_key(text): tid for text, tid in p.get("items") or []
+            if box_key(text) not in p.get("ticked", []) and finished_on(plan, p, tid)}
     if not want:
         return None, []
     lines, done = [], []
     for line in body.split("\n"):
         cr = "\r" if line.endswith("\r") else ""
         m = BOX_RE.match(line.rstrip("\r"))
-        tid = m and want.get(box_key(m.group(4)))
-        if tid and tid not in done:
+        key = m and box_key(m.group(4))
+        if key in want and key not in done:
             if m.group(2) == " ":
-                link = evidence(plan, next(t for t in plan["tasks"] if t["id"] == tid))
+                link = evidence(plan, next(t for t in plan["tasks"] if t["id"] == want[key]))
                 line = f"{m.group(1)}x{m.group(3)}{m.group(4)}" + (f" — done: {link}" if link else "") + cr
-            done.append(tid)
+            done.append(key)
         lines.append(line)
     new = "\n".join(lines)
     return (new if new != body else None), done
@@ -1263,21 +1266,21 @@ def sync_checklist(name, url, body):
         return
     new, done = ticked_body(load(name), p, fresh)
     if done and (new is None or gh_pr_body(p["repo"], p["number"], new)):
-        change(name, "github", op_pr_ticked, {"url": url, "ids": done})
+        change(name, "github", op_pr_ticked, {"url": url, "boxes": done})
 
 
 def op_pr_ticked(plan, by, a):
-    """atr ticked (or found ticked) the boxes of these tasks: it leaves them alone from now on. Not news."""
+    """atr ticked (or found ticked) these boxes: it leaves them alone from now on. Not news."""
     _, p = find_pr(plan, a.get("url"))
     if p:
-        p["ticked"] = list(dict.fromkeys(p.get("ticked", []) + list(a.get("ids") or [])))
+        p["ticked"] = list(dict.fromkeys(p.get("ticked", []) + list(a.get("boxes") or [])))
 
 
 def checklist_lines(g, p):
     """For atr read: how far the PR's checklist is, and the boxes the lead still has to tie or drop."""
     if p.get("boxes") is None:
         return []
-    known = {box_key(x) for x in [*(p.get("items") or {}).values(), *p.get("dropped", [])]}
+    known = {box_key(x) for x in [*(text for text, _ in p.get("items") or []), *p.get("dropped", [])]}
     have = {box_key(text) for text, _ in p["boxes"]}
     out = []
     if p["boxes"]:
@@ -1286,7 +1289,7 @@ def checklist_lines(g, p):
     if loose:
         out.append(f"      NOT TIED (tie: atr pr {g['id']} {p['url']} --item T3='text'; or --drop 'text'): "
                    + "; ".join(f"'{x}'" for x in loose))
-    lost = [f"{tid} '{text}'" for tid, text in (p.get("items") or {}).items() if box_key(text) not in have]
+    lost = [f"{tid} '{text}'" for text, tid in p.get("items") or [] if box_key(text) not in have]
     if lost:
         out.append("      TIE LOST (no box with that text any more; tie it again): " + "; ".join(lost))
     return out
@@ -1305,8 +1308,12 @@ def op_lead_release(plan, by, a):
     return "let go of the lead thread: the next session to start a turn in the repo becomes the lead"
 
 
+def rules_stamp():
+    return f"{zlib.crc32(RULES.encode()):x}"
+
+
 def op_mark_read(plan, by, a):
-    plan["lead"].update(read_rev=plan["rev"], read_at=now())
+    plan["lead"].update(read_rev=plan["rev"], read_at=now(), rules=rules_stamp())
 
 
 OPS = {
@@ -1338,6 +1345,8 @@ OPS = {
 
 def render(plan, since):
     out = [f"{plan['title']} ({plan['name']}) · revision {plan['rev']}", ""]
+    if plan["lead"].get("rules") != rules_stamp():  # a lead keeps the rules it read when it started
+        out += ["ATR'S RULES CHANGED since you last read: run `atr rules` now and follow the new version.", ""]
     owner = [c for c in since if c["by"] == "you"]
     github = [c for c in since if c["by"] == "github"]
     news = [c for c in since if c["by"] == "atr"]
@@ -2575,7 +2584,8 @@ def main(argv=None):
         help="task(s) the PR carries; they go to done when it merges (repeat or comma-separate)",
     )
     x.add_argument("--item", action="append", default=[], metavar="T3=TEXT",
-                   help="tie a checklist box of the PR (by its text) to a task: atr ticks it when the task is finished")
+                   help="tie a checklist box of the PR (by its text) to a task: atr ticks it when the task is finished; "
+                   "repeat, also for several boxes of one task")
     x.add_argument("--drop", action="append", default=[], metavar="TEXT", help="a checklist box no task covers: stop listing it")
     x = sub.add_parser("lead", help="store the lead's thread link, or start a lead thread (--start)")
     x.add_argument("thread", nargs="?")
@@ -2629,7 +2639,7 @@ def main(argv=None):
                     "name": a.name,
                     "title": a.title or a.name,
                     "rev": 0,
-                    "lead": {"thread": "", "read_rev": 0, "read_at": ""},
+                    "lead": {"thread": "", "read_rev": 0, "read_at": "", "rules": rules_stamp()},
                     "goals": [],
                     "tasks": [],
                     "decisions": [],
@@ -2741,9 +2751,9 @@ def main(argv=None):
         elif a.cmd == "pr":
             if any("=" not in x for x in a.item):
                 raise Refused("usage: atr pr G1 URL --item T3='text of the checklist box'")
-            items = dict(x.split("=", 1) for x in a.item)
+            items = [[text.strip(), tid.strip()] for tid, text in (x.split("=", 1) for x in a.item)]
             fn, args = op_pr, {"goal": a.goal, "url": a.url, "for": [t for s in a.for_ for t in s.split(",") if t],
-                               "items": {k.strip(): v.strip() for k, v in items.items()}, "drop": a.drop}
+                               "items": items, "drop": a.drop}
         elif a.start:
             return print(start_lead(name, a.start))
         elif a.claim:
