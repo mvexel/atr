@@ -293,6 +293,9 @@ def op_task_set(plan, by, a):
         t["status"] = status
         t.pop("blocked_by", None)
         said.append(status)
+    for dep in a.get("after") or []:
+        if op_dep(plan, by, {"id": t["id"], "other": dep}):
+            said.append(f"after {dep}")
     return f"{label(t)}: {', '.join(said)}" if said else None
 
 
@@ -771,7 +774,12 @@ def main(argv=None):
     x = sub.add_parser("task", help="add or update a task")
     x.add_argument("action", choices=["add", "set", "stopped"])
     x.add_argument("args", nargs="+")
-    x.add_argument("--after", action="append", default=[])
+    x.add_argument(
+        "--after",
+        action="append",
+        default=[],
+        help="task(s) this one waits for; repeat or comma-separate (T1,T2)",
+    )
     x = sub.add_parser("decide", help="record a judgment call")
     x.add_argument("on", help="task or goal id, or 'project'")
     x.add_argument("chosen")
@@ -871,7 +879,7 @@ def main(argv=None):
             fn, args = op_goal_add, {"title": a.title, "done_when": a.done}
         elif a.cmd == "task" and a.action == "add":
             if len(a.args) != 2:
-                raise Refused('usage: atr task add G1 "title" [--after T2]')
+                raise Refused('usage: atr task add G1 "title" [--after T1,T2]')
             fn, args = (
                 op_task_add,
                 {
@@ -884,11 +892,20 @@ def main(argv=None):
             fn, args = op_task_stopped, {"id": a.args[0], "note": " ".join(a.args[1:])}
         elif a.cmd == "task":
             pairs = dict(p.split("=", 1) for p in a.args[1:] if "=" in p)
-            if not pairs or set(pairs) - {"status", "title", "owner", "thread", "note"}:
+            after = [
+                d for s in [*a.after, pairs.pop("after", "")] for d in s.split(",") if d
+            ]
+            if (not pairs and not after) or set(pairs) - {
+                "status",
+                "title",
+                "owner",
+                "thread",
+                "note",
+            }:
                 raise Refused(
-                    "usage: atr task set T1 status=doing [owner=.. thread=.. title=.. note=..]"
+                    "usage: atr task set T1 status=doing [owner=.. thread=.. title=.. note=.. after=T2,T3]"
                 )
-            fn, args = op_task_set, {"id": a.args[0], **pairs}
+            fn, args = op_task_set, {"id": a.args[0], **pairs, "after": after}
         elif a.cmd == "decide":
             by = "you" if a.owner else by
             fn, args = (

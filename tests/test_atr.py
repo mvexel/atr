@@ -136,6 +136,15 @@ class Plan(Base):
         self.cli("task", "add", "G1", "agent work")               # the agent's own changes are not news to it
         self.assertEqual(self.cli("unread")[0], 1)
 
+    def test_lead_adds_dependencies_to_an_existing_task(self):
+        for title in ("a", "b", "c"):
+            self.cli("task", "add", "G1", title)
+        code, out = self.cli("task", "set", "T3", "after=T1,T2")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.task("T3")["after"], ["T1", "T2"])
+        self.assertEqual(self.cli("task", "set", "T1", "--after", "T3")[0], 2)  # loop
+        self.assertEqual(self.cli("task", "set", "T3", "after=T1")[1].strip(), "no change")
+
     def test_move_reorders_and_changes_goal(self):
         self.you("goal_add", title="Second")
         for title in ("a", "b"):
