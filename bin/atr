@@ -395,22 +395,28 @@ def op_decide(plan, by, a):
         )
     rejected = [r.strip() for r in a.get("rejected") or [] if r.strip()]
     hard = bool(a.get("hard"))
+    # --owner: the lead records what the owner said in conversation. The decision is the owner's, but the
+    # change is the lead's, so it does not come back to the lead as unread.
+    said = bool(a.get("owner"))
+    if said and hard:
+        raise Refused("--owner records an answer the owner already gave; it cannot also be --hard")
+    who = "you" if said else by
     d = {
         "id": new_id(plan, "D"),
         "on": on,
-        "by": by,
+        "by": who,
         "at": now(),
         "question": (a.get("question") or "").strip(),
         "chosen": chosen,
         "why": (a.get("why") or "").strip(),
         "rejected": rejected,
         "undo": "hard" if hard else "easy",
-        "state": "accepted" if by == "you" else "needs_you" if hard else "to_review",
+        "state": "accepted" if who == "you" else "needs_you" if hard else "to_review",
         "note": "",
     }
     plan["decisions"].append(d)
     if d["state"] != "needs_you":
-        return f"{d['id']} on {on}: {chosen}"
+        return f"{d['id']} on {on}{' (the owner said)' if said and by != 'you' else ''}: {chosen}"
     d["options"] = [chosen] + rejected
     d["chosen"] = ""
     d["recommended"] = chosen
@@ -907,7 +913,6 @@ def main(argv=None):
                 )
             fn, args = op_task_set, {"id": a.args[0], **pairs, "after": after}
         elif a.cmd == "decide":
-            by = "you" if a.owner else by
             fn, args = (
                 op_decide,
                 {
@@ -917,6 +922,7 @@ def main(argv=None):
                     "rejected": a.rejected,
                     "question": a.question,
                     "hard": a.hard,
+                    "owner": a.owner,
                 },
             )
         elif a.cmd == "attach":

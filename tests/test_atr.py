@@ -145,6 +145,16 @@ class Plan(Base):
         self.assertEqual(self.cli("task", "set", "T1", "--after", "T3")[0], 2)  # loop
         self.assertEqual(self.cli("task", "set", "T3", "after=T1")[1].strip(), "no change")
 
+    def test_owner_said_decision_is_the_owners_but_not_news_to_the_lead(self):
+        self.cli("task", "add", "G1", "x")
+        self.cli("read")
+        code, out = self.cli("decide", "project", "audio comes from the Mac", "--owner")
+        self.assertEqual(code, 0, out)
+        d = atr.load("demo")["decisions"][-1]
+        self.assertEqual((d["by"], d["state"]), ("you", "accepted"))
+        self.assertEqual(self.cli("unread")[0], 1)
+        self.assertEqual(self.cli("decide", "T1", "x", "--owner", "--hard")[0], 2)
+
     def test_move_reorders_and_changes_goal(self):
         self.you("goal_add", title="Second")
         for title in ("a", "b"):
