@@ -22,10 +22,18 @@ def atr(cwd, *args):
     exe = os.environ.get("ATR_BIN") or shutil.which("atr")
     if not exe:
         return 2, ""
-    env = {k: v for k, v in os.environ.items() if k != "ATR_AS"}  # an extension never speaks as the owner
+    env = {
+        k: v for k, v in os.environ.items() if k != "ATR_AS"
+    }  # an extension never speaks as the owner
     try:
         r = subprocess.run(
-            [exe, *args], cwd=cwd, env=env, capture_output=True, text=True, timeout=15, check=False
+            [exe, *args],
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return 2, ""
@@ -50,7 +58,9 @@ def main(event):
 
     if event == "session-start":
         _, plan = atr(cwd, "read")
-        print(f"This folder is atr project {state['project']}; you are its lead. The plan:\n\n{plan}")
+        print(
+            f"This folder is atr project {state['project']}; you are its lead. The plan:\n\n{plan}"
+        )
         if doorbell and not state["lead_waiting"]:
             print("\n" + DOORBELL)
     elif event == "prompt":

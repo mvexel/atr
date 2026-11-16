@@ -346,7 +346,9 @@ def op_task_now(plan, by, a):
     """What is happening on a running task right now: one short line the owner sees without opening it."""
     t = get(plan, "tasks", a["id"])
     if t["status"] != "doing":
-        raise Refused(f"{t['id']} is not in progress; first: atr task set {t['id']} status=doing")
+        raise Refused(
+            f"{t['id']} is not in progress; first: atr task set {t['id']} status=doing"
+        )
     text = " ".join((a.get("text") or "").split())
     if not text:
         raise Refused('say what is happening: atr now T3 "scoring run 2 of 3"')
@@ -455,7 +457,9 @@ def op_decide(plan, by, a):
     # change is the lead's, so it does not come back to the lead as unread.
     said = bool(a.get("owner"))
     if said and hard:
-        raise Refused("--owner records an answer the owner already gave; it cannot also be --hard")
+        raise Refused(
+            "--owner records an answer the owner already gave; it cannot also be --hard"
+        )
     who = "you" if said else by
     d = {
         "id": new_id(plan, "D"),
@@ -624,9 +628,10 @@ def render(plan, since):
     if made or overturned:
         out += ["", "DECISIONS (do not re-propose what was rejected):"]
         for d in made + overturned:
-            tag = {"overturned": "OVERTURNED BY OWNER: ", "to_review": "(not reviewed yet) "}.get(
-                d["state"], ""
-            )
+            tag = {
+                "overturned": "OVERTURNED BY OWNER: ",
+                "to_review": "(not reviewed yet) ",
+            }.get(d["state"], "")
             rej = f" | rejected: {'; '.join(d['rejected'])}" if d["rejected"] else ""
             out.append(
                 f"  - {d['id']} {d['on']}: {tag}{d['chosen']}{rej}"
@@ -872,7 +877,9 @@ def main(argv=None):
     x.add_argument("on")
     x.add_argument("src", help="file path or http(s) link")
     x.add_argument("--title")
-    x = sub.add_parser("now", help="say what is happening on a running task (workers may use this)")
+    x = sub.add_parser(
+        "now", help="say what is happening on a running task (workers may use this)"
+    )
     x.add_argument("id")
     x.add_argument("text", nargs="+")
     x = sub.add_parser("lead", help="store the lead's thread link")

@@ -309,7 +309,7 @@ function drawProject() {
   const fresh = plan.tasks.filter(isNew).length;
   const general = plan.decisions.filter(d => d.on === "project" && d.state !== "needs_you"), gdocs = plan.docs.filter(d => d.on === "project");
   document.title = (waiting.length + proposed.length ? `(${waiting.length + proposed.length}) ` : "") + plan.title + " · atr";
-  mount(app, 
+  mount(app,
     h("div", { class: "top" }, h("button", { class: "back", onclick: () => location.hash = "" }, "← All projects"), h("span", { class: "sp" }),
       listening && h("span", { class: "muted small", title: "Your changes wake the lead right away" }, "Lead listening"),
       plan.lead.thread && h("a", { href: plan.lead.thread, target: "_blank", rel: "noopener" }, "Lead thread ↗")),
