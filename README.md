@@ -23,9 +23,9 @@ My design principles for this project were:
   goals, set what comes after what, and drop or park tasks.
 - The lead agent adds tasks under your goals, keeps status current, records every judgment call with
   what it rejected, and attaches documents. It uses the `atr` command.
-- **atr itself pushes nothing.** The lead runs `atr read` when a turn starts and before it ends, and sees
-  what you changed. With the Claude Code plugin, your changes on the page also wake an idle lead. The page
-  shows when the lead has not read your changes yet; nudge it in its thread.
+- The lead runs `atr read` when a turn starts and before it ends, and sees what you changed. With the
+  [T3 Code extension](extensions/t3/), `atr serve` also sends your changes to an idle lead in its own thread.
+  The page shows when the lead has not read your changes yet.
 
 Each project is one `plan.json` (plus a `docs/` folder) under `~/.local/share/atr/<project>/`, or under
 `ATR_DATA_DIR`. Only atr writes it. Back that folder up.
@@ -52,8 +52,8 @@ Python 3.13+ on macOS or Linux (tested on 3.14), no dependencies.
    cd ~/dev/my-repo
    atr init my-project "My project"   # creates the project and a .atr pointer file here; commit it
    ```
-   If a lead provider is on your `PATH` (a program named `atr-lead-<tool>`, such as the Claude Code
-   extension's `atr-lead-claude-code`), `init` also starts the lead thread in that tool and stores its link.
+   If a lead provider is on your `PATH` (a program named `atr-lead-<tool>`, such as the T3 Code
+   extension's `atr-lead-t3`), `init` also starts the lead thread in that tool and stores its link.
    With several providers it starts none and names them: pick one with `atr lead --start TOOL`.
    `--lead TOOL` picks one up front, `--lead none` skips it. A provider that fails never fails `init`.
 4. **Give the lead its rules.** Append them to the file your agent reads:
@@ -68,7 +68,7 @@ Python 3.13+ on macOS or Linux (tested on 3.14), no dependencies.
 **Keep the page running.** `atr service install` registers a login service (launchd on macOS, a systemd
 user unit on Linux) that runs `atr serve` at login and restarts it if it stops. It takes `serve`'s
 `--host`, `--port` and `--allow-host`, and passes on your shell's `PATH` (so the service finds `gh` for PR
-states, and `claude` and `atr-lead-*` for leads) and `ATR_DATA_DIR` if set. Run it again after
+states, and `atr-lead-*`, `t3` and `claude` for leads) and `ATR_DATA_DIR` if set. Run it again after
 `uv tool upgrade atr` to restart on the new code; `atr service uninstall` removes it. It needs a real
 install (`uv tool install` or a checkout), not `uvx`. Logs: `/tmp/atr.log` on macOS, `journalctl --user -u atr` on Linux.
 
@@ -77,11 +77,10 @@ and says nothing if GitHub does not answer (`ATR_UPDATE_CHECK=0` turns the check
 than the version you run (`atr --version`, also at the foot of the page), the page offers **Upgrade and
 restart**. The server picks the command from how atr is installed: `git pull --ff-only` for a checkout
 (refused when it is not on `main` or has local changes: upgrade it by hand), `uv tool upgrade atr` for a uv
-tool install, plus `claude plugin update atr@atr` when the Claude Code plugin is installed. It then restarts
-itself with the same arguments, under `atr service` or in a terminal, and the page reloads. Then it restarts
-each project's lead in the same thread, once the lead is idle, so it loads the updated plugin (Claude Code:
-`claude stop` and `claude --bg --resume`). A lead in a terminal you have open is left to you: the page asks you
-to restart that session. Workers keep running.
+tool install, plus `claude plugin update atr@atr` in each Claude config folder T3 Code uses that has the
+plugin. It then restarts itself with the same arguments, under `atr service` or in a terminal, and the page
+reloads. Then it messages each project's lead in its thread, once the lead is idle, so it takes a turn on
+the updated plugin and rereads the rules. Workers pick up the new plugin on their next turn.
 
 **Releases.** Every push to `main` is a release: `.github/workflows/release.yml` runs the tests, bumps the
 patch version in `pyproject.toml`, `uv.lock`, the plugin's `plugin.json` and `.claude-plugin/marketplace.json`
@@ -92,10 +91,10 @@ version with no tag yet is released as it is. Failing tests stop the release.
 ## Side questions
 
 Each project's page has a box to ask a side question about it ("why is T7 blocked?", "what did G3 change?").
-`atr serve` hands it to the lead provider, which answers in a new thread of the same tool in the project's
-repo; the answer shows under the box, with a box to follow up in that thread (and, for Claude Code, the
-`claude --resume ID` command to carry on in a terminal). That thread only reads: it sees the plan, code and
-history, but atr refuses every change from it (`ATR_SIDE`), and with Claude Code it runs in plan mode with the
+`atr serve` hands it to the lead provider, which answers in the project's repo; the answer shows under the
+box, with a box to follow up (and the `claude --resume ID` command to carry on in a terminal). The T3
+provider answers with headless Claude, since T3 cannot start a read-only thread. It only reads: it sees the
+plan, code and history, but atr refuses every change from it (`ATR_SIDE`), and it runs in plan mode with the
 edit tools off. Side questions are kept beside the plan, not in it, so asking one never wakes the lead.
 See [docs/EXTENSIONS.md](docs/EXTENSIONS.md#lead-providers) for the provider's `ask` verb.
 
@@ -171,29 +170,28 @@ atr cannot tell who is typing, so this is a convention, not a lock.
 ## Extensions
 
 atr's core has no code for any particular agent tool. An extension connects atr to one tool: it shows the
-lead the owner's changes when a turn starts, holds a turn that is about to end while changes are unread,
-and wakes an idle lead when the owner acts (`atr wait`). It can also ship a lead provider, which
-`atr init` uses to start the lead thread. [docs/EXTENSIONS.md](docs/EXTENSIONS.md) describes
+lead the owner's changes when a turn starts, and holds a turn that is about to end while changes are unread.
+Its lead provider starts the lead thread (`atr init`), says whether a thread is working, and wakes one with a
+message: `atr serve` uses it to send an idle lead the owner's changes. [docs/EXTENSIONS.md](docs/EXTENSIONS.md) describes
 the commands and rules an extension builds on.
 
-**One lead per project.** An extension that can name its sessions claims the lead for one of them
-(`atr lead --claim`). The first session to take a turn in the repo leads, or the one a lead provider
-started; the others are told who leads and work as workers. A session leads one project at most. The
-lead lets go when its session ends, and the page's "let another session lead" hands the lead to the next
-session that takes a turn.
+**One lead per project.** An extension that can name its threads claims the lead for one of them
+(`atr lead --claim`). The first thread to take a turn in the repo leads, or the one a lead provider
+started; the others are told who leads and work as workers. A thread leads one project at most. The
+page's "let another session lead" hands the lead to the next thread that takes a turn.
 
-**When a lead or worker disappears.** A lead is gone when its session ended, or when for 10 minutes it has
-neither listened for your changes nor taken a turn (and its tool does not say it still runs). The page then
+**When a lead or worker disappears.** A lead is gone when for 10 minutes it has taken no turn and its tool
+no longer has its thread (T3: the thread was deleted or archived), or when you let it go. The page then
 says "Lead gone" with a **Bring the lead back** button, and a gone lead's claim no longer stops another
-session from leading. When you act on the page and the lead has been gone 10 minutes, `atr serve` brings it
-back on its own, at most once an hour: it resumes the same thread through the lead provider (Claude Code:
-`claude --bg --resume`), or starts a fresh lead when that fails. Workers carry their thread on their task
-(`thread=`). A running task with no news for 30 minutes is marked silent, and one whose session ended is
-marked so; both are written to the plan as news, which wakes the lead, and it checks the worker
-(`atr alive T3`), brings it back (`atr resume T3`) or sets the task back to todo. `ATR_THREAD_CHECK=0` turns
+thread from leading. When you act on the page and the lead has been gone 10 minutes, `atr serve` brings it
+back on its own, at most once an hour: it messages the same thread through the lead provider, or starts a
+fresh lead when that fails. Workers carry their thread on their task
+(`thread=`). A running task with no news for 30 minutes is marked silent and written to the plan as news,
+which wakes the lead, and it checks the worker (`atr alive T3`: working, idle or gone), wakes it
+(`atr resume T3`) or sets the task back to todo. `ATR_THREAD_CHECK=0` turns
 off `atr serve`'s minute-by-minute watch.
 
-Shipped here: [Claude Code](extensions/claude-code/).
+Shipped here: [T3 Code](extensions/t3/) (and Ari Code).
 
 ## Tests
 

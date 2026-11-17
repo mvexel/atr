@@ -206,13 +206,13 @@ function nowLine(t) {
 }
 const threadLink = th => /^https?:\/\//.test(th) ? h("a", { href: th, target: "_blank", rel: "noopener" }, "Open thread ↗")
   : h("span", {}, "Thread ", h("code", { style: "user-select:all" }, th));
-// The lead's thread: listening (your changes wake it), working (between turns), running (its tool says it is
-// alive, but it has not listened for 10 min) or gone (its session ended, or no sign of it for 10 min).
+// The lead's thread: working (it took a turn in the last 10 min), running (T3 has the thread: atr rings it when
+// you act), listening (an `atr wait` runs for it), stuck, or gone (T3 no longer has it, or you let it go).
 function leadLine(lead, resumed) {
   if (!lead?.state) return null;
   if (lead.state === "listening") return h("span", { class: "muted small live", title: "Your changes wake the lead right away" }, "Lead listening");
-  if (lead.state === "working") return h("span", { class: "muted small", title: "The lead took a turn in the last 10 minutes; it listens again when the turn ends" }, "Lead working");
-  if (lead.state === "running") return h("span", { class: "muted small", title: "Its tool says the lead's session is running, but it has not listened for your changes in 10 minutes" }, "Lead running, not listening");
+  if (lead.state === "working") return h("span", { class: "muted small", title: "The lead took a turn in the last 10 minutes; atr sends it your changes in its thread when it is idle" }, "Lead working");
+  if (lead.state === "running") return h("span", { class: "muted small", title: "The lead's thread is idle; atr sends it your changes in its thread shortly after you act" }, "Lead idle");
   const stuck = lead.state === "stuck";
   const why = stuck ? `its session runs, but it has taken no turn since ${ago(lead.since * 1000)}`
     : lead.released ? `you let it go ${ago(lead.since * 1000)} and no session took over`
@@ -518,7 +518,7 @@ function sideQuestion(e, newest) {
         : h("div", { class: "a" + (t.state === "failed" ? " failed" : "") }, t.state === "failed" ? t.a : markdown(t.a))]),
     !busy && e.thread && form(null, [{ label: "Follow up" }], q => q && askSide(q, e.id), "Ask", "side" + e.id),
     h("div", { class: "meta" }, e.id, " · asked ", ago(e.turns[0].at),
-      e.thread && e.tool === "claude-code" && [" · go on in a terminal: ", h("code", { style: "user-select:all" }, "claude --resume " + e.thread)]));
+      e.thread && [" · go on in a terminal: ", h("code", { style: "user-select:all" }, "claude --resume " + e.thread)]));
 }
 function sideQuestions(list) {
   const recent = [...(list || [])].reverse(), kept = recent.filter(e => !e.hidden), gone = recent.filter(e => e.hidden);
@@ -570,7 +570,7 @@ function drawProject() {
     sideQuestions(S.data.side),
     h("div", { class: "chips" }, ["all", "doing", "blocked", "review", "todo", "done"].map(f =>
       h("button", { class: "chip", "aria-pressed": String(S.filter === f), onclick: () => { S.filter = f; draw(); } }, f === "all" ? "All" : LABEL[f]))),
-    unread.length ? h("div", { class: "banner" }, `The lead has not read your ${unread.length} change${unread.length > 1 ? "s" : ""} yet. ${listening ? "It is being woken now."
+    unread.length ? h("div", { class: "banner" }, `The lead has not read your ${unread.length} change${unread.length > 1 ? "s" : ""} yet. ${listening || ["working", "running"].includes(lead?.state) ? "atr sends them to the lead in its thread shortly after you stop."
         : leadGone ? "The lead is gone: atr brings it back when you act (once it has been gone 10 minutes, at most once an hour), or use Bring the lead back."
         : "It picks them up on its next turn; nudge it in its thread if it is idle."}`,
       h("ul", {}, unread.slice(-5).map(c => h("li", {}, c.what)))) : null,
@@ -733,8 +733,8 @@ async function serverAct(what, busy) {
     const r = await fetch("/api/" + what, { method: "POST", headers: { "X-Atr": "1" } });
     const body = await r.json();
     if (!r.ok) throw new Error(body.error || r.statusText);
-    if ((body.log || []).some(l => l.startsWith("the Claude Code plugin: upgraded")))
-      sessionStorage.setItem("atr:toast", "atr is upgraded. Restart your Claude Code sessions to load the new plugin.");
+    if ((body.log || []).some(l => l.startsWith("the atr plugin") && l.endsWith(": upgraded")))
+      sessionStorage.setItem("atr:toast", "atr is upgraded. Your T3 threads load the new plugin on their next turn.");
     S.busy = "Restarting the page server…"; drawServer();
     // The server answers, then replaces itself: wait for it to go and come back, then load the new page.
     await new Promise(ok => setTimeout(ok, 1500));

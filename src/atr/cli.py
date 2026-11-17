@@ -34,7 +34,7 @@ RULES = """\
 
 This project's plan lives in atr. You are the lead; workers report to you, and only you run atr,
 except that a worker may report progress on its own task, `atr now T3 "what is happening"` (its first
-report adds `--thread ID`, the session it runs in, unless the task already has one),
+report adds `--thread ID`, the T3 thread it runs in ($T3CODE_THREAD_ID), unless the task already has one),
 record its own judgment calls with its name: `atr decide T3 "..." --why "..." --by worker-name`,
 and put a pull request it opened on its goal (rule 7).
 
@@ -44,7 +44,9 @@ and put a pull request it opened on its goal (rule 7).
    When you pick up a goal that has no tasks yet, first add a task for planning it and set it to
    doing, before you research anything, so the page shows the goal was picked up.
 3. Never change goals. Keep status current: `atr task set T3 status=doing thread=ID`, where ID is the
-   thread (session id, or link) of the worker you started for it, so atr can check on it and bring it back.
+   T3 thread id of the worker you started for it, so atr can check on it and wake it. Run workers in their
+   own T3 threads (a launched thread, or a delegated task's child thread), not as subagents of your turn:
+   a subagent has no thread to check or wake.
    While a task runs, say what is happening every few steps, in a few words: `atr now T3 "scoring run 2 of 3"`.
 4. Record every judgment call: `atr decide T3 "what you chose" --why "..." --rejected "..."`.
    If it is hard to undo, add `--hard` and do not act: the task blocks until the owner answers.
@@ -382,7 +384,7 @@ def wait_all(names, timeout):
 # Kept beside plan.json, not in it: the hooks refresh it every turn, and a plan revision per turn would
 # make the owner's page edits stale while they type.
 
-GONE_AFTER = 10 * 60  # a lead whose listener has been absent this long, with no turn either, is gone
+GONE_AFTER = 10 * 60  # a lead with no turn this long, that its provider does not say is alive, is gone
 STUCK_AFTER = 30 * 60  # a lead its tool calls running, with news waiting this long and no turn, is stuck
 SILENT_AFTER = 30 * 60  # a running task with no news this long is silent: the lead is told
 RESUME_EVERY = 3600  # atr brings a gone lead back on its own at most this often
@@ -453,7 +455,7 @@ def read_claim(name, ask=False):
 
 def same_thread(a, b):
     """True when two ids name one thread: a provider may print a short id that starts the full one
-    (claude --bg prints 85aade68; the session's hooks get 85aade68-...)."""
+    (a short id that starts the full one)."""
     return bool(a and b) and (a.startswith(b) or b.startswith(a))
 
 
@@ -1820,8 +1822,7 @@ def check_threads():
     for name in projects():
         with contextlib.suppress(OSError, ValueError, Refused):
             check_silence(name)
-            if lead_status(name, ask=True).get("state") in ("gone", "stuck") and has_news(name):
-                auto_resume(name)  # news waits for a lead that cannot hear it (G19)
+            wake_lead(name)
             check_relays(name)
     for line in restart_leads():
         print(f"atr: {line}", file=sys.stderr, flush=True)
@@ -1868,7 +1869,7 @@ def install_kind():
 
 def upgrade_steps():
     """The commands that upgrade this atr, as (what, argv, needed). The page never sends a command: only these
-    run. A step that is not needed (the Claude Code plugin) may fail without failing the upgrade."""
+    run. A step that is not needed (the atr plugin) may fail without failing the upgrade."""
     kind, root = install_kind(), HERE.parent.parent
     if kind == "checkout":
         git = ["git", "-C", str(root)]
@@ -1885,11 +1886,27 @@ def upgrade_steps():
     else:
         raise Refused("atr cannot tell how it was installed: upgrade it the way you installed it")
     claude = shutil.which("claude")
-    if claude:
-        listed = subprocess.run([claude, "plugin", "list"], capture_output=True, text=True, timeout=60, check=False)
+    for home in claude_homes() if claude else []:
+        env = ["env", f"CLAUDE_CONFIG_DIR={home}"]
+        listed = subprocess.run([*env, claude, "plugin", "list"], capture_output=True, text=True, timeout=60, check=False)
         if "atr@atr" in listed.stdout:
-            steps.append(("the Claude Code plugin", [claude, "plugin", "update", "atr@atr"], False))
+            steps.append((f"the atr plugin in {home}", [*env, claude, "plugin", "update", "atr@atr"], False))
     return steps
+
+
+def claude_homes():
+    """The Claude config folders T3 Code runs its Claude threads with (each provider instance may have its own),
+    where the atr plugin is installed: from T3's settings, else Claude's default."""
+    homes = []
+    try:
+        t3 = Path(os.environ.get("T3CODE_HOME") or Path.home() / ".t3")
+        instances = json.loads((t3 / "userdata" / "settings.json").read_text()).get("providerInstances") or {}
+        for i in instances.values():
+            if isinstance(i, dict) and i.get("driver") == "claudeAgent":
+                homes.append(str(Path((i.get("config") or {}).get("homePath") or "~/.claude").expanduser()))
+    except (OSError, ValueError, AttributeError):
+        pass
+    return list(dict.fromkeys(homes)) or [os.environ.get("CLAUDE_CONFIG_DIR") or str(Path.home() / ".claude")]
 
 
 def upgrade():
@@ -2095,8 +2112,9 @@ class Handler(BaseHTTPRequestHandler):
                 base_rev=body.get("rev"),
             )
             self.send_json({"ok": True, "rev": plan["rev"]})
-            # The owner acted while the lead is gone: bring it back so it hears them (at most once an hour).
-            threading.Thread(target=auto_resume, args=(parts[2],), daemon=True).start()
+            # Wake the lead once the owner stops clicking: ring it, or bring it back when it is gone.
+            ACTED[parts[2]] = time.time()
+            threading.Thread(target=wake_lead, args=(parts[2], RING_QUIET + 1), daemon=True).start()
         except Stale:
             self.send_json(
                 {
@@ -2274,13 +2292,13 @@ def run_provider(name, tool, args, timeout=120, env=None, raw=False):
     return r.returncode, lines, why
 
 
-ALIVE: dict = {}  # thread -> (when asked, answer): the provider is asked at most once a minute per thread
+ALIVE: dict = {}  # thread -> (when asked, answer, state): the provider is asked at most once a minute per thread
 
 
 def thread_alive(name, thread, ask=True):
     """Whether the provider says `thread` is still running: True, False, or None when it cannot tell (no
     provider, or it failed). Without ask, only an answer from the last two minutes counts."""
-    at, said = ALIVE.get(thread, (0.0, None))
+    at, said, _ = ALIVE.get(thread, (0.0, None, ""))
     if time.time() - at < (60 if ask else 120):
         return said
     if not ask:
@@ -2288,10 +2306,15 @@ def thread_alive(name, thread, ask=True):
     tool = thread_tool(name)
     if not tool:
         return None
-    code, _, _ = run_provider(name, tool, ["alive", thread], timeout=30)
+    code, lines, _ = run_provider(name, tool, ["alive", thread], timeout=30)
     said = True if code == 0 else False if code == 1 else None
-    ALIVE[thread] = (time.time(), said)
+    ALIVE[thread] = (time.time(), said, lines[0] if lines else "")
     return said
+
+
+def thread_state(thread):
+    """What the provider last printed of a live thread: `working` (a turn runs), `idle`, or ""."""
+    return ALIVE.get(thread, (0.0, None, ""))[2]
 
 
 def resume_thread(name, thread, message):
@@ -2322,6 +2345,63 @@ def restart_thread(name, thread, message):
 
 def resume_file(name):
     return project_dir(name) / ".resume.json"
+
+
+RING_QUIET = 20  # atr serve waits this long after the owner's last action, so a run of clicks rings the lead once
+ACTED: dict = {}  # project -> when the owner last acted on the page
+RINGING = threading.Lock()
+
+
+def ring_lead(name):
+    """The doorbell, for atr serve: when news waits for an idle lead, send it the news in its own thread through
+    the provider (`atr-lead-TOOL resume ID MESSAGE`), once per revision. A lead mid-turn is left to its turn-end
+    check; a listening one (an `atr wait` runs) hears it itself. Returns a line for the log, or ""."""
+    if os.environ.get("ATR_DOORBELL") == "0" or time.time() - ACTED.get(name, 0.0) < RING_QUIET:
+        return ""
+    with RINGING:
+        st = lead_status(name, ask=True)
+        if not st or st["state"] not in ("working", "running") or waiting(name):
+            return ""  # no lead, or a gone or stuck one (brought back instead), or one that listens
+        plan = load(name)
+        news = unread(plan)
+        rung = project_dir(name) / ".rung"
+        try:
+            last = int(rung.read_text())
+        except (OSError, ValueError):
+            last = 0
+        if not news or max(c["rev"] for c in news) <= last:
+            return ""
+        if thread_alive(name, st["id"]) is False or thread_state(st["id"]) == "working":
+            return ""  # gone after all (brought back instead), or mid-turn: its Stop check shows it the news
+        tool = thread_tool(name)
+        if not tool:
+            return ""
+        lines = [f"The owner acted on the atr page (or GitHub on your PRs, or atr on your workers) while you were idle:"]
+        for c in news:
+            if c["rev"] > last:
+                data = json.dumps({"op": c["op"], "args": c["args"]}) if "op" in c else ""
+                lines.append(f"- [{name}] {c['what']} {data}".rstrip())
+        lines.append("Act on this, and run `atr read` to mark it read.")
+        code, _, why = run_provider(name, tool, ["resume", st["id"], "\n".join(lines)])
+        if code:
+            return f"could not ring the lead {st['id']}: {why}"
+        rung.write_text(str(max(c["rev"] for c in news)))
+        ALIVE.pop(st["id"], None)
+        return f"rang the lead {st['id']} with {len(lines) - 2} change(s)"
+
+
+def wake_lead(name, delay=0.0):
+    """After the owner acts (delay: wait for them to finish), or on the minute: bring back a gone or stuck lead
+    that has news waiting, else ring an idle one."""
+    with contextlib.suppress(Refused, OSError, ValueError):
+        if lead_status(name, ask=True).get("state") in ("gone", "stuck"):
+            if has_news(name):
+                auto_resume(name)  # news waits for a lead that cannot hear it (G19)
+            return
+        time.sleep(delay)
+        said = ring_lead(name)
+        if said:
+            print(f"atr: {name}: {said}", file=sys.stderr, flush=True)
 
 
 RESUMING = threading.Lock()
@@ -2581,7 +2661,8 @@ def restart_leads():
         if not st or st["state"] == "gone":  # nothing to restart (a gone lead is brought back as it is)
             pending.pop(name)
             continue
-        if st["state"] != "listening" or r.get("interactive"):
+        idle = st["state"] == "listening" or (st["state"] == "running" and thread_state(st["id"]) != "working")
+        if not idle or r.get("interactive"):
             continue
         tool = thread_tool(name)
         msg = (f"atr was upgraded to {version()} and restarted you, in the same thread, so this session runs the "
@@ -2971,7 +3052,9 @@ def main(argv=None):
             if not thread:
                 raise Refused(f"{a.id} has no thread to ask about")
             said = thread_alive(name, thread)
-            print(f"thread {thread} " + {True: "is running", False: "is not running", None: "is unknown: atr cannot tell (no provider, or it failed)"}[said])
+            state = thread_state(thread) if said else ""
+            print(f"thread {thread} " + {True: "is running", False: "is not running", None: "is unknown: atr cannot tell (no provider, or it failed)"}[said]
+                  + (f" ({state})" if state and state != "running" else ""))
             return {True: 0, False: 1, None: 2}[said]
         elif a.cmd == "resume":
             return print(bring_back_lead(name) if a.id == "lead" else resume_task(name, a.id))

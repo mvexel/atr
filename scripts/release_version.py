@@ -15,7 +15,7 @@ from pathlib import Path
 FILES = (
     ("pyproject.toml", r'(?m)^(version = ")[^"]+'),
     ("uv.lock", r'(name = "atr"\nversion = ")[^"]+'),
-    ("extensions/claude-code/.claude-plugin/plugin.json", r'(\n  "version": ")[^"]+'),
+    ("extensions/t3/.claude-plugin/plugin.json", r'(\n  "version": ")[^"]+'),
     (".claude-plugin/marketplace.json", r'("version": ")[^"]+'),
 )
 
