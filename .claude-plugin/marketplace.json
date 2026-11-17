@@ -9,9 +9,9 @@
   "plugins": [
     {
       "name": "atr",
-      "description": "Keep a Claude Code lead in step with its atr plan.",
+      "description": "Keep a T3 Code lead in step with its atr plan.",
       "version": "0.4.14",
-      "source": "./extensions/claude-code"
+      "source": "./extensions/t3"
     }
   ]
 }

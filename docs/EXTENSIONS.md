@@ -1,10 +1,10 @@
 # Extensions: connecting atr to an agent tool
 
 atr does not run, start or message agents. The owner's changes reach the lead only when the lead runs
-`atr read`. An extension closes that gap for one agent tool (a "harness"): Claude Code, Codex, a chat bot, a
+`atr read`. An extension closes that gap for one agent tool (a "harness"): T3 Code, Codex, a chat bot, a
 cron job. atr itself stays harness-free; an extension is a small adapter that calls the commands below.
 
-`extensions/claude-code/` is the reference extension.
+`extensions/t3/` (T3 Code) is the reference extension.
 
 ## What an extension does
 
@@ -15,11 +15,13 @@ An extension can do any of these four jobs. Each one is useful on its own.
 2. **Turn end.** Before the lead ends a turn, check again. If the owner changed something while the lead
    worked, keep the turn going and point the lead at `atr read`. Check the harness's loop guard first, so the
    lead is never held forever.
-3. **Doorbell.** While the lead is idle, wake it when the owner acts. Run `atr wait`. When it exits 0, wake
-   the lead in whatever way the harness offers, for example a message to `lead_thread` or a background job
-   that re-invokes the session. Hand the lead the owner's changes from `atr wait --json` (`what`, `op`,
-   `args`) so it can act without asking. Then run `atr wait` again. The Claude Code extension does this
-   with an `asyncRewake` hook, so the lead never has to arm it.
+3. **Doorbell.** While the lead is idle, wake it when the owner acts. The simplest way is the lead
+   provider's `resume` verb (below): when it can message a thread from outside, `atr serve` rings the lead
+   itself, about 20 s after the owner stops acting and on its minute watch, once per change, with the
+   changes' `what`, `op` and `args` in the message. A lead whose provider says it is `working` is not rung:
+   its turn-end check shows it the news. The T3 extension works this way. A harness that can only wake a
+   session from inside it can instead run `atr wait` there: when it exits 0, wake the lead with the changes
+   from `atr wait --json`, then run `atr wait` again. While an `atr wait` runs, `atr serve` does not ring.
 
 4. **Lead provider.** Start the lead thread when the owner creates a project, and say whether a thread is
    still running and bring it back. Ship an executable named `atr-lead-<tool>` (see below); `atr init`,
@@ -51,17 +53,21 @@ before it reads a project name):
 | `atr-lead-<tool> restart ID [MESSAGE]` | after an atr upgrade: stop thread `ID` and resume it so it loads the updated extension; print as for resume, exit 3 when only its owner can restart it (an interactive session), other non-zero on failure |
 | `atr-lead-<tool> ask PROJECT QUESTION [ID]` | answer the owner's side question in a new thread, or as a follow-up in thread `ID`, reading only; exit 0 and print `thread-id: ID`, then the answer (markdown), or exit non-zero and say why on stderr |
 
-The Claude Code provider runs `claude --bg --resume ID MESSAGE` and `claude agents --json`. atr uses them
-to bring back a lead that is gone (it starts a fresh lead with the start call when the resume fails) and a
-worker the lead asks for (`atr resume T3`), and to check, before calling a lead gone, that its tool does not
-still run it. atr picks the provider that started the lead, or the one on `PATH`.
+`alive` may print the thread's state on its first line: `working` (a turn runs now) or `idle`. atr shows it
+in `atr alive`, does not ring a `working` lead, and restarts a lead after an upgrade only when it is not.
+
+The T3 provider runs `t3 thread send ID MESSAGE` for `resume` and `restart` (T3 starts a fresh process for
+the turn, which loads the updated plugin) and `t3 thread show ID --json` for `alive`. atr uses them to ring an
+idle lead, to bring back a lead that is gone (it starts a fresh lead with the start call when the resume
+fails), to wake a worker the lead asks for (`atr resume T3`), and to check, before calling a lead gone, that
+its tool still has it. atr picks the provider that started the lead, or the one on `PATH`.
 
 **Side questions.** The page has a box on each project where the owner asks about it. `atr serve` runs
 `ask` in the background (up to 15 minutes) with `ATR_SIDE=1` set, and shows the answer under the box with a
 follow-up box. Under `ATR_SIDE` atr runs only `read` (which then marks nothing read), `next`, `rules`,
 `projects` and `unread`, and refuses every change; an extension's hooks should stay quiet in such a session
 (no lead claim, no listener, no worker rules). Side questions are kept in the project's `side.json`, outside
-the plan: they raise no revision and never wake the lead. The Claude Code provider runs `claude -p` in plan
+the plan: they raise no revision and never wake the lead. The T3 provider runs `claude -p` in plan
 mode with the edit tools off, and `--resume ID` for a follow-up.
 
 `atr init` uses the provider when exactly one is on `PATH` (`--lead TOOL` picks one, `--lead none` skips).
@@ -121,6 +127,9 @@ sessions enforces this with two commands:
 | `atr lead --claim ID [--json]` | 0 thread `ID` leads the project (it took the lead, or already had it) · 1 another thread leads it, or `ID` leads another project · 2 error | run at every turn start and end, and before arming the doorbell; it also refreshes the claim |
 | `atr lead --release ID` | 0 | the session ended (older atr; `atr ended ID` does this and more) |
 | `atr ended ID` | 0 | run when the session ends: the lead lets go, and a running task with `thread=ID` is news for the lead |
+
+The T3 extension does not run `atr ended`: T3 ends a thread's process after every run, which is not the
+thread ending. A T3 lead is gone only when T3 no longer has its thread.
 
 `--json` prints `{"lead": true|false, "id": "…", "seen": 1763318400.0, "project": "…"}`: who leads, when it
 was last seen (Unix time), and which project (when `ID` already leads another one, that one).

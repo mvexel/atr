@@ -382,7 +382,7 @@ class Plan(Base):
         code, out = self.cli("install", "--dir", str(bindir))
         self.assertEqual(code, 0, out)
         self.assertEqual((bindir / "atr").resolve(), SOURCE.resolve())
-        provider = ROOT / "extensions/claude-code/bin/atr-lead-claude-code"
+        provider = ROOT / "extensions/t3/bin/atr-lead-t3"
         self.assertEqual((bindir / provider.name).resolve(), provider.resolve())  # lead providers come along
         self.assertIn("not on your PATH", out)
         self.assertIn("already points", self.cli("install", "--dir", str(bindir))[1])
@@ -834,15 +834,15 @@ class Service(Base):
             atr.serve_command()
 
 
-class LeadProviders(Base):
-    """atr init starts the lead through an atr-lead-<tool> program on PATH and stores the link it prints."""
+class ProviderBase(Base):
+    """A PATH with only the lead providers a test makes."""
 
     def setUp(self):
         super().setUp()
         self.bin = Path(self.tmp.name) / "bin"
         self.bin.mkdir()
         old = os.environ["PATH"]
-        # only the providers this test makes, and a python3 for the Claude Code provider's shebang
+        # only the providers this test makes, and a python3 for the T3 provider's shebang
         python = self.bin.parent / "python"
         python.mkdir()
         (python / "python3").symlink_to(sys.executable)
@@ -861,12 +861,16 @@ class LeadProviders(Base):
         claude = self.bin / "claude"
         claude.write_text(f"#!{sys.executable}\nimport sys, json, pathlib\n{body}\n")
         claude.chmod(0o755)
-        (self.bin / "atr-lead-claude-code").symlink_to(ROOT / "extensions/claude-code/bin/atr-lead-claude-code")
+        (self.bin / "atr-lead-t3").symlink_to(ROOT / "extensions/t3/bin/atr-lead-t3")
 
     def init(self, *args):
         code, out = self.cli("init", "fresh", "Fresh", *args)
         self.assertEqual(code, 0, out)
         return out, atr.load("fresh")["lead"]["thread"]
+
+
+class LeadProviders(ProviderBase):
+    """atr init starts the lead through an atr-lead-<tool> program on PATH and stores the link it prints."""
 
     def test_init_starts_the_one_provider_and_stores_its_link(self):
         self.provider("tool", "print('starting'); print(f'tool://{sys.argv[1]}/{sys.argv[2]}/{os.environ[\"ATR_PROJECT\"]}/{os.getcwd()}')")
@@ -900,25 +904,6 @@ class LeadProviders(Base):
         self.provider("tool", "print('tool://x')")
         self.assertEqual(self.init("--lead", "none")[1], "")
         self.assertIn("No atr-lead-other", self.cli("-p", "fresh", "lead", "--start", "other")[1])
-
-    def test_claude_code_provider_starts_a_background_session(self):
-        self.fake_claude(
-            f"pathlib.Path({self.tmp.name!r}, 'claude-args').write_text(json.dumps(sys.argv[1:]))\n"
-            "print('backgrounded · 85aade68 · fresh · lead')"
-        )
-        out, link = self.init()
-        self.assertEqual(link, "claude attach 85aade68")
-        args = json.loads((Path(self.tmp.name) / "claude-args").read_text())
-        self.assertEqual(args[:3], ["--bg", "-n", "fresh · lead"])
-        self.assertIn("atr rules", args[3])
-        self.assertEqual(atr.read_claim("fresh")["id"], "85aade68")  # the session it started is the lead
-
-    def test_claude_code_provider_passes_claudes_complaint_on(self):
-        self.fake_claude("print('Workspace not trusted. Run claude once.'); raise SystemExit(1)")
-        out, link = self.init()
-        self.assertEqual(link, "")
-        self.assertIn("Workspace not trusted", out)
-
 
     def listening(self, project="fresh", on=True):
         f = Path(self.tmp.name) / project / ".waiting"
@@ -955,21 +940,6 @@ class LeadProviders(Base):
         atr.restart_leads()  # and atr does not try again
         self.assertEqual(atr.restarts(), {"fresh": {"interactive": True}})
 
-    def test_claude_code_provider_restarts_a_background_session_only(self):
-        self.fake_claude(
-            "if sys.argv[1] == 'agents': print(json.dumps([{'id': '85aade68', 'sessionId': '85aade68-1', 'kind': pathlib.Path("
-            f"{self.tmp.name!r}, 'kind').read_text()}}]))\n"
-            f"else: pathlib.Path({self.tmp.name!r}, 'calls').open('a').write(json.dumps(sys.argv[1:]) + '\\n'); print('backgrounded · 85aade68')"
-        )
-        exe = str(self.bin / "atr-lead-claude-code")
-        (Path(self.tmp.name) / "kind").write_text("background")
-        r = subprocess.run([exe, "restart", "85aade68-1", "upgraded"], capture_output=True, text=True, check=False)
-        self.assertEqual((r.returncode, r.stdout.splitlines()[0]), (0, "thread-id: 85aade68"))
-        calls = [json.loads(x) for x in (Path(self.tmp.name) / "calls").read_text().splitlines()]
-        self.assertEqual(calls, [["stop", "85aade68"], ["--bg", "--resume", "85aade68-1", "upgraded"]])
-        (Path(self.tmp.name) / "kind").write_text("interactive")
-        self.assertEqual(subprocess.run([exe, "restart", "85aade68-1"], capture_output=True, check=False).returncode, 3)
-
     def gone_lead(self, project="fresh", **extra):
         atr.write_claim(project, "lead-1234", c={"id": "lead-1234", "seen": time.time() - 3 * atr.GONE_AFTER, "ended": time.time() - 2 * atr.GONE_AFTER, **extra})
 
@@ -996,7 +966,7 @@ class LeadProviders(Base):
         self.init("--lead", "none")
         self.cli("-p", "fresh", "read")
         atr.write_claim("fresh", "lead-1234", c={"id": "lead-1234", "seen": time.time() - 40 * 60})
-        atr.ALIVE["lead-1234"] = (time.time(), True)  # its tool says it runs
+        atr.ALIVE["lead-1234"] = (time.time(), True, "")  # its tool says it runs
         self.assertEqual(atr.lead_status("fresh")["state"], "running")  # nothing waits for it: leave it be
         atr.change("fresh", "you", atr.OPS["goal_add"], {"title": "news for the lead"})
         self.assertEqual(atr.lead_status("fresh")["state"], "stuck")
@@ -1064,21 +1034,6 @@ class LeadProviders(Base):
         self.assertIn("resumed the worker of T2", out)
         self.assertNotIn("ended_at", atr.get(atr.load("fresh"), "tasks", "T2"))
 
-    def test_claude_code_provider_resumes_and_checks_a_session(self):
-        self.fake_claude(
-            "if sys.argv[1] == 'agents': print(json.dumps([{'id': '85aade68', 'sessionId': '85aade68-1', 'state': 'blocked'}]))\n"
-            f"else: pathlib.Path({self.tmp.name!r}, 'claude-args').write_text(json.dumps(sys.argv[1:])); print('backgrounded · 85aade68')"
-        )
-        exe = str(self.bin / "atr-lead-claude-code")
-
-        def run(*a):
-            return subprocess.run([exe, *a], capture_output=True, text=True, check=False)
-
-        self.assertEqual(run("alive", "85aade68-1").returncode, 0)
-        self.assertEqual(run("alive", "ffff").returncode, 1)
-        r = run("resume", "85aade68-1", "carry on")
-        self.assertEqual(r.stdout.splitlines(), ["thread-id: 85aade68", "claude attach 85aade68"])
-        self.assertEqual(json.loads((Path(self.tmp.name) / "claude-args").read_text()), ["--bg", "--resume", "85aade68-1", "carry on"])
 
 
 class SideQuestions(LeadProviders):
@@ -1151,13 +1106,13 @@ class SideQuestions(LeadProviders):
             atr.side_ask("demo", "Anything?")
         self.assertEqual(atr.side_load("demo"), [])
 
-    def test_claude_code_provider_answers_read_only_and_resumes_for_a_follow_up(self):
+    def test_t3_provider_answers_side_questions_read_only_and_resumes_for_a_follow_up(self):
         self.fake_claude(
             f"pathlib.Path({self.tmp.name!r}, 'claude-args').write_text(json.dumps(sys.argv[1:]))\n"
             "print('{\"type\": \"system\"}')\n"
             "print(json.dumps({'type': 'result', 'is_error': False, 'session_id': 'abc-123', 'result': 'It is **fine**.'}))"
         )
-        exe = str(self.bin / "atr-lead-claude-code")
+        exe = str(self.bin / "atr-lead-t3")
         def args():
             return json.loads((Path(self.tmp.name) / "claude-args").read_text())
 
@@ -1174,9 +1129,9 @@ class SideQuestions(LeadProviders):
         self.assertEqual(a[a.index("--resume") + 1], "abc-123")
         self.assertEqual(a[-1], "Sure?")
 
-    def test_claude_code_provider_passes_an_error_on(self):
+    def test_t3_provider_passes_claudes_error_on(self):
         self.fake_claude("print(json.dumps({'type': 'result', 'is_error': True, 'result': 'Credit balance is too low'}))")
-        r = subprocess.run([str(self.bin / "atr-lead-claude-code"), "ask", "demo", "Hm?"], capture_output=True, text=True, check=False)
+        r = subprocess.run([str(self.bin / "atr-lead-t3"), "ask", "demo", "Hm?"], capture_output=True, text=True, check=False)
         self.assertEqual(r.returncode, 1)
         self.assertIn("Credit balance is too low", r.stderr)
 
@@ -1268,7 +1223,7 @@ class Versions(unittest.TestCase):
         self.assertFalse(atr.newer(None, "0.4.0"))
 
     def test_the_plugin_and_the_package_share_one_version(self):
-        plugin = json.loads((ROOT / "extensions/claude-code/.claude-plugin/plugin.json").read_text())["version"]
+        plugin = json.loads((ROOT / "extensions/t3/.claude-plugin/plugin.json").read_text())["version"]
         market = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text())["plugins"][0]["version"]
         self.assertEqual({atr.version(), plugin, market}, {atr.version()})
         self.assertGreater(atr.vtuple(atr.version()), (0, 3, 0))  # past the last release before versions were kept
@@ -1286,7 +1241,7 @@ class Versions(unittest.TestCase):
                 (root / name).write_text((ROOT / name).read_text())
             rv.write(root, "9.8.7")
             self.assertEqual(rv.current(root), "9.8.7")
-            plugin = json.loads((root / "extensions/claude-code/.claude-plugin/plugin.json").read_text())["version"]
+            plugin = json.loads((root / "extensions/t3/.claude-plugin/plugin.json").read_text())["version"]
             market = json.loads((root / ".claude-plugin/marketplace.json").read_text())["plugins"][0]["version"]
             self.assertEqual((plugin, market), ("9.8.7", "9.8.7"))
             self.assertIn('name = "atr"\nversion = "9.8.7"', (root / "uv.lock").read_text())
@@ -1329,8 +1284,24 @@ class Versions(unittest.TestCase):
         pull = self.steps("checkout")
         self.assertEqual([(w, a[-2:], n) for w, a, n in pull], [("atr", ["pull", "--ff-only"], True)])
         self.assertEqual(self.steps("uv")[0][1], ["/bin/uv", "tool", "upgrade", "atr"])
-        with_plugin = self.steps("uv", claude="/bin/claude")
-        self.assertEqual(with_plugin[1], ("the Claude Code plugin", ["/bin/claude", "plugin", "update", "atr@atr"], False))
+        from unittest import mock
+
+        with mock.patch.object(atr, "claude_homes", return_value=["/h/.claude_work"]):
+            with_plugin = self.steps("uv", claude="/bin/claude")
+        self.assertEqual(with_plugin[1], ("the atr plugin in /h/.claude_work",
+                                          ["env", "CLAUDE_CONFIG_DIR=/h/.claude_work", "/bin/claude", "plugin", "update", "atr@atr"], False))
+
+    def test_the_plugin_is_updated_in_each_claude_home_t3_uses(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        t3 = Path(tmp.name) / "t3"
+        (t3 / "userdata").mkdir(parents=True)
+        (t3 / "userdata" / "settings.json").write_text(json.dumps({"providerInstances": {
+            "work": {"driver": "claudeAgent", "config": {"homePath": "/h/.claude_work"}},
+            "me": {"driver": "claudeAgent"}, "codex": {"driver": "codex"}}}))
+        os.environ["T3CODE_HOME"] = str(t3)
+        self.addCleanup(os.environ.pop, "T3CODE_HOME", None)
+        self.assertEqual(atr.claude_homes(), ["/h/.claude_work", str(Path.home() / ".claude")])
 
     def test_a_checkout_off_main_or_with_changes_is_left_alone(self):
         for branch, status, why in (("g5", "", "not on main"), ("main", " M src/atr/cli.py", "local changes")):
@@ -1343,11 +1314,11 @@ class Versions(unittest.TestCase):
     def test_a_failed_plugin_update_does_not_fail_the_upgrade(self):
         from unittest import mock
 
-        steps = [("atr", ["true"], True), ("the Claude Code plugin", ["false"], False)]
+        steps = [("atr", ["true"], True), ("the atr plugin in /h", ["false"], False)]
         with mock.patch.object(atr, "upgrade_steps", return_value=steps):
             ok, lines = atr.upgrade()
         self.assertTrue(ok)
-        self.assertEqual(lines, ["atr: upgraded", "the Claude Code plugin: failed"])
+        self.assertEqual(lines, ["atr: upgraded", "the atr plugin in /h: failed"])
         with mock.patch.object(atr, "upgrade_steps", return_value=[("atr", ["false"], True)]):
             self.assertFalse(atr.upgrade()[0])
 
@@ -1629,11 +1600,13 @@ class PullRequests(Base):
         self.assertFalse(self.prs()[0]["known"])
 
 
-class ClaudeCodeExtension(Base):
-    HOOK = ROOT / "extensions/claude-code/hooks/atr_hook.py"
+class T3Extension(Base):
+    HOOK = ROOT / "extensions/t3/hooks/atr_hook.py"
 
-    def hook(self, event, cwd=None, **payload):
-        env = {**os.environ, "ATR_BIN": str(SOURCE)}
+    def hook(self, event, cwd=None, thread="lead-1", **payload):
+        env = {**os.environ, "ATR_BIN": str(SOURCE), "T3CODE_THREAD_ID": thread}
+        if not thread:
+            env.pop("T3CODE_THREAD_ID")
         r = subprocess.run(
             [sys.executable, str(self.HOOK), event],
             input=json.dumps({"cwd": cwd or self.tmp.name, **payload}),
@@ -1651,13 +1624,28 @@ class ClaudeCodeExtension(Base):
         self.assertEqual(self.hook("prompt"), "")
 
     def test_session_start_gives_the_plan(self):
-        self.assertIn("G1 Sign in", self.hook("session-start"))
+        out = self.hook("session-start")
+        self.assertIn("G1 Sign in", out)
+        self.assertIn("T3 thread lead-1", out)
+
+    def test_a_resumed_thread_hears_only_what_changed(self):
+        # T3 starts a new process for every run of a thread: the plan is already in its context
+        self.hook("session-start")
+        self.assertEqual(self.hook("session-start", source="resume"), "")
+        self.you("goal_add", title="More")
+        self.assertIn("THE OWNER CHANGED", self.hook("session-start", source="resume"))
+        self.assertIn("G1 Sign in", self.hook("session-start", source="compact"))  # its context was cut
+
+    def test_outside_t3_the_hooks_say_nothing(self):
+        for event in ("session-start", "prompt", "stop"):
+            self.assertEqual(self.hook(event, thread=""), "", event)
+        self.assertFalse(atr.read_claim("demo"))
 
     def test_a_side_question_session_hears_nothing_and_claims_nothing(self):
         os.environ["ATR_SIDE"] = "1"
         self.addCleanup(os.environ.pop, "ATR_SIDE", None)
-        for event in ("session-start", "prompt", "stop", "listen", "session-end"):
-            self.assertEqual(self.hook(event, session_id="side-1"), "", event)
+        for event in ("session-start", "prompt", "stop"):
+            self.assertEqual(self.hook(event, thread="side-1"), "", event)
         os.environ.pop("ATR_SIDE")
         self.assertFalse(atr.read_claim("demo"))
 
@@ -1667,100 +1655,179 @@ class ClaudeCodeExtension(Base):
         self.cli("read")
         self.assertEqual(self.hook("stop"), "")
 
-    def listener(self, session="s1", cwd=None):
-        return subprocess.Popen(
-            [sys.executable, str(self.HOOK), "listen"],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-            env={**os.environ, "ATR_BIN": str(SOURCE)},
-        ), json.dumps({"cwd": cwd or self.tmp.name, "session_id": session})
-
-    def until_listening(self):
-        for _ in range(100):
-            if atr.waiting("demo"):
-                return
-            threading.Event().wait(0.05)
-        self.fail("the listener never started waiting")
-
-    def test_the_listener_wakes_the_lead_with_the_owners_action(self):
-        self.cli("read")
-        proc, payload = self.listener()
-        proc.stdin.write(payload)
-        proc.stdin.close()
-        self.until_listening()
-        self.you("goal_add", title="wake up", done_when="it pushes")
-        out, err = proc.communicate(timeout=10)
-        self.assertEqual(proc.returncode, 2)  # asyncRewake: exit 2 wakes the session, stderr is the message
-        self.assertIn('added goal G2 "wake up"', err)
-        self.assertIn('"op": "goal_add"', err)
-
-    def test_a_new_listener_replaces_the_one_before(self):
-        self.cli("read")
-        first, payload = self.listener()
-        first.stdin.write(payload)
-        first.stdin.close()
-        self.until_listening()
-        second, payload = self.listener()
-        second.stdin.write(payload)
-        second.stdin.close()
-        first.communicate(timeout=10)
-        self.assertEqual(first.returncode, 0)  # stopped quietly: no second wake for one action
-        self.you("goal_add", title="once")
-        second.communicate(timeout=10)
-        self.assertEqual(second.returncode, 2)
-
     def test_session_start_asks_the_lead_to_confirm_running_tasks(self):
         self.cli("task", "add", "G1", "long run")
         self.cli("task", "set", "T1", "status=doing")
         self.assertIn("no news since it started", self.cli("read")[1])
         out = self.hook("session-start")
-        self.assertIn("may be gone", out)
+        self.assertIn("still on it", out)
         self.assertIn("T1 long run", out)
 
-    def test_only_the_lead_session_hears_the_owner(self):
-        self.assertIn("you are its lead", self.hook("session-start", session_id="lead-1"))
-        out = self.hook("session-start", session_id="other-2")
-        self.assertIn("Its lead is another session (lead-1)", out)
+    def test_only_the_lead_thread_hears_the_owner(self):
+        self.assertIn("you are its lead", self.hook("session-start", thread="lead-1"))
+        out = self.hook("session-start", thread="other-2")
+        self.assertIn("Its lead is another T3 thread (lead-1)", out)
+        self.assertIn("--thread other-2", out)
         self.assertNotIn("G1 Sign in", out)
-        self.assertEqual(self.hook("prompt", session_id="other-2"), "")
-        self.assertEqual(self.hook("stop", session_id="other-2"), "")
+        self.assertEqual(self.hook("session-start", thread="other-2", source="resume"), "")
+        self.assertEqual(self.hook("prompt", thread="other-2"), "")
+        self.assertEqual(self.hook("stop", thread="other-2"), "")
         self.you("goal_add", title="More")
-        self.assertEqual(self.hook("prompt", session_id="other-2"), "")
-        self.assertIn("THE OWNER CHANGED", self.hook("prompt", session_id="lead-1"))
+        self.assertEqual(self.hook("prompt", thread="other-2"), "")
+        self.assertIn("THE OWNER CHANGED", self.hook("prompt", thread="lead-1"))
 
-    def test_a_non_lead_listener_stays_quiet(self):
-        self.hook("session-start", session_id="lead-1")
-        proc, payload = self.listener(session="other-2")
-        out, err = proc.communicate(payload, timeout=10)
-        self.assertEqual((proc.returncode, err), (0, ""))
-
-    def test_a_session_that_leads_one_project_is_not_the_lead_of_another(self):
-        self.hook("session-start", session_id="lead-1")
+    def test_a_thread_that_leads_one_project_is_not_the_lead_of_another(self):
+        self.hook("session-start", thread="lead-1")
         os.environ.pop("ATR_PROJECT")
         repo = Path(self.tmp.name) / "repo2"
         repo.mkdir()
         os.chdir(repo)
         self.cli("init", "second", "Second", "--lead", "none")
-        out = self.hook("session-start", cwd=str(repo), session_id="lead-1")
-        self.assertIn("already leads demo", out)
-        self.hook("session-end", session_id="lead-1")  # it ends: it no longer leads demo
-        self.assertIn("you are its lead", self.hook("session-start", cwd=str(repo), session_id="lead-1"))
-
-    def test_a_worker_session_ending_tells_the_lead(self):
-        self.hook("session-start", session_id="lead-1")
-        self.assertIn("--thread other-2", self.hook("session-start", session_id="other-2"))
-        self.cli("task", "add", "G1", "build")
-        self.cli("task", "set", "T1", "status=doing", "thread=other-2")
-        self.cli("read")
-        self.hook("session-end", session_id="other-2")
-        self.assertIn("the worker of T1", self.hook("prompt", session_id="lead-1"))
-        self.hook("session-end", session_id="lead-1")
-        self.assertEqual(atr.lead_status("demo")["why"], "ended")
+        self.assertIn("already leads demo", self.hook("session-start", cwd=str(repo), thread="lead-1"))
 
     def test_silent_outside_an_atr_project(self):
         os.environ.pop("ATR_PROJECT")
         with tempfile.TemporaryDirectory() as elsewhere:
-            for event in ("session-start", "prompt", "stop", "listen"):
+            for event in ("session-start", "prompt", "stop"):
                 self.assertEqual(self.hook(event, cwd=elsewhere), "")
+
+
+class Doorbell(ProviderBase):
+    """atr serve rings an idle lead in its own thread when news waits for it, through the provider."""
+
+    def setUp(self):
+        super().setUp()
+        self.provider("tool", "pathlib = __import__('pathlib')\n"
+                      "if sys.argv[1] == 'alive': print(pathlib.Path(os.environ['ATR_DATA_DIR'], 'state').read_text()); sys.exit(0)\n"
+                      "log = pathlib.Path(os.environ['ATR_DATA_DIR'], 'rings')\n"
+                      "log.write_text((log.read_text() if log.exists() else '') + repr(sys.argv[1:]) + '\\n')\n"
+                      "print('thread-id: lead-1'); print('tool://lead-1')")
+        self.state("idle")
+        self.init("--lead", "none")
+        os.environ["ATR_PROJECT"] = "fresh"
+        atr.claim("fresh", "lead-1")
+        self.cli("read")
+
+    def state(self, s):
+        (Path(self.tmp.name) / "state").write_text(s)
+        atr.ALIVE.clear()
+
+    def rings(self):
+        f = Path(self.tmp.name) / "rings"
+        return [eval(x) for x in f.read_text().splitlines()] if f.exists() else []
+
+    def test_an_idle_lead_is_rung_once_per_change(self):
+        self.assertEqual(atr.ring_lead("fresh"), "")  # nothing new
+        atr.change("fresh", "you", atr.OPS["goal_add"], {"title": "ring me"})
+        self.assertIn("rang the lead lead-1", atr.ring_lead("fresh"))
+        ((verb, thread, msg),) = self.rings()
+        self.assertEqual((verb, thread), ("resume", "lead-1"))
+        self.assertIn('added goal G1 "ring me"', msg)
+        self.assertIn('"op": "goal_add"', msg)
+        self.assertEqual(atr.ring_lead("fresh"), "")  # once: it has not read it yet, but it was told
+        atr.change("fresh", "you", atr.OPS["goal_add"], {"title": "and me"})
+        atr.ring_lead("fresh")
+        self.assertEqual(len(self.rings()), 2)
+        self.assertNotIn("ring me", self.rings()[1][2])  # only what is new
+
+    def test_a_lead_mid_turn_is_left_to_its_turn_end_check(self):
+        self.state("working")
+        atr.change("fresh", "you", atr.OPS["goal_add"], {"title": "later"})
+        self.assertEqual(atr.ring_lead("fresh"), "")
+        self.state("idle")
+        self.assertIn("rang", atr.ring_lead("fresh"))
+
+    def test_the_owner_clicking_is_rung_once_they_stop(self):
+        atr.change("fresh", "you", atr.OPS["goal_add"], {"title": "x"})
+        atr.ACTED["fresh"] = time.time()
+        self.addCleanup(atr.ACTED.clear)
+        self.assertEqual(atr.ring_lead("fresh"), "")
+        atr.ACTED["fresh"] = time.time() - atr.RING_QUIET
+        self.assertIn("rang", atr.ring_lead("fresh"))
+
+    def test_the_minute_watch_rings_and_the_doorbell_can_be_turned_off(self):
+        atr.change("fresh", "you", atr.OPS["goal_add"], {"title": "x"})
+        os.environ["ATR_DOORBELL"] = "0"
+        self.addCleanup(os.environ.pop, "ATR_DOORBELL", None)
+        atr.check_threads()
+        self.assertEqual(self.rings(), [])
+        os.environ.pop("ATR_DOORBELL")
+        atr.check_threads()
+        self.assertEqual(len(self.rings()), 1)
+
+
+class T3Provider(ProviderBase):
+    """atr-lead-t3 drives T3 threads with the t3 CLI."""
+
+    def setUp(self):
+        super().setUp()
+        self.calls = Path(self.tmp.name) / "t3-calls"
+        (self.bin / "atr-lead-t3").symlink_to(ROOT / "extensions/t3/bin/atr-lead-t3")
+        os.environ.pop("T3CODE_CLI_PATH", None)
+        os.environ["T3CODE_HOME"] = str(Path(self.tmp.name) / "no-t3")
+        self.addCleanup(os.environ.pop, "T3CODE_HOME", None)
+
+    def fake_t3(self, body=""):
+        t3 = self.bin / "t3"
+        t3.write_text(
+            f"#!{sys.executable}\nimport sys, json, pathlib\n"
+            f"pathlib.Path({str(self.calls)!r}).open('a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
+            "def thread(i, **k): return {'threadId': i, 'link': 'https://app.t3.codes/threads/p/' + i, 'status': 'completed', 'archived': False, 'activeRunId': None, **k}\n"
+            f"{body}\n"
+            "a = sys.argv[1:]\n"
+            "if a[:2] == ['thread', 'start']: print(json.dumps({'thread': thread('t-new')}))\n"
+            "elif a[:2] == ['thread', 'send']: print(json.dumps({'ok': True}))\n"
+            "elif a[:2] == ['thread', 'show'] and a[2] == 'gone': print('Thread gone is no longer available.'); sys.exit(1)\n"
+            "elif a[:2] == ['thread', 'show']: print(json.dumps({'thread': thread(a[2], status=pathlib.Path("
+            f"{self.tmp.name!r}, 'status').read_text() if pathlib.Path({self.tmp.name!r}, 'status').exists() else 'completed'), 'messages': []}}))\n"
+        )
+        t3.chmod(0o755)
+
+    def t3_calls(self):
+        return [json.loads(x) for x in self.calls.read_text().splitlines()]
+
+    def run_provider(self, *a):
+        return subprocess.run([str(self.bin / "atr-lead-t3"), *a], capture_output=True, text=True, check=False)
+
+    def test_starts_the_lead_as_a_t3_thread(self):
+        self.fake_t3()
+        out, link = self.init()
+        self.assertEqual(link, "https://app.t3.codes/threads/p/t-new")
+        start = self.t3_calls()[0]
+        self.assertEqual(start[:3], ["thread", "start", "."])
+        self.assertIn("atr rules", start[3])
+        self.assertEqual(start[4:], ["--title", "fresh · lead", "--json"])
+        self.assertEqual(atr.read_claim("fresh")["id"], "t-new")  # the thread it started is the lead
+
+    def test_passes_t3s_complaint_on(self):
+        self.fake_t3("if sys.argv[2] == 'start': print('No project for this folder: add it in T3 Code', file=sys.stderr); sys.exit(1)")
+        out, link = self.init()
+        self.assertEqual(link, "")
+        self.assertIn("No project for this folder", out)
+
+    def test_resume_and_restart_send_a_message_to_the_thread(self):
+        self.fake_t3()
+        r = self.run_provider("resume", "t-1", "carry on")
+        self.assertEqual(r.stdout.splitlines(), ["thread-id: t-1", "https://app.t3.codes/threads/p/t-1"])
+        self.assertEqual(self.t3_calls()[0], ["thread", "send", "t-1", "carry on", "--json"])
+        self.assertEqual(self.run_provider("restart", "t-1", "upgraded").returncode, 0)
+        self.assertEqual(self.t3_calls()[2], ["thread", "send", "t-1", "upgraded", "--json"])
+
+    def test_alive_says_whether_a_turn_runs(self):
+        self.fake_t3()
+        r = self.run_provider("alive", "t-1")
+        self.assertEqual((r.returncode, r.stdout), (0, "idle\n"))
+        (Path(self.tmp.name) / "status").write_text("running")
+        self.assertEqual(self.run_provider("alive", "t-1").stdout, "working\n")
+        self.assertEqual(self.run_provider("alive", "gone").returncode, 1)
+        (self.bin / "t3").unlink()
+        self.assertEqual(self.run_provider("alive", "t-1").returncode, 2)  # no t3: cannot tell
+
+    def test_atr_alive_shows_the_threads_state(self):
+        self.fake_t3()
+        self.init("--lead", "none")
+        atr.claim("fresh", "t-1")
+        self.assertEqual(self.cli("-p", "fresh", "alive", "lead"), (0, "thread t-1 is running (idle)\n"))
 
 
 if __name__ == "__main__":
