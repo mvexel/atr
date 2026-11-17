@@ -99,6 +99,15 @@ history, but atr refuses every change from it (`ATR_SIDE`), and with Claude Code
 edit tools off. Side questions are kept beside the plan, not in it, so asking one never wakes the lead.
 See [docs/EXTENSIONS.md](docs/EXTENSIONS.md#lead-providers) for the provider's `ask` verb.
 
+## ari (Livemap)
+
+When `ari` is installed, `atr rules` adds a section that teaches the lead its relay and Library: asking a
+teammate's agent (`ari relay send`), the inbox and outbox, the five asset kinds, publishing and sharing assets, and
+searching them. After sending, the lead runs `atr relay ID --on T3`: `atr serve` then reads that conversation
+every minute, read-only, and writes each new answer into the plan as news for the lead, while the task or goal is
+open (up to 14 days). Your own relay listener still delivers the answer to T3 Code as well. Approving, declining and
+trusting relay messages stay yours, on the ari site.
+
 ## Pull requests
 
 A pull request sits on a goal, not a task: `atr pr G1 URL --for T3` (the lead, or the worker that opened it).

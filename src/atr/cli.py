@@ -1314,6 +1314,71 @@ def checklist_lines(g, p):
     return out
 
 
+# ---- ari relay: a lead's question to a teammate's agent, and the answer coming back (G18) -------------------
+# The lead sends with `ari relay send` and hands the conversation to atr (`atr relay ID --on T3`). atr serve
+# reads those conversations (read-only: it never delivers or acknowledges) and writes each new answer into the
+# plan as news, so the lead hears it. The owner's relay listener still delivers it to T3 Code too (D52).
+
+RELAY_DAYS = 14  # a conversation is watched this long, while what it is on is still open
+
+
+def rules_text():
+    """The lead's rules: atr's, plus ari's when ari is on this machine."""
+    return RULES + ((HERE / "ari.md").read_text() if shutil.which("ari") and (HERE / "ari.md").is_file() else "")
+
+
+def op_relay(plan, by, a):
+    """The lead hands atr a relay conversation it started, on a task or goal."""
+    on = a.get("on") or "project"
+    check_on(plan, on)
+    cid = (a.get("id") or "").strip()
+    if not re.match(r"^[0-9a-f-]{8,}$", cid):
+        raise Refused("give the id `ari relay send --json` printed")
+    if any(r["id"] == cid for r in plan.setdefault("relays", [])):
+        return None
+    plan["relays"].append({"id": cid, "on": on, "at": now(), "seen": []})
+    return f"watching relay conversation {cid[:8]} on {on}"
+
+
+def op_relay_answer(plan, by, a):
+    """atr found new answers in a watched conversation: news for the lead."""
+    r = next((r for r in plan.get("relays", []) if r["id"] == a["id"]), None)
+    if not r:
+        return None
+    r["seen"] = list(dict.fromkeys(r["seen"] + [m["id"] for m in a["messages"]]))
+    said = [f"relay answer from {m['from']} on {r['on']}: {short(m['text'], 400)}" for m in a["messages"] if m.get("answer")]
+    return "; ".join(said) + f" (all of it: ari relay conversation {r['id']})" if said else None
+
+
+def short(text, n):
+    text = " ".join((text or "").split())
+    return text if len(text) <= n else text[: n - 1] + "…"
+
+
+def check_relays(name):
+    """One round for a project: read its watched conversations and pass new answers to the lead."""
+    ari = shutil.which("ari")
+    plan = load(name)
+    if not ari:
+        return
+    for r in plan.get("relays", []):
+        on = next((x for x in plan["tasks"] + plan["goals"] if x["id"] == r["on"]), None)
+        open_ = r["on"] == "project" or (on and (on.get("status") in OPEN if "status" in on else not on.get("met_at")))
+        if not open_ or minutes_since(r["at"]) > RELAY_DAYS * 24 * 60:
+            continue
+        try:
+            out = subprocess.run([ari, "relay", "conversation", r["id"], "--json"], capture_output=True, text=True, timeout=30, check=False)
+            messages = json.loads(out.stdout).get("messages") or []
+        except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
+            continue
+        asker = ((messages[0] if messages else {}).get("from") or {}).get("sub")
+        new = [{"id": m["id"], "from": (m.get("from") or {}).get("name") or "a teammate", "text": m.get("prompt") or "",
+                "answer": (m.get("from") or {}).get("sub") != asker}
+               for m in messages if m.get("id") and m["id"] not in r["seen"]]
+        if new:
+            change(name, "atr", op_relay_answer, {"id": r["id"], "messages": new})
+
+
 def op_lead(plan, by, a):
     plan["lead"]["thread"] = (a.get("thread") or "").strip()
     return "set the lead thread"
@@ -1328,7 +1393,7 @@ def op_lead_release(plan, by, a):
 
 
 def rules_stamp():
-    return f"{zlib.crc32(RULES.encode()):x}"
+    return f"{zlib.crc32(rules_text().encode()):x}"
 
 
 def op_mark_read(plan, by, a):
@@ -1356,6 +1421,7 @@ OPS = {
     "answer": op_answer,
     "review": op_review,
     "pr_ticked": op_pr_ticked,
+    "relay": op_relay,
 }
 
 
@@ -1740,6 +1806,7 @@ def check_threads():
         with contextlib.suppress(OSError, ValueError, Refused):
             check_silence(name)
             lead_status(name, ask=True)
+            check_relays(name)
     for line in restart_leads():
         print(f"atr: {line}", file=sys.stderr, flush=True)
 
@@ -2705,6 +2772,9 @@ def main(argv=None):
     x.add_argument("id", help="task id, or 'lead'")
     x = sub.add_parser("resume", help="bring a task's worker (or the lead) back in its thread, through the provider")
     x.add_argument("id", help="task id, or 'lead'")
+    x = sub.add_parser("relay", help="watch an ari relay conversation you started: its answers come to you as news")
+    x.add_argument("id", help="the message id `ari relay send --json` printed")
+    x.add_argument("--on", default="project", help="the task or goal it is about")
     x = sub.add_parser("ended", help="for extensions: thread ID's session ended (lets go of the lead, tells the lead of its tasks)")
     x.add_argument("thread")
     x = sub.add_parser("pr", help="put a pull request you opened on its goal (workers may use this)")
@@ -2734,7 +2804,7 @@ def main(argv=None):
         if a.cmd == "service":
             return service(a)
         if a.cmd == "rules":
-            return print(RULES, end="")
+            return print(rules_text(), end="")
         if a.cmd == "projects":
             for n in projects():
                 s = summary(load(n))
@@ -2878,6 +2948,8 @@ def main(argv=None):
             released = release(name, a.thread)
             note = change(name, "atr", op_thread_ended, {"thread": a.thread})[1]
             return print("\n".join(x for x in ["released the lead" if released else "", note or ""] if x) or "nothing ran in that thread")
+        elif a.cmd == "relay":
+            fn, args = op_relay, {"id": a.id, "on": a.on}
         elif a.cmd == "pr":
             if any("=" not in x for x in a.item):
                 raise Refused("usage: atr pr G1 URL --item T3='text of the checklist box'")
