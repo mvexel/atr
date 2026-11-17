@@ -177,8 +177,9 @@ the commands and rules an extension builds on.
 
 **One lead per project.** An extension that can name its threads claims the lead for one of them
 (`atr lead --claim`). The first thread to take a turn in the repo leads, or the one a lead provider
-started; the others are told who leads and work as workers. A thread leads one project at most. The
-page's "let another session lead" hands the lead to the next thread that takes a turn.
+started; the others are told who leads and work as workers. A thread leads one project at most. To hand
+the lead to another thread, tell that thread to lead: it runs `atr lead --take ID`, the old lead finds it no
+longer leads on its next turn, and the plan records the takeover.
 
 **When a lead or worker disappears.** A lead is gone when for 10 minutes it has taken no turn and its tool
 no longer has its thread (T3: the thread was deleted or archived), or when you let it go. The page then

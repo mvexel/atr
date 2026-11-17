@@ -208,6 +208,15 @@ const threadLink = th => /^https?:\/\//.test(th) ? h("a", { href: th, target: "_
   : h("span", {}, "Thread ", h("code", { style: "user-select:all" }, th));
 // The lead's thread: working (it took a turn in the last 10 min), running (T3 has the thread: atr rings it when
 // you act), listening (an `atr wait` runs for it), stuck, or gone (T3 no longer has it, or you let it go).
+// Who leads: the link that opens the lead's thread (a URL, or the command or id a local tool stores). The owner
+// hands the lead to another thread by telling that thread to lead (atr lead --take), not here.
+function leadWho(link) {
+  if (!link) return null;
+  return /^https?:\/\//.test(link)
+    ? h("a", { class: "small", href: link, target: "_blank", rel: "noopener" }, "Lead thread ↗")
+    : h("span", { class: "muted small", title: "Run this in a terminal to open the lead" }, "Lead: ", h("code", { style: "user-select:all" }, link));
+}
+
 function leadLine(lead, resumed) {
   if (!lead?.state) return null;
   if (lead.state === "listening") return h("span", { class: "muted small live", title: "Your changes wake the lead right away" }, "Lead listening");
@@ -215,7 +224,6 @@ function leadLine(lead, resumed) {
   if (lead.state === "running") return h("span", { class: "muted small", title: "The lead's thread is idle; atr sends it your changes in its thread shortly after you act" }, "Lead idle");
   const stuck = lead.state === "stuck";
   const why = stuck ? `its session runs, but it has taken no turn since ${ago(lead.since * 1000)}`
-    : lead.released ? `you let it go ${ago(lead.since * 1000)} and no session took over`
     : lead.why === "ended" ? `its session ended ${ago(lead.since * 1000)}` : `not heard from since ${ago(lead.since * 1000)}`;
   return h("span", { class: "small" }, h("span", { class: "pill bad", title: resumed?.said || "" }, (stuck ? "Lead stuck: " : "Lead gone: ") + why), " ",
     btn("Bring the lead back", async () => {
@@ -556,15 +564,7 @@ function drawProject() {
       // After an upgrade atr restarts an idle background lead itself; one in a terminal you have open, it cannot.
       S.data.restart && h("span", { class: "small" }, " ", h("span", { class: "pill you" },
         S.data.restart.interactive ? "Restart the lead's session to load the new atr" : "atr restarts the lead on the new code once it is idle")),
-      plan.lead.thread && (/^https?:\/\//.test(plan.lead.thread)
-        ? h("a", { href: plan.lead.thread, target: "_blank", rel: "noopener" }, "Lead thread ↗")
-        // A local tool's thread has no URL; its provider stores the command that opens it.
-        : h("span", { class: "muted small", title: "Run this in a terminal to open the lead" }, "Lead: ", h("code", { style: "user-select:all" }, plan.lead.thread))),
-      // One session leads; the others in the repo work as workers. Letting go hands the lead to the next
-      // session that takes a turn here (the one you start or talk to next).
-      S.data.lead_claim?.id && h("span", { class: "muted small", title: `Session ${S.data.lead_claim.id}, last seen ${ago(S.data.lead_claim.seen * 1000)}` },
-        plan.lead.thread ? " · led by session " : "Led by session ",h("code", {}, S.data.lead_claim.id.slice(0, 8)), " ",
-        h("button", { class: "link", onclick: () => act("lead_release", {}) }, "let another session lead"))),
+      leadWho(plan.lead.thread)),
     h("h1", {}, plan.title),
     workingOn(plan),
     sideQuestions(S.data.side),

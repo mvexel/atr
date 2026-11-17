@@ -76,7 +76,8 @@ def main(event):
                     "not the lead. Do not plan, read or change the atr plan as its lead. If the owner asked you "
                     "for work here, do it as a worker: report progress on your own task "
                     f"(`atr now T3 \"...\"`; the first time, add `--thread {thread}` so the lead can check on "
-                    "and wake this thread) and record your own judgment calls with `--by`."
+                    "and wake this thread) and record your own judgment calls with `--by`. If the owner tells you "
+                    f"to lead this project, run `atr lead --take {thread}`: you lead from then on."
                 )
         return
     code, out = atr(cwd, "unread", "--json")

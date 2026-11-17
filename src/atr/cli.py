@@ -466,14 +466,15 @@ def write_claim(name, thread, tool="", c=None):
     os.replace(tmp, claim_file(name))
 
 
-def claim(name, thread, tool=""):
+def claim(name, thread, tool="", take=False):
     """Make `thread` the lead of `name` if it may be. Returns (is_lead, who leads): the thread may lead when
-    the project has no live lead (none, or a gone one) or it already is the lead, and it leads no other project."""
+    the project has no live lead (none, or a gone one) or it already is the lead, and it leads no other project.
+    With take (the owner told this thread to lead: atr lead --take), it also takes over from a live lead."""
     data_dir().mkdir(parents=True, exist_ok=True)
     with open(data_dir() / ".claim.lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         cur = read_claim(name, ask=True)
-        if cur and not same_thread(cur["id"], thread):
+        if cur and not same_thread(cur["id"], thread) and not take:
             return False, {"id": cur["id"], "seen": cur["seen"], "project": name}
         for other in projects():
             c = read_claim(other) if other != name else {}
@@ -483,16 +484,30 @@ def claim(name, thread, tool=""):
         mine = was if same_thread(was.get("id"), thread) else {}
         # keep the full id once a hook has sent it, and the tool a provider started it in
         write_claim(name, max(thread, mine.get("id", ""), key=len), tool or mine.get("tool", ""))
+        if was.get("id") and not mine:
+            change(name, "atr", op_lead_taken, {"old": was["id"], "new": thread, "took": bool(cur) and take})
         return True, {"id": raw_claim(name)["id"], "seen": raw_claim(name)["seen"], "project": name}
 
 
-def release(name, thread=None):
-    """Let go of the lead. A thread's own release (its session ended) keeps the claim, marked ended, so the
-    page can say the lead is gone and atr can bring that thread back; the owner's release forgets it."""
+def op_lead_taken(plan, by, a):
+    """A new thread leads: a stored lead link that names the old thread (its id, a short id, or a command or URL
+    with one) now names the new one, so the page does not show a thread that no longer leads. A takeover from a
+    live lead is news, so the old lead learns on its next read that it no longer leads."""
+    link = plan["lead"]["thread"]
+    plan["lead"]["thread"] = re.sub(r"[\w-]{8,}", lambda m: a["new"] if same_thread(m.group(), a["old"]) else m.group(), link)
+    if a["took"]:
+        return f"thread {a['new']} took the lead from {a['old']} at the owner's word"
+    if plan["lead"]["thread"] != link:
+        return f"the lead link now names thread {a['new']}, which leads"
+
+
+THREAD_ID = re.compile(r"[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}")
+
+
+def release(name, thread):
+    """A thread lets go of the lead (its session ended). The claim is kept, marked ended, so the page can say
+    the lead is gone and atr can bring that thread back."""
     cur = raw_claim(name)
-    if thread is None and cur:  # the owner's: any session may lead now, and if none does, atr brings this one back
-        write_claim(name, cur["id"], c={**cur, "ended": time.time(), "released": True})
-        return True
     if same_thread(cur.get("id"), thread) and not cur.get("ended"):
         write_claim(name, cur["id"], c={**cur, "ended": time.time()})
         return True
@@ -1396,17 +1411,14 @@ def check_relays(name):
 
 
 def op_lead(plan, by, a):
-    plan["lead"]["thread"] = (a.get("thread") or "").strip()
+    link = (a.get("thread") or "").strip()
+    # A bare thread id names a session: while another one holds the lead, only the owner hands it over (D7).
+    cur = read_claim(plan["name"]) if by != "atr" and THREAD_ID.fullmatch(link) else {}
+    if cur and not same_thread(cur["id"], link):
+        raise Refused(f"thread {cur['id']} leads {plan['name']}; if the owner told this thread to lead, run "
+                      "atr lead --take ID with this thread's id")
+    plan["lead"]["thread"] = link
     return "set the lead thread"
-
-
-def op_lead_release(plan, by, a):
-    if by != "you":
-        raise Refused("only the owner lets go of the lead for it; a lead ends its own claim with atr lead --release ID")
-    if not read_claim(plan["name"]) or not release(plan["name"]):
-        raise Refused("no thread leads this project now")
-    return ("let go of the lead thread: the next session to start a turn in the repo becomes the lead; "
-            "if none does within 10 minutes, atr restarts this one")
 
 
 def rules_stamp():
@@ -1432,7 +1444,6 @@ OPS = {
     "task_check": op_task_check,
     "task_restore": op_task_restore,
     "agree": op_agree,
-    "lead_release": op_lead_release,
     "dep": op_dep,
     "decide": op_decide,
     "answer": op_answer,
@@ -1998,7 +2009,6 @@ class Handler(BaseHTTPRequestHandler):
                         "plan": plan,
                         "unread": unread(plan),
                         "lead_waiting": waiting(parts[2]),
-                        "lead_claim": read_claim(parts[2]),
                         "lead": lead_status(parts[2]),
                         "resumed": last_resume(parts[2]),
                         "side": side_load(parts[2]),
@@ -2427,7 +2437,6 @@ def bring_back_lead(name, auto=False):
     try:
         resume_file(name).write_text(json.dumps({"at": time.time()}))
         why_back = ("stopped taking turns, though its session still ran" if st["state"] == "stuck"
-                    else "been let go by the owner, and no other session took over" if st.get("released")
                     else "ended" if st.get("why") == "ended" else "gone quiet")
         msg = (f"atr brought you back: you lead the atr project {name}, and your thread had {why_back}. "
                "Run `atr rules`, then `atr read`, check your running tasks (`atr alive`), and carry on with the plan.")
@@ -2494,10 +2503,9 @@ def start_lead(name, tool="auto"):
     thread = next((x.split(":", 1)[1].strip() for x in lines if x.startswith("thread-id:")), "")
     if code or not link:
         return f"atr-lead-{tool} did not start the lead: {why}\nTo try again: atr lead --start {tool}"
-    change(name, "agent", op_lead, {"thread": link})
     if thread:  # the owner started this thread to lead: it takes over from any lead there was
-        release(name)
-        claim(name, thread, tool)
+        claim(name, thread, tool, take=True)
+    change(name, "agent", op_lead, {"thread": link})
     return f"started the lead in {tool}: {link}"
 
 
@@ -2903,6 +2911,7 @@ def main(argv=None):
     x.add_argument("thread", nargs="?")
     x.add_argument("--start", metavar="TOOL", help="start the lead thread with atr-lead-TOOL ('auto': the one on PATH)")
     x.add_argument("--claim", metavar="ID", help="for extensions: make thread ID the lead unless another thread is (exit 1)")
+    x.add_argument("--take", metavar="ID", help="thread ID leads from now on, taking over from any lead (only when the owner said so)")
     x.add_argument("--release", metavar="ID", help="for extensions: thread ID stops leading (its session ended)")
     x.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
@@ -3072,8 +3081,8 @@ def main(argv=None):
                                "items": {k.strip(): v.strip() for k, v in items.items()}, "drop": a.drop}
         elif a.start:
             return print(start_lead(name, a.start))
-        elif a.claim:
-            ok, who = claim(name, a.claim)
+        elif a.claim or a.take:
+            ok, who = claim(name, a.claim or a.take, take=bool(a.take))
             if a.json:
                 print(json.dumps({"lead": ok, **who}))
             elif ok:
@@ -3084,7 +3093,7 @@ def main(argv=None):
         elif a.release:
             return print("released" if release(name, a.release) else "this thread does not lead the project")
         elif not a.thread:
-            raise Refused("usage: atr lead LINK, or atr lead --start TOOL")
+            raise Refused("usage: atr lead LINK, atr lead --take ID, or atr lead --start TOOL")
         else:
             fn, args = op_lead, {"thread": a.thread}
         if a.cmd == "decide" and a.by:
