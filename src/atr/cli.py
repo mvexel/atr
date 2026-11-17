@@ -383,6 +383,7 @@ def wait_all(names, timeout):
 # make the owner's page edits stale while they type.
 
 GONE_AFTER = 10 * 60  # a lead whose listener has been absent this long, with no turn either, is gone
+STUCK_AFTER = 30 * 60  # a lead its tool calls running, with news waiting this long and no turn, is stuck
 SILENT_AFTER = 30 * 60  # a running task with no news this long is silent: the lead is told
 RESUME_EVERY = 3600  # atr brings a gone lead back on its own at most this often
 
@@ -427,8 +428,21 @@ def lead_status(name, ask=False):
     if time.time() - last < GONE_AFTER:
         return {**s, "state": "working"}
     if thread_alive(name, c["id"], ask) is True:
+        # Its tool says it runs, but a session can hang there (waegli, G19): with news waiting for it
+        # and no turn or listening for 30 min, it is stuck, and atr restarts it.
+        if time.time() - last > STUCK_AFTER and has_news(name):
+            return {**s, "state": "stuck"}
         return {**s, "state": "running"}
     return {**s, "state": "gone", "why": "silent"}
+
+
+def has_news(name):
+    """Whether changes wait that the lead has not read and did not make: the owner's, GitHub's or atr's."""
+    try:
+        plan = load(name)
+    except (OSError, ValueError, Refused):
+        return False
+    return any(c["by"] in ("you", "github", "atr") for c in unread(plan))
 
 
 def read_claim(name, ask=False):
@@ -474,8 +488,8 @@ def release(name, thread=None):
     """Let go of the lead. A thread's own release (its session ended) keeps the claim, marked ended, so the
     page can say the lead is gone and atr can bring that thread back; the owner's release forgets it."""
     cur = raw_claim(name)
-    if thread is None and cur:
-        claim_file(name).unlink(missing_ok=True)
+    if thread is None and cur:  # the owner's: any session may lead now, and if none does, atr brings this one back
+        write_claim(name, cur["id"], c={**cur, "ended": time.time(), "released": True})
         return True
     if same_thread(cur.get("id"), thread) and not cur.get("ended"):
         write_claim(name, cur["id"], c={**cur, "ended": time.time()})
@@ -1387,9 +1401,10 @@ def op_lead(plan, by, a):
 def op_lead_release(plan, by, a):
     if by != "you":
         raise Refused("only the owner lets go of the lead for it; a lead ends its own claim with atr lead --release ID")
-    if not release(plan["name"]):
+    if not read_claim(plan["name"]) or not release(plan["name"]):
         raise Refused("no thread leads this project now")
-    return "let go of the lead thread: the next session to start a turn in the repo becomes the lead"
+    return ("let go of the lead thread: the next session to start a turn in the repo becomes the lead; "
+            "if none does within 10 minutes, atr restarts this one")
 
 
 def rules_stamp():
@@ -1805,7 +1820,8 @@ def check_threads():
     for name in projects():
         with contextlib.suppress(OSError, ValueError, Refused):
             check_silence(name)
-            lead_status(name, ask=True)
+            if lead_status(name, ask=True).get("state") in ("gone", "stuck") and has_news(name):
+                auto_resume(name)  # news waits for a lead that cannot hear it (G19)
             check_relays(name)
     for line in restart_leads():
         print(f"atr: {line}", file=sys.stderr, flush=True)
@@ -2291,6 +2307,19 @@ def resume_thread(name, thread, message):
     return True, back, ""
 
 
+def restart_thread(name, thread, message):
+    """Stop a running but stuck thread and resume it (`atr-lead-TOOL restart ID MESSAGE`). As resume_thread."""
+    tool = thread_tool(name)
+    if not tool:
+        return False, "", "no single lead provider on your PATH to restart it with"
+    code, lines, why = run_provider(name, tool, ["restart", thread, message])
+    if code:
+        return False, "", f"atr-lead-{tool} could not restart it: {why}"
+    back = next((x.split(":", 1)[1].strip() for x in lines if x.startswith("thread-id:")), thread)
+    ALIVE.pop(thread, None)
+    return True, back, ""
+
+
 def resume_file(name):
     return project_dir(name) / ".resume.json"
 
@@ -2303,7 +2332,7 @@ def bring_back_lead(name, auto=False):
     or the provider cannot. auto (the owner acted on the page): only once the lead has been gone 10 min, and
     at most once an hour. Returns a line for the owner, or "" when auto had nothing to do."""
     st = lead_status(name, ask=True)
-    if not st or st["state"] != "gone":
+    if not st or st["state"] not in ("gone", "stuck"):
         if auto:
             return ""
         raise Refused("the lead is not gone" if st else "no thread has led this project: start one with atr lead --start")
@@ -2317,18 +2346,20 @@ def bring_back_lead(name, auto=False):
         raise Refused("atr is already bringing the lead back")
     try:
         resume_file(name).write_text(json.dumps({"at": time.time()}))
-        msg = (
-            f"atr resumed you: you lead the atr project {name}, and your thread had "
-            + ("ended. " if st.get("why") == "ended" else "gone quiet. ")
-            + "Run `atr read` and carry on with the plan."
-        )
-        ok, back, why = resume_thread(name, st["id"], msg)
+        why_back = ("stopped taking turns, though its session still ran" if st["state"] == "stuck"
+                    else "been let go by the owner, and no other session took over" if st.get("released")
+                    else "ended" if st.get("why") == "ended" else "gone quiet")
+        msg = (f"atr brought you back: you lead the atr project {name}, and your thread had {why_back}. "
+               "Run `atr rules`, then `atr read`, check your running tasks (`atr alive`), and carry on with the plan.")
+        # a stuck session still runs: stop it and resume it; a gone one only needs resuming
+        ok, back, why = restart_thread(name, st["id"], msg) if st["state"] == "stuck" else resume_thread(name, st["id"], msg)
         if ok:
             with open(data_dir() / ".claim.lock", "w") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX)
                 same = same_thread(back, st["id"])
                 write_claim(name, max(back, st["id"], key=len) if same else back, st.get("tool", ""))
-            said = f"atr brought the lead back: resumed thread {back}" + (" on its own, as the owner acted" if auto else "")
+            said = (f"atr brought the lead back ({why_back}): " + ("restarted" if st["state"] == "stuck" else "resumed")
+                    + f" thread {back}" + (" on its own" if auto else ""))
             change(name, "atr", op_note, {"what": said})
         else:
             tool = thread_tool(name)

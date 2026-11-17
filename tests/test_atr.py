@@ -989,6 +989,40 @@ class LeadProviders(Base):
         self.assertIn("brought the lead back", atr.render(atr.load("fresh"), atr.unread(atr.load("fresh"))))
         self.assertTrue(atr.last_resume("fresh")["ok"])
 
+    def test_a_lead_whose_session_hangs_is_restarted(self):
+        # waegli (G19): the tool kept calling the session working, but it took no turn for 40 min
+        self.provider("tool", "pathlib = __import__('pathlib'); pathlib.Path(os.environ['ATR_DATA_DIR'], 'args').write_text(repr(sys.argv[1:]))\n"
+                      "print('thread-id: lead-1234'); print('tool://lead-1234')")
+        self.init("--lead", "none")
+        self.cli("-p", "fresh", "read")
+        atr.write_claim("fresh", "lead-1234", c={"id": "lead-1234", "seen": time.time() - 40 * 60})
+        atr.ALIVE["lead-1234"] = (time.time(), True)  # its tool says it runs
+        self.assertEqual(atr.lead_status("fresh")["state"], "running")  # nothing waits for it: leave it be
+        atr.change("fresh", "you", atr.OPS["goal_add"], {"title": "news for the lead"})
+        self.assertEqual(atr.lead_status("fresh")["state"], "stuck")
+        self.assertEqual(atr.read_claim("fresh")["id"], "lead-1234")  # still its claim: a stuck lead is not gone
+        atr.check_threads()  # the watch brings it back on its own, without the owner acting
+        args = eval((Path(self.tmp.name) / "args").read_text())
+        self.assertEqual(args[:2], ["restart", "lead-1234"])
+        self.assertIn("stopped taking turns", args[2])
+        self.assertIn("restarted thread lead-1234 on its own", atr.load("fresh")["changes"][-1]["what"])
+
+    def test_a_lead_the_owner_let_go_comes_back_if_no_session_takes_over(self):
+        self.provider("tool", "pathlib = __import__('pathlib'); pathlib.Path(os.environ['ATR_DATA_DIR'], 'args').write_text(repr(sys.argv[1:]))\n"
+                      "print('thread-id: lead-1234'); print('tool://lead-1234')")
+        self.init("--lead", "none")
+        atr.write_claim("fresh", "lead-1234", c={"id": "lead-1234", "seen": time.time()})
+        atr.change("fresh", "you", atr.OPS["lead_release"], {})
+        st = atr.lead_status("fresh")
+        self.assertEqual((st["state"], st["released"]), ("gone", True))
+        self.assertTrue(atr.claim("fresh", "other-5")[0])  # any session may lead now
+        atr.write_claim("fresh", "lead-1234", c={"id": "lead-1234", "seen": time.time() - 3 * atr.GONE_AFTER,
+                                                 "ended": time.time() - 2 * atr.GONE_AFTER, "released": True})
+        atr.check_threads()  # nobody took over, and the owner's change waits: atr brings it back
+        args = eval((Path(self.tmp.name) / "args").read_text())
+        self.assertEqual(args[:2], ["resume", "lead-1234"])
+        self.assertIn("let go by the owner", args[2])
+
     def test_a_lead_that_will_not_resume_is_started_fresh(self):
         self.provider("tool", "if sys.argv[1] == 'resume': print('no such session', file=sys.stderr); sys.exit(1)\n"
                       "print('thread-id: new-9'); print('tool://new-9')")
