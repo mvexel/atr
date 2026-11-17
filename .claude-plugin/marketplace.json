@@ -10,7 +10,7 @@
     {
       "name": "atr",
       "description": "Keep a T3 Code lead in step with its atr plan.",
-      "version": "0.4.14",
+      "version": "0.4.15",
       "source": "./extensions/t3"
     }
   ]

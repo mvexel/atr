@@ -1,6 +1,6 @@
 [project]
 name = "atr"
-version = "0.4.14"
+version = "0.4.15"
 description = "A goal tree, tasks and decisions for a team of coding agents, on one page you can touch."
 readme = "README.md"
 license = "FSL-1.1-ALv2"
