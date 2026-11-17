@@ -213,8 +213,11 @@ function leadLine(lead, resumed) {
   if (lead.state === "listening") return h("span", { class: "muted small live", title: "Your changes wake the lead right away" }, "Lead listening");
   if (lead.state === "working") return h("span", { class: "muted small", title: "The lead took a turn in the last 10 minutes; it listens again when the turn ends" }, "Lead working");
   if (lead.state === "running") return h("span", { class: "muted small", title: "Its tool says the lead's session is running, but it has not listened for your changes in 10 minutes" }, "Lead running, not listening");
-  const why = lead.why === "ended" ? `its session ended ${ago(lead.since * 1000)}` : `not heard from since ${ago(lead.since * 1000)}`;
-  return h("span", { class: "small" }, h("span", { class: "pill bad", title: resumed?.said || "" }, "Lead gone: " + why), " ",
+  const stuck = lead.state === "stuck";
+  const why = stuck ? `its session runs, but it has taken no turn since ${ago(lead.since * 1000)}`
+    : lead.released ? `you let it go ${ago(lead.since * 1000)} and no session took over`
+    : lead.why === "ended" ? `its session ended ${ago(lead.since * 1000)}` : `not heard from since ${ago(lead.since * 1000)}`;
+  return h("span", { class: "small" }, h("span", { class: "pill bad", title: resumed?.said || "" }, (stuck ? "Lead stuck: " : "Lead gone: ") + why), " ",
     btn("Bring the lead back", async () => {
       toast("Bringing the lead back…");
       try {
@@ -535,7 +538,7 @@ function workingOn(plan) {
 }
 function drawProject() {
   const { plan, lead_waiting: listening, lead } = S.data;
-  const leadGone = lead?.state === "gone";
+  const leadGone = ["gone", "stuck"].includes(lead?.state);
   const unread = S.data.unread.filter(c => c.by === "you");  // GitHub's news on PRs is for the lead, not yours
   const waiting = plan.decisions.filter(d => d.state === "needs_you"), proposed = plan.goals.filter(g => g.proposed);
   const review = plan.decisions.filter(d => d.state === "to_review" && !d.said);
