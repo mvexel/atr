@@ -1,6 +1,6 @@
 {
   "name": "atr",
-  "version": "0.4.15",
+  "version": "0.4.16",
   "description": "atr for T3 Code threads: the plan at turn start and a check at turn end, for the project's lead thread; workers are told who leads.",
   "author": {
     "name": "Martijn van Exel"
