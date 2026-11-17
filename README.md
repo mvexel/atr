@@ -145,7 +145,7 @@ The page has no login, so only bind it to networks you trust.
 | (page) This goal is met | once all of a goal's tasks are done, the owner closes it; met goals take no new tasks until reopened |
 | `atr outlook G1 unsure "half the ads"` | the lead's current read on whether a goal can be met as written (`likely`, `unsure`, `unlikely`) |
 | `atr pr G1 https://github.com/o/r/pull/12 --for T3` | put a pull request on its goal, for the tasks it carries (workers may use it); see [Pull requests](#pull-requests) |
-| `atr attach T3 file-or-link` | link a document; files are copied into the project so they outlive a worktree |
+| `atr attach T3 file-or-link` | link a document; files are copied into the project so they outlive a worktree. On the page the owner adds images to a goal (paste, drop or pick); `atr read` lists each goal's and open task's attachments with the stored file's path |
 | `atr lead URL` | store the lead's thread link (or the command that opens it, for a tool without URLs) |
 | `atr lead --start TOOL` | start a lead thread with the provider `atr-lead-TOOL` and store its link (`auto`: the one on `PATH`) |
 | `atr lead --claim ID` / `--release ID` | for extensions: thread `ID` becomes the lead unless another live thread is (exit 1), or lets go |

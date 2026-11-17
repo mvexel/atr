@@ -776,6 +776,24 @@ class Web(Base):
         self.assertNotEqual(before, self.call("/api/sig")[1]["demo"])
         self.assertEqual(self.call("/api/projects")[1][0]["unread"], 0)
 
+    PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+
+    def test_the_owner_attaches_an_image_and_the_lead_sees_its_path(self):
+        self.cli("read")
+        code, body = self.call("/api/attach/demo", {"on": "G1", "name": "screen shot.png", "data": self.PNG})
+        self.assertEqual(code, 200, body)
+        doc = atr.load("demo")["docs"][-1]
+        self.assertEqual((doc["on"], doc["by"], doc["title"]), ("G1", "you", "screen_shot.png"))
+        read = self.cli("read")[1]
+        self.assertIn('attached "screen_shot.png" to G1', read)  # the owner's change wakes the lead
+        self.assertIn(f"attached {doc['id']}: screen_shot.png {atr.project_dir('demo') / 'docs' / doc['file']}", read)
+        req = urllib.request.Request(self.base + f"/api/file/demo/{doc['id']}")
+        with urllib.request.urlopen(req) as r:
+            self.assertEqual((r.headers["Content-Type"], r.read()[:4]), ("image/png", b"\x89PNG"))
+        self.assertEqual(self.call("/api/attach/demo", {"on": "G1", "name": "notes.txt", "data": self.PNG})[0], 400)
+        self.assertEqual(self.call("/api/attach/demo", {"on": "G1", "name": "x.png", "data": "not base64!"})[0], 400)
+        self.assertEqual(self.call("/api/attach/demo", {"on": "G1", "name": "x.png", "data": self.PNG}, headers={})[0], 403)
+
     def test_documents_are_served_as_text(self):
         Path("notes.md").write_text("hello")
         self.cli("attach", "G1", "notes.md")
