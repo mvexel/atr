@@ -510,17 +510,28 @@ class Plan(Base):
         self.assertEqual((code, json.loads(out)["project"]), (1, "demo"))  # it already leads demo
         self.assertEqual(self.cli("-p", "other", "lead", "--claim", "bbbb-2")[0], 0)
 
-    def test_a_lead_lets_go_at_session_end_or_when_the_owner_says(self):
+    def test_a_lead_lets_go_at_session_end(self):
         self.cli("lead", "--claim", "aaaa-1")
         self.assertIn("does not lead", self.cli("lead", "--release", "bbbb-2")[1])
         self.cli("lead", "--release", "aaaa-1")
         self.assertEqual(self.cli("lead", "--claim", "bbbb-2")[0], 0)
-        with self.assertRaises(atr.Refused):
-            self.agent("lead_release")  # only the owner takes the lead from a thread
-        self.you("lead_release")
-        self.assertEqual(atr.read_claim("demo"), {})
-        self.assertEqual(self.cli("lead", "--claim", "cccc-3")[0], 0)
 
+    def test_the_owner_hands_the_lead_to_the_thread_they_tell_to_take_it(self):
+        a, b = "aaaaaaaa-1111-2222-3333-444444444444", "bbbbbbbb-1111-2222-3333-444444444444"
+        self.cli("lead", "--claim", a)
+        self.cli("lead", f"claude attach {a[:8]}")
+        code, _ = self.cli("lead", b)  # another session cannot name itself the lead while one leads
+        self.assertNotEqual(code, 0)
+        self.assertEqual(self.cli("lead", "--claim", b)[0], 1)
+        self.assertEqual(self.cli("lead", "--take", b)[0], 0)  # the owner told b to lead
+        self.assertEqual(atr.read_claim("demo")["id"], b)
+        plan = atr.load("demo")
+        self.assertEqual(plan["lead"]["thread"], f"claude attach {b}")  # the link names the new lead
+        self.assertIn(f"thread {b} took the lead from {a}", self.cli("read")[1])  # news for whoever reads next
+        self.assertEqual(self.cli("lead", "--claim", a)[0], 1)  # the old lead's next turn finds it no longer leads
+        self.cli("init", "other", "Other", "--lead", "none")
+        self.assertEqual(self.cli("-p", "other", "lead", "--take", b)[0], 1)  # it still leads one project only
+        self.assertEqual(self.cli("lead", "https://example.com/thread")[0], 0)  # a URL is the lead's own link
     def age_claim(self, seconds, **extra):
         c = {**json.loads(atr.claim_file("demo").read_text()), **extra}
         c["seen"] = time.time() - seconds
@@ -976,22 +987,6 @@ class LeadProviders(ProviderBase):
         self.assertEqual(args[:2], ["restart", "lead-1234"])
         self.assertIn("stopped taking turns", args[2])
         self.assertIn("restarted thread lead-1234 on its own", atr.load("fresh")["changes"][-1]["what"])
-
-    def test_a_lead_the_owner_let_go_comes_back_if_no_session_takes_over(self):
-        self.provider("tool", "pathlib = __import__('pathlib'); pathlib.Path(os.environ['ATR_DATA_DIR'], 'args').write_text(repr(sys.argv[1:]))\n"
-                      "print('thread-id: lead-1234'); print('tool://lead-1234')")
-        self.init("--lead", "none")
-        atr.write_claim("fresh", "lead-1234", c={"id": "lead-1234", "seen": time.time()})
-        atr.change("fresh", "you", atr.OPS["lead_release"], {})
-        st = atr.lead_status("fresh")
-        self.assertEqual((st["state"], st["released"]), ("gone", True))
-        self.assertTrue(atr.claim("fresh", "other-5")[0])  # any session may lead now
-        atr.write_claim("fresh", "lead-1234", c={"id": "lead-1234", "seen": time.time() - 3 * atr.GONE_AFTER,
-                                                 "ended": time.time() - 2 * atr.GONE_AFTER, "released": True})
-        atr.check_threads()  # nobody took over, and the owner's change waits: atr brings it back
-        args = eval((Path(self.tmp.name) / "args").read_text())
-        self.assertEqual(args[:2], ["resume", "lead-1234"])
-        self.assertIn("let go by the owner", args[2])
 
     def test_a_lead_that_will_not_resume_is_started_fresh(self):
         self.provider("tool", "if sys.argv[1] == 'resume': print('no such session', file=sys.stderr); sys.exit(1)\n"
