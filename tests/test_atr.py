@@ -1181,6 +1181,50 @@ class SideQuestions(LeadProviders):
         self.assertEqual(call("/api/side/demo", {"id": "Q9", "hide": True})[0], 400)
 
 
+class AriRelay(LeadProviders):
+    """G18: leads learn ari's relay and Library commands, and a relay answer comes back to the lead as news."""
+
+    CID = "e75b36bd-b910-463f-90cc-7f8441325bff"
+
+    def fake_ari(self, messages):
+        (Path(self.tmp.name) / "conv.json").write_text(json.dumps({"messages": messages}))
+        exe = self.bin / "ari"
+        exe.write_text(f"#!{sys.executable}\nimport sys, pathlib\n"
+                       f"assert sys.argv[1:3] == ['relay', 'conversation'] and '--json' in sys.argv\n"
+                       f"print(pathlib.Path({self.tmp.name!r}, 'conv.json').read_text())\n")
+        exe.chmod(0o755)
+
+    @staticmethod
+    def msg(i, sub, name, text):
+        return {"id": f"m{i}", "from": {"sub": sub, "name": name}, "prompt": text}
+
+    def test_the_rules_teach_ari_only_where_it_is_installed(self):
+        self.assertNotIn("## ari", self.cli("rules")[1])
+        self.fake_ari([])
+        rules = self.cli("rules")[1]
+        for want in ("ari relay send", "ari relay inbox --held", "video, image, html", "ari asset publish", "ari asset list --search", "atr relay <id> --on T3"):
+            self.assertIn(want, rules)
+
+    def test_a_relay_answer_reaches_the_lead_once(self):
+        self.cli("-p", "demo", "task", "add", "G1", "ask Philipe")
+        self.assertEqual(self.cli("-p", "demo", "relay", "nonsense")[0], 2)
+        self.assertIn("watching relay conversation e75b36bd on T1", self.cli("-p", "demo", "relay", self.CID, "--on", "T1")[1])
+        self.cli("-p", "demo", "read")
+        self.fake_ari([self.msg(1, "me", "Martijn", "Is the region in?")])
+        atr.check_relays("demo")
+        self.assertEqual(atr.unread(atr.load("demo")), [])  # only the question so far: nothing to tell
+        self.fake_ari([self.msg(1, "me", "Martijn", "Is the region in?"), self.msg(2, "phil", "Philipe Fatio", "Yes,   since 0.2.0.")])
+        atr.check_relays("demo")
+        atr.check_relays("demo")  # once only
+        (c,) = atr.unread(atr.load("demo"))
+        self.assertEqual(c["by"], "atr")
+        self.assertEqual(c["what"], f"relay answer from Philipe Fatio on T1: Yes, since 0.2.0. (all of it: ari relay conversation {self.CID})")
+        self.cli("-p", "demo", "task", "set", "T1", "status=dropped")
+        self.fake_ari([self.msg(3, "phil", "Philipe Fatio", "Also iOS.")])
+        atr.check_relays("demo")  # its task is closed: not watched any more
+        self.assertEqual(len(atr.unread(atr.load("demo"))), 1)
+
+
 class Versions(unittest.TestCase):
     def test_release_tags_compare_as_versions(self):
         self.assertTrue(atr.newer("v0.10.0", "0.4.0"))
