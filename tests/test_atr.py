@@ -436,6 +436,14 @@ class Plan(Base):
         self.assertEqual(self.task("T1")["status"], "done")
         self.assertEqual([t["id"] for t in atr.ready(atr.load("demo"))], ["T2"])
 
+    def test_the_lead_is_told_once_when_atrs_rules_change(self):
+        self.assertNotIn("RULES CHANGED", self.cli("read")[1])  # a new project starts on the current rules
+        plan = atr.load("demo")
+        plan["lead"]["rules"] = "old"
+        atr.save(plan)
+        self.assertIn("ATR'S RULES CHANGED", self.cli("read")[1])
+        self.assertNotIn("RULES CHANGED", self.cli("read")[1])
+
     def test_one_check_passes_a_task_and_accepts_its_calls(self):
         # G13: the owner judges the work once, not the task and then each decision again
         self.cli("task", "add", "G1", "build")

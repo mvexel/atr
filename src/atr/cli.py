@@ -1305,8 +1305,12 @@ def op_lead_release(plan, by, a):
     return "let go of the lead thread: the next session to start a turn in the repo becomes the lead"
 
 
+def rules_stamp():
+    return f"{zlib.crc32(RULES.encode()):x}"
+
+
 def op_mark_read(plan, by, a):
-    plan["lead"].update(read_rev=plan["rev"], read_at=now())
+    plan["lead"].update(read_rev=plan["rev"], read_at=now(), rules=rules_stamp())
 
 
 OPS = {
@@ -1338,6 +1342,8 @@ OPS = {
 
 def render(plan, since):
     out = [f"{plan['title']} ({plan['name']}) · revision {plan['rev']}", ""]
+    if plan["lead"].get("rules") != rules_stamp():  # a lead keeps the rules it read when it started
+        out += ["ATR'S RULES CHANGED since you last read: run `atr rules` now and follow the new version.", ""]
     owner = [c for c in since if c["by"] == "you"]
     github = [c for c in since if c["by"] == "github"]
     news = [c for c in since if c["by"] == "atr"]
@@ -2647,7 +2653,7 @@ def main(argv=None):
                     "name": a.name,
                     "title": a.title or a.name,
                     "rev": 0,
-                    "lead": {"thread": "", "read_rev": 0, "read_at": ""},
+                    "lead": {"thread": "", "read_rev": 0, "read_at": "", "rules": rules_stamp()},
                     "goals": [],
                     "tasks": [],
                     "decisions": [],
