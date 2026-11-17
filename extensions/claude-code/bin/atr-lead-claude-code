@@ -5,6 +5,8 @@ Usage, run by atr in the project's repo:
   atr-lead-claude-code PROJECT [TITLE]   start the lead (`atr init`, `atr lead --start`): `claude --bg`
   atr-lead-claude-code resume ID [MSG]   bring thread ID back with its context: `claude --bg --resume ID`
   atr-lead-claude-code alive ID          exit 0 when thread ID is running, 1 when it is not (`claude agents --json`)
+  atr-lead-claude-code restart ID [MSG]  stop background session ID and resume it, so it loads the updated plugin;
+                                         exit 3 for an interactive session (only its owner can restart it)
   atr-lead-claude-code ask PROJECT QUESTION [ID]
                                          answer the owner's side question, read-only (`claude -p` in plan mode;
                                          with ID, a follow-up in that session)
@@ -47,6 +49,37 @@ def claude(exe, args, timeout=90):
     except (OSError, subprocess.SubprocessError) as e:
         print(f"could not run claude: {e}", file=sys.stderr)
         return None
+
+
+def session(exe, thread):
+    """The session `claude agents --json` lists for thread, or None (not running), or False (cannot tell)."""
+    r = claude(exe, ["agents", "--json"], timeout=30)
+    try:
+        sessions = json.loads(r.stdout) if r and not r.returncode else None
+    except ValueError:
+        sessions = None
+    if not isinstance(sessions, list):
+        return False
+    return next((s for s in sessions for sid in (s.get("sessionId"), s.get("id"))
+                 if sid and (sid.startswith(thread) or thread.startswith(sid))), None)
+
+
+def restart(exe, thread, message):
+    """Stop a background session and resume it in the same thread: a new process loads the updated plugin."""
+    s = session(exe, thread)
+    if s is False:
+        print("claude agents --json did not answer", file=sys.stderr)
+        return 1
+    if s and s.get("kind") not in (None, "background"):
+        print("an interactive session: only its owner can restart it", file=sys.stderr)
+        return 3
+    if s:
+        stopped = claude(exe, ["stop", s.get("id") or thread], timeout=60)
+        if stopped is None or stopped.returncode:
+            print((stopped.stderr.strip() if stopped else "") or "claude stop failed", file=sys.stderr)
+            return 1
+    r = claude(exe, ["--bg", "--resume", thread, message])
+    return 1 if r is None else started(r, thread)
 
 
 def alive(exe, thread):
@@ -110,7 +143,7 @@ def started(r, fallback=""):
 
 def main(argv):
     if not argv:
-        print("usage: atr-lead-claude-code PROJECT [TITLE] | resume ID [MESSAGE] | alive ID | ask PROJECT QUESTION [ID]", file=sys.stderr)
+        print("usage: atr-lead-claude-code PROJECT [TITLE] | resume ID [MESSAGE] | alive ID | restart ID [MESSAGE] | ask PROJECT QUESTION [ID]", file=sys.stderr)
         return 2
     exe = os.environ.get("CLAUDE_BIN") or shutil.which("claude")
     if not exe:
@@ -118,6 +151,8 @@ def main(argv):
         return 2 if argv[0] == "alive" else 1
     if argv[0] == "alive" and len(argv) > 1:
         return alive(exe, argv[1])
+    if argv[0] == "restart" and len(argv) > 1:
+        return restart(exe, argv[1], argv[2] if len(argv) > 2 else RESUMED)
     if argv[0] == "ask" and len(argv) > 2:
         return ask(exe, argv[1], argv[2], argv[3] if len(argv) > 3 else "")
     if argv[0] == "resume" and len(argv) > 1:

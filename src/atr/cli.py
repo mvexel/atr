@@ -1709,6 +1709,8 @@ def check_threads():
         with contextlib.suppress(OSError, ValueError, Refused):
             check_silence(name)
             lead_status(name, ask=True)
+    for line in restart_leads():
+        print(f"atr: {line}", file=sys.stderr, flush=True)
 
 
 def watch_threads():
@@ -1869,6 +1871,7 @@ class Handler(BaseHTTPRequestHandler):
                         "lead": lead_status(parts[2]),
                         "resumed": last_resume(parts[2]),
                         "side": side_load(parts[2]),
+                        "restart": restarts().get(parts[2]),
                         "ready": [t["id"] for t in ready(plan)],
                         "sig": sig(plan) + side_sig(parts[2]),
                     }
@@ -1903,6 +1906,7 @@ class Handler(BaseHTTPRequestHandler):
                 ok, lines = upgrade()
                 if not ok:
                     return self.send_json({"error": "The upgrade did not finish: " + "; ".join(lines), "log": lines}, 500)
+                mark_restarts()  # the leads come back on the new code, each when it is idle (G16)
             else:
                 lines = []
         except Refused as e:
@@ -2384,6 +2388,66 @@ def side_run(name, qid, tool, question, thread):
 
     with contextlib.suppress(OSError, ValueError, Refused):
         side_update(name, store)
+
+
+# ---- after an upgrade: the leads come back on the new code (G16) -----------------------------------------
+# A running session keeps the plugin it started with. After an upgrade atr restarts each project's lead
+# through its provider (`restart ID MESSAGE`: stop it and resume the same thread), but only while the lead is
+# idle, listening for the owner: a lead in the middle of a turn is restarted at its next idle moment (D48).
+# A lead in a terminal the owner has open cannot be restarted by atr: the page asks the owner to (D49).
+
+
+def restarts_file():
+    return data_dir() / ".restart.json"
+
+
+def restarts():
+    """{project: {"version", "interactive"?}}: leads still to bring back on the new code."""
+    try:
+        return json.loads(restarts_file().read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def save_restarts(pending):
+    with contextlib.suppress(OSError):
+        if pending:
+            restarts_file().write_text(json.dumps(pending))
+        else:
+            restarts_file().unlink(missing_ok=True)
+
+
+def mark_restarts():
+    """After an upgrade: every project with a lead thread has its lead restarted (the version is filled in by
+    the new code, which knows it)."""
+    save_restarts({n: {} for n in projects() if raw_claim(n).get("id") and not raw_claim(n).get("ended")})
+
+
+def restart_leads():
+    """One round, from the thread watch: restart each pending lead that is idle now. Returns what was said."""
+    pending, said = restarts(), []
+    for name, r in list(pending.items()):
+        st = lead_status(name)
+        if not st or st["state"] == "gone":  # nothing to restart (a gone lead is brought back as it is)
+            pending.pop(name)
+            continue
+        if st["state"] != "listening" or r.get("interactive"):
+            continue
+        tool = thread_tool(name)
+        msg = (f"atr was upgraded to {version()} and restarted you, in the same thread, so this session runs the "
+               "new plugin. Run `atr rules` (they may have changed), then `atr read`, and carry on.")
+        code, lines, why = run_provider(name, tool, ["restart", st["id"], msg]) if tool else (127, [], "no provider")
+        if code == 3:  # an interactive session: only the owner can restart it
+            pending[name] = {**r, "interactive": True}
+            continue
+        pending.pop(name)
+        note = (f"atr restarted the lead on atr {version()} (same thread)" if code == 0
+                else f"atr could not restart the lead on atr {version()}: {why}. Restart its session to load the new plugin")
+        with contextlib.suppress(OSError, ValueError, Refused):
+            change(name, "atr", op_note, {"what": note})
+        said.append(f"{name}: {note}")
+    save_restarts(pending)
+    return said
 
 
 def repo_root(here):

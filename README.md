@@ -78,8 +78,10 @@ than the version you run (`atr --version`, also at the foot of the page), the pa
 restart**. The server picks the command from how atr is installed: `git pull --ff-only` for a checkout
 (refused when it is not on `main` or has local changes: upgrade it by hand), `uv tool upgrade atr` for a uv
 tool install, plus `claude plugin update atr@atr` when the Claude Code plugin is installed. It then restarts
-itself with the same arguments, under `atr service` or in a terminal, and the page reloads. Restart your
-Claude Code sessions to load an updated plugin.
+itself with the same arguments, under `atr service` or in a terminal, and the page reloads. Then it restarts
+each project's lead in the same thread, once the lead is idle, so it loads the updated plugin (Claude Code:
+`claude stop` and `claude --bg --resume`). A lead in a terminal you have open is left to you: the page asks you
+to restart that session. Workers keep running.
 
 **Releases.** Every push to `main` is a release: `.github/workflows/release.yml` runs the tests, bumps the
 patch version in `pyproject.toml`, `uv.lock`, the plugin's `plugin.json` and `.claude-plugin/marketplace.json`

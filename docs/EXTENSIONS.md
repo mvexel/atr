@@ -41,13 +41,14 @@ A lead provider is any executable on `PATH` named `atr-lead-<tool>`. atr runs it
 - Start the lead so it reads its rules (`atr rules`) and the plan (`atr read`). The new project has no
   goals yet, so the lead should say so and wait for the owner.
 
-A provider also answers three verbs (atr passes them as the first argument, so a provider must check for them
+A provider also answers four verbs (atr passes them as the first argument, so a provider must check for them
 before it reads a project name):
 
 | Call | Answer |
 | --- | --- |
 | `atr-lead-<tool> resume ID [MESSAGE]` | bring thread `ID` back with its context and give it `MESSAGE`; exit 0 and print `thread-id: ID` and its link as for a start, or exit non-zero and say why on stderr |
 | `atr-lead-<tool> alive ID` | exit 0 when thread `ID` is running, 1 when it is not, anything else when it cannot tell |
+| `atr-lead-<tool> restart ID [MESSAGE]` | after an atr upgrade: stop thread `ID` and resume it so it loads the updated extension; print as for resume, exit 3 when only its owner can restart it (an interactive session), other non-zero on failure |
 | `atr-lead-<tool> ask PROJECT QUESTION [ID]` | answer the owner's side question in a new thread, or as a follow-up in thread `ID`, reading only; exit 0 and print `thread-id: ID`, then the answer (markdown), or exit non-zero and say why on stderr |
 
 The Claude Code provider runs `claude --bg --resume ID MESSAGE` and `claude agents --json`. atr uses them
