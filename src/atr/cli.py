@@ -1037,6 +1037,28 @@ def op_attach(plan, by, a):
     return f'attached "{doc["title"]}" to {on}'
 
 
+IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+MAX_UPLOAD = 10 * 1024 * 1024
+
+
+def attach_upload(name, on, filename, data):
+    """The owner attaches an image from the page (pasted, dropped or picked): `data` is base64. It is stored like
+    any attached file, and the lead sees it in atr read with its path, so it can look at it."""
+    import base64
+
+    suffix = Path(filename or "").suffix.lower()
+    if suffix not in IMAGE_TYPES:
+        raise Refused("only images (png, jpg, gif, webp) can be attached from the page")
+    raw = base64.b64decode(data or "", validate=True)
+    if not raw or len(raw) > MAX_UPLOAD:
+        raise Refused("the image is empty or over 10 MB")
+    stem = re.sub(r"[^A-Za-z0-9._-]", "_", Path(filename).stem)[:60] or "image"
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / f"{stem}{suffix}"
+        path.write_bytes(raw)
+        return change(name, "you", op_attach, {"on": on or "project", "src": str(path), "title": path.name})
+
+
 # ---- pull requests: they sit on a goal, the owner merges them on GitHub ------------------------------------
 # A PR is the owner's turn on its goal. atr serve asks gh about every open PR of every project in one GraphQL
 # query per round and stores what GitHub says; merged, CI turning failing and a conflict are news for the lead.
@@ -1340,6 +1362,12 @@ OPS = {
 # ---- the lead's view -----------------------------------------------------------------------------
 
 
+def doc_lines(plan, on, indent="   "):
+    """For atr read: what is attached to a goal or task; a stored file with its path, so the lead can open it."""
+    return [f"{indent}attached {d['id']}: {d['title']} " + (d["url"] if d.get("url") else str(project_dir(plan["name"]) / "docs" / d["file"]))
+            for d in plan["docs"] if d["on"] == on]
+
+
 def render(plan, since):
     out = [f"{plan['title']} ({plan['name']}) · revision {plan['rev']}", ""]
     if plan["lead"].get("rules") != rules_stamp():  # a lead keeps the rules it read when it started
@@ -1426,6 +1454,7 @@ def render(plan, since):
             left = [f"{b.get('used', 0)} of {b['tries']} tries used"] if b.get("tries") else []
             left += [f"{b['days']} days from {b['from'][:10]}"] if b.get("days") else []
             out.append(f"   budget: {', '.join(left)}")
+        out += doc_lines(plan, g["id"])
         for p in g.get("prs", []):
             if p["state"] == "open":
                 carries = f" for {', '.join(p['for'])}" if p["for"] else ""
@@ -1447,6 +1476,8 @@ def render(plan, since):
                 out.append(f"        now: {t['now']} ({ago(t['now_at'])})")
             elif t["status"] == "doing":
                 out.append(f"        no news since it started {ago(t.get('doing_since'))}")
+            if t["status"] in OPEN:
+                out += doc_lines(plan, t["id"], "        ")
     if met:
         out.append(
             "MET (the owner closed these): "
@@ -1876,6 +1907,18 @@ class Handler(BaseHTTPRequestHandler):
                         "sig": sig(plan) + side_sig(parts[2]),
                     }
                 )
+            if len(parts) == 4 and parts[:2] == ["api", "file"]:  # an attached file as it is (images on the page)
+                doc = get(load(parts[2]), "docs", parts[3])
+                path = project_dir(parts[2]) / "docs" / doc.get("file", "")
+                if "file" not in doc or not path.is_file():
+                    raise Refused("that document is a link, or its file is gone")
+                raw = path.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", IMAGE_TYPES.get(path.suffix.lower(), "application/octet-stream"))
+                self.send_header("Content-Length", str(len(raw)))
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                return self.wfile.write(raw)
             if len(parts) == 4 and parts[:2] == ["api", "doc"]:
                 doc = get(load(parts[2]), "docs", parts[3])
                 path = project_dir(parts[2]) / "docs" / doc.get("file", "")
@@ -1936,6 +1979,15 @@ class Handler(BaseHTTPRequestHandler):
             except Refused as e:
                 return self.send_json({"error": str(e)}, 400)
             except (ValueError, AttributeError) as e:
+                return self.send_json({"error": f"bad request: {e}"}, 400)
+        if len(parts) == 3 and parts[:2] == ["api", "attach"]:  # the page: an image pasted, dropped or picked (G17)
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+                plan, note = attach_upload(parts[2], body.get("on"), body.get("name"), body.get("data"))
+                return self.send_json({"ok": True, "rev": plan["rev"], "said": note})
+            except Refused as e:
+                return self.send_json({"error": str(e)}, 400)
+            except (ValueError, TypeError) as e:
                 return self.send_json({"error": f"bad request: {e}"}, 400)
         if len(parts) == 3 and parts[:2] == ["api", "resume"]:  # the page's "Bring the lead back"
             try:
