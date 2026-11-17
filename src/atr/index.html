@@ -520,6 +520,9 @@ function drawProject() {
   mount(app,
     h("div", { class: "top" }, h("button", { class: "back", onclick: () => location.hash = "" }, "← All projects"), h("span", { class: "sp" }),
       leadLine(lead, S.data.resumed),
+      // After an upgrade atr restarts an idle background lead itself; one in a terminal you have open, it cannot.
+      S.data.restart && h("span", { class: "small" }, " ", h("span", { class: "pill you" },
+        S.data.restart.interactive ? "Restart the lead's session to load the new atr" : "atr restarts the lead on the new code once it is idle")),
       plan.lead.thread && (/^https?:\/\//.test(plan.lead.thread)
         ? h("a", { href: plan.lead.thread, target: "_blank", rel: "noopener" }, "Lead thread ↗")
         // A local tool's thread has no URL; its provider stores the command that opens it.

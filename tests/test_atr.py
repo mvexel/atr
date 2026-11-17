@@ -902,6 +902,56 @@ class LeadProviders(Base):
         self.assertIn("Workspace not trusted", out)
 
 
+    def listening(self, project="fresh", on=True):
+        f = Path(self.tmp.name) / project / ".waiting"
+        if on:
+            f.write_text(str(os.getpid()))
+        else:
+            f.unlink(missing_ok=True)
+
+    def test_after_an_upgrade_an_idle_lead_is_restarted_on_the_new_code(self):
+        self.provider("tool", "pathlib = __import__('pathlib'); pathlib.Path(os.environ['ATR_DATA_DIR'], 'args').write_text(repr(sys.argv[1:]))\n"
+                      "print('thread-id: lead-1234'); print('tool://lead-1234')")
+        self.init("--lead", "none")
+        atr.write_claim("fresh", "lead-1234", c={"id": "lead-1234", "seen": time.time()})
+        atr.mark_restarts()
+        self.assertEqual(atr.restart_leads(), [])  # working: it waits for the lead's next idle moment
+        self.assertIn("fresh", atr.restarts())
+        self.listening()
+        (said,) = atr.restart_leads()
+        self.assertIn("restarted the lead", said)
+        args = eval((Path(self.tmp.name) / "args").read_text())
+        self.assertEqual(args[:2], ["restart", "lead-1234"])
+        self.assertIn("atr rules", args[2])
+        self.assertEqual(atr.restarts(), {})  # once only
+        self.assertIn("atr restarted the lead", atr.load("fresh")["changes"][-1]["what"])
+
+    def test_a_lead_in_a_terminal_is_left_to_the_owner(self):
+        self.provider("tool", "print('interactive', file=sys.stderr); sys.exit(3)")
+        self.init("--lead", "none")
+        atr.write_claim("fresh", "lead-1234", c={"id": "lead-1234", "seen": time.time()})
+        self.listening()
+        atr.mark_restarts()
+        self.assertEqual(atr.restart_leads(), [])
+        self.assertEqual(atr.restarts(), {"fresh": {"interactive": True}})  # the page asks the owner
+        atr.restart_leads()  # and atr does not try again
+        self.assertEqual(atr.restarts(), {"fresh": {"interactive": True}})
+
+    def test_claude_code_provider_restarts_a_background_session_only(self):
+        self.fake_claude(
+            "if sys.argv[1] == 'agents': print(json.dumps([{'id': '85aade68', 'sessionId': '85aade68-1', 'kind': pathlib.Path("
+            f"{self.tmp.name!r}, 'kind').read_text()}}]))\n"
+            f"else: pathlib.Path({self.tmp.name!r}, 'calls').open('a').write(json.dumps(sys.argv[1:]) + '\\n'); print('backgrounded · 85aade68')"
+        )
+        exe = str(self.bin / "atr-lead-claude-code")
+        (Path(self.tmp.name) / "kind").write_text("background")
+        r = subprocess.run([exe, "restart", "85aade68-1", "upgraded"], capture_output=True, text=True, check=False)
+        self.assertEqual((r.returncode, r.stdout.splitlines()[0]), (0, "thread-id: 85aade68"))
+        calls = [json.loads(x) for x in (Path(self.tmp.name) / "calls").read_text().splitlines()]
+        self.assertEqual(calls, [["stop", "85aade68"], ["--bg", "--resume", "85aade68-1", "upgraded"]])
+        (Path(self.tmp.name) / "kind").write_text("interactive")
+        self.assertEqual(subprocess.run([exe, "restart", "85aade68-1"], capture_output=True, check=False).returncode, 3)
+
     def gone_lead(self, project="fresh", **extra):
         atr.write_claim(project, "lead-1234", c={"id": "lead-1234", "seen": time.time() - 3 * atr.GONE_AFTER, "ended": time.time() - 2 * atr.GONE_AFTER, **extra})
 
